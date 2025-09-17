@@ -321,6 +321,16 @@ class BoosterT1(BaseRobotHumanoid):
 
         """
         return (loco_mujoco.PATH_TO_MODELS / "booster_t1" / "booster_t1.xml").as_posix()
+    
+    @info_property
+    def foot_geom_names(self) -> List[str]:
+        """
+        Returns the names of the foot geometries.
+
+        Returns:
+            List[str]: The names of the foot geometries.
+        """
+        return ["right_foot_collision", "left_foot_collision"]
 
     @info_property
     def p_gains(self) -> Union[float, List[float]]:
