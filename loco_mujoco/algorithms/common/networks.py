@@ -47,7 +47,6 @@ class FullyConnectedNet(nn.Module):
 
         return jnp.squeeze(x) if self.squeeze_output else x
 
-
 class ActorCritic(nn.Module):
     action_dim: Sequence[int]
     activation: str = "tanh"
@@ -82,6 +81,61 @@ class ActorCritic(nn.Module):
 
         return pi, jnp.squeeze(critic, axis=-1)
 
+class TD3Actor(nn.Module):
+    """"
+    [AM] Actor network for TD3 (i.e., deterministic policy).
+    """
+    action_dim: int
+    hidden_layer_dims: Sequence[int] = (256,256)
+    activation: str = "tanh"
+
+    @nn.compact
+    def __call__(self, obs):
+        activation_fn = get_activation_fn(self.activation)
+        
+        x = obs
+
+        for dim in self.hidden_layer_dims:
+            x = nn.Dense(features=dim)(x)
+            x = activation_fn(x)
+        
+        action = nn.Dense(features=self.action_dim)(x)
+        action = nn.tanh(action) 
+        
+        return action
+    
+class TD3Critic(nn.Module):
+    """
+    [AM] Critic twin networks for TD3 (i.e., Q-function).
+    """
+    hidden_layer_dims: Sequence[int] = (256,256)
+    activation: str = "tanh"
+
+    @nn.compact
+    def __call__(self, obs, action):
+        # get the activation function
+        activation_fn = get_activation_fn(self.activation)
+        
+        # concatenate observation and action
+        x = jnp.concatenate([obs, action], axis=-1)
+
+        # get first critic result
+        q1 = x
+        for dim in self.hidden_layer_dims:
+            q1 = nn.Dense(features=dim)(q1)
+            q1 = activation_fn(q1)
+        q1 = nn.Dense(features=1)(q1)
+        q1 = jnp.squeeze(q1, axis=-1) # Remove last dimension
+
+        # get second critic result
+        q2 = x
+        for dim in self.hidden_layer_dims:
+            q2 = nn.Dense(features=dim)(q2)
+            q2 = activation_fn(q2)
+        q2 = nn.Dense(features=1)(q2)
+        q2 = jnp.squeeze(q2, axis=-1) # Remove last dimension
+        
+        return q1, q2
 
 class RunningMeanStd(nn.Module):
     """Layer that maintains running mean and variance for input normalization."""

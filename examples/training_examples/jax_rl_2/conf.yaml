@@ -1,0 +1,41 @@
+# td3_conf.yaml
+
+defaults:
+  - override hydra/job_logging: default
+  - override hydra/launcher: basic
+
+wandb:
+  project: "loco_mujoco_td3" # Changed project name for clarity
+
+experiment:
+  # Task and Env Config (can be the same as PPO)
+  task_factory:
+    name: RLFactory
+    params: {}
+  env_params:
+    env_name: MjxUnitreeGo2
+    horizon: 1000
+    headless: true
+  
+  # TD3 Hyperparameters
+  actor_lr: 3e-4
+  critic_lr: 3e-4
+  actor_hidden_dims: [256, 256]
+  critic_hidden_dims: [256, 256]
+  buffer_size: 1000000
+  batch_size: 256
+  gamma: 0.99
+  tau: 0.005              # For soft target updates
+  policy_noise: 0.2       # Noise added to target policy actions
+  noise_clip: 0.5         # Clipping for target policy noise
+  exploration_noise: 0.1  # Noise for exploration during interaction
+  policy_frequency: 2     # Delayed policy updates frequency
+  learning_starts: 25000  # Warmup steps before learning starts
+  
+  # General Training Config
+  num_envs: 2048
+  total_timesteps: 10e7
+  normalize_env: true
+  debug: false
+  n_seeds: 1
+  vmap_across_seeds: true
