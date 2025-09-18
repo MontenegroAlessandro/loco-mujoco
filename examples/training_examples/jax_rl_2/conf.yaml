@@ -1,27 +1,40 @@
-# td3_conf.yaml
-
 defaults:
   - override hydra/job_logging: default
   - override hydra/launcher: basic
 
 wandb:
-  project: "loco_mujoco_td3" # Changed project name for clarity
+  project: "loco_mujoco_td3" 
 
 experiment:
-  # Task and Env Config (can be the same as PPO)
   task_factory:
     name: RLFactory
     params: {}
   env_params:
     env_name: MjxUnitreeGo2
     horizon: 1000
+    terminal_state_type: HeightBasedTerminalStateHandler
+    goal_type: GoalRandomRootVelocity
+    goal_params:
+      visualize_goal: true
     headless: true
-  
-  # TD3 Hyperparameters
+    reward_type: LocomotionReward
+    reward_params:
+      tracking_w_exp_xy: 4.0
+      tracking_w_exp_yaw: 4.0
+      tracking_w_sum_xy: 2.0
+      tracking_w_sum_yaw: 1.0
+      air_time_coeff: 0.1
+      joint_acc_coeff: 2.0e-05
+      air_time_max: 0.5
+      joint_torque_coeff: 2.0e-07
+      joint_position_limit_coeff: 2.0
+      action_rate_coeff: 0.1
+      symmetry_air_coeff: 0.005
+      energy_coeff: 5.0e-05
   actor_lr: 3e-4
   critic_lr: 3e-4
-  actor_hidden_dims: [256, 256]
-  critic_hidden_dims: [256, 256]
+  actor_hidden_dims: [512, 256]
+  critic_hidden_dims: [512, 256]
   buffer_size: 1000000
   batch_size: 256
   gamma: 0.99
@@ -39,3 +52,8 @@ experiment:
   debug: false
   n_seeds: 1
   vmap_across_seeds: true
+  validation:
+    active: false
+    num_steps: 100
+    num_envs: 100
+    num: 10 # set to 0 to disable validation
