@@ -1,0 +1,513 @@
+defaults:
+  - override hydra/job_logging: default
+  - override hydra/launcher: basic
+
+
+wandb:
+  project: "BoosterT1"
+
+experiment:
+  task_factory:
+    name: RLFactory
+    params: {}
+  env_params:
+    env_name: MjxBoosterT1
+    horizon: 1000
+    terminal_state_type: HeightBasedTerminalStateHandler
+    # terminal_state_type: NoTerminalStateHandler
+    # goal_type: GoalRandomRootVelocity
+    # goal_params:
+    #   visualize_goal: true
+    goal_type: GoalChangingRandomRootVelocity
+    goal_params:
+      max_x_vel: 0.7
+      max_y_vel: 0.5
+      max_yaw_vel: 2
+      max_height: 0.65
+      min_height: 0.6
+      resample_rate: 0.008
+      still_proportion: 0.2
+      gait_frequency_range: [0.5, 1.5] # Hz
+      visualize_goal: true
+      group: [prioritized, policy]
+
+    
+    headless: true
+    # reward_type: LocomotionReward
+    # reward_params:
+    #   tracking_w_exp_xy: 4.0
+    #   tracking_w_exp_yaw: 4.0
+    #   tracking_w_sum_xy: 2.0
+    #   tracking_w_sum_yaw: 1.0
+    #   air_time_coeff: 0.1
+    #   joint_acc_coeff: 2.0e-05
+    #   air_time_max: 0.5
+    #   joint_torque_coeff: 2.0e-07
+    #   joint_position_limit_coeff: 2.0
+    #   action_rate_coeff: 0.1
+    #   symmetry_air_coeff: 0.005
+    #   energy_coeff: 5.0e-05
+
+    reward_type: CrispBoosterLocomotionReward
+    reward_params:
+      survival: 0.5
+      # tracking rewards
+      tracking_w_exp_linvel_x: 4
+      tracking_w_sum_linvel_x: 1
+      tracking_w_exp_linvel_y: 4
+      tracking_w_sum_linvel_y: 1
+      tracking_w_exp_angvel: 4
+      tracking_w_sum_angvel: 0.5
+      tracking_nominal_joint_pos_exp: 4
+      tracking_nominal_joint_pos_coeff: 0.5
+      tracking_nominal_joint_pos_names: 
+        - AAHead_yaw
+        - Head_pitch
+        - Left_Shoulder_Pitch
+        - Left_Shoulder_Roll
+        - Left_Elbow_Pitch
+        - Left_Elbow_Yaw
+        - Right_Shoulder_Pitch
+        - Right_Shoulder_Roll
+        - Right_Elbow_Pitch
+        - Right_Elbow_Yaw
+        - Waist
+      # penalties
+      base_height_target: 1.0
+      base_height_coeff: -20
+      orientation_coeff: -5
+      joint_torque_coeff: -2e-5
+      torque_tiredness_coeff: 0
+      energy_coeff: -2e-4
+      z_vel_coeff: -2.
+      roll_pitch_vel_coeff: -0.2
+      joint_vel_coeff: -1e-4
+      joint_acc_coeff: -5e-7
+      root_acc_coeff: -1e-4
+      action_rate_coeff: -1.0
+      joint_position_limit_scale: 0.98
+      joint_position_limit_coeff: -1
+      feet_slip_coeff: -1.
+      feet_yaw_diff_coeff: -1
+      feet_yaw_mean_coeff: -1
+      feet_roll_coeff: -0.1
+      feet_distance_target: 0.3
+      feet_swing_coeff: 3
+      feet_swing_period: 0.2
+      feet_distance_coeff: -1
+      # extra regularization / penalties
+      low_gains_coeff: 0.0
+      air_time_max: 0.3
+      air_time_coeff: 0
+      no_fly_coeff: 0
+      impact_threshold: 150
+      impact_coeff: 0
+
+    actuation_spec:
+      - AAHead_yaw
+      - Head_pitch
+      - Left_Shoulder_Pitch
+      - Left_Shoulder_Roll
+      - Left_Elbow_Pitch
+      - Left_Elbow_Yaw
+      - Right_Shoulder_Pitch
+      - Right_Shoulder_Roll
+      - Right_Elbow_Pitch
+      - Right_Elbow_Yaw
+      - Waist
+      - Left_Hip_Pitch
+      - Left_Hip_Roll
+      - Left_Hip_Yaw
+      - Left_Knee_Pitch
+      - Left_Ankle_Pitch
+      - Left_Ankle_Roll
+      - Right_Hip_Pitch
+      - Right_Hip_Roll
+      - Right_Hip_Yaw
+      - Right_Knee_Pitch
+      - Right_Ankle_Pitch
+      - Right_Ankle_Roll
+
+    # observation_spec:
+    #   # Critic observations (privileged)
+    #   - type: ProjectedGravityVector
+    #     obs_name: q_root_proj
+    #     xml_name: root
+    #     group: prioritized
+    #     allow_randomization: false
+    #   - type: JointPosArray
+    #     obs_name: joint_positions
+    #     group: prioritized
+    #     allow_randomization: false
+    #     xml_names: ${robot_joints_to_consider}
+    #   - type: FreeJointVelprioritized
+    #     obs_name: dq_root
+    #     xml_name: root
+    #     group: prioritized
+    #     allow_randomization: false
+    #   - type: JointVelArray
+    #     obs_name: joint_velocities
+    #     xml_names: ${robot_joints_to_consider}
+    #     group: prioritized
+    #     allow_randomization: false
+    #   - type: LastAction
+    #     obs_name: last_action
+    #     group: prioritized
+    #     allow_randomization: false
+
+    #   # Actor observations (unprivileged)
+    #   - type: ProjectedGravityVector
+    #     obs_name: q_root_proj_pi
+    #     xml_name: root
+    #     group: policy
+    #     allow_randomization: true
+    #   - type: JointPosArray
+    #     obs_name: joint_positions_pi
+    #     group: policy
+    #     allow_randomization: true
+    #     xml_names: ${robot_joints_to_consider}
+    #   - type: EntryFromFreeJointVel
+    #     obs_name: dq_root_pi_r
+    #     xml_name: root
+    #     entry_index: 3
+    #     group: policy
+    #     allow_randomization: true
+    #   - type: EntryFromFreeJointVel
+    #     obs_name: dq_root_pi_p
+    #     xml_name: root
+    #     entry_index: 4
+    #     group: policy
+    #     allow_randomization: true
+    #   - type: EntryFromFreeJointVel
+    #     obs_name: dq_root_pi_y
+    #     xml_name: root
+    #     entry_index: 5
+    #     group: policy
+    #     allow_randomization: true
+    #   - type: JointVelArray
+    #     obs_name: joint_velocities_pi
+    #     xml_names: ${robot_joints_to_consider}
+    #     group: policy
+    #     allow_randomization: true
+    #   - type: LastAction
+    #     obs_name: last_action_pi
+    #     group: policy
+    #     allow_randomization: true
+
+    # observation_spec:
+    #   - type: ProjectedGravityVector
+    #     obs_name: q_root_proj
+    #     xml_name: root
+    #     group: "prioritized"
+    #     allow_randomization: false
+    #   - type: JointPosArray
+    #     obs_name: joint_positions
+    #     group: "prioritized"
+    #     allow_randomization: false
+    #     xml_names: ${robot_joints_to_consider}
+    #   - type: FreeJointVel
+    #     obs_name: dq_root
+    #     xml_name: root
+    #     group: "prioritized"
+    #     allow_randomization: false
+    #   - type: JointVelArray
+    #     obs_name: joint_velocities
+    #     xml_names: ${robot_joints_to_consider}
+    #     group: "prioritized"
+    #     allow_randomization: false
+    #   - type: LastAction
+    #     obs_name: last_action
+    #     group: "prioritized"
+    #     allow_randomization: false
+
+    #   # Actor observations (unprivileged)
+    #   - type: ProjectedGravityVector
+    #     obs_name: q_root_pi
+    #     xml_name: root
+    #     group: "policy"
+    #     allow_randomization: true
+    #   - type: JointPosArray
+    #     obs_name: joint_positions_pi
+    #     group: "policy"
+    #     allow_randomization: true
+    #     xml_names: ${robot_joints_to_consider}
+    #   - type: EntryFromFreeJointVel
+    #     obs_name: dq_root_pi_r
+    #     xml_name: root
+    #     entry_index: 3
+    #     group: "policy"
+    #     allow_randomization: true
+    #   - type: EntryFromFreeJointVel
+    #     obs_name: dq_root_pi_p
+    #     xml_name: root
+    #     entry_index: 4
+    #     group: "policy"
+    #     allow_randomization: true
+    #   - type: EntryFromFreeJointVel
+    #     obs_name: dq_root_pi_y
+    #     xml_name: root
+    #     entry_index: 5
+    #     group: "policy"
+    #     allow_randomization: true
+    #   - type: JointVelArray
+    #     obs_name: joint_velocities_pi
+    #     xml_names: ${robot_joints_to_consider}
+    #     group: "policy"
+    #     allow_randomization: true
+    #   - type: LastAction
+    #     obs_name: last_action_pi
+    #     group: "policy"
+    #     allow_randomization: true
+
+    observation_spec:
+      # Critic observations (privileged)
+      - type: ProjectedGravityVector
+        obs_name: q_root_proj
+        xml_name: root
+        group: [prioritized, policy]
+        allow_randomization: false
+      - type: JointPosArray
+        obs_name: joint_positions
+        group: [prioritized, policy]
+        allow_randomization: false
+        xml_names: ${robot_joints_to_consider}
+      - type: FreeJointVel
+        obs_name: dq_root
+        xml_name: root
+        group: prioritized
+        allow_randomization: false
+      - type: JointVelArray
+        obs_name: joint_velocities
+        xml_names: ${robot_joints_to_consider}
+        group: [prioritized, policy]
+        allow_randomization: false
+      - type: LastAction
+        obs_name: last_action
+        group: [prioritized, policy]
+        allow_randomization: false
+
+      # Actor observations (unprivileged)
+      - type: EntryFromFreeJointVel
+        obs_name: dq_root_pi_r
+        xml_name: root
+        entry_index: 3
+        group: policy
+        allow_randomization: false
+      - type: EntryFromFreeJointVel
+        obs_name: dq_root_pi_p
+        xml_name: root
+        entry_index: 4
+        group: policy
+        allow_randomization: false
+      - type: EntryFromFreeJointVel
+        obs_name: dq_root_pi_y
+        xml_name: root
+        entry_index: 5
+        group: policy
+        allow_randomization: false
+
+    control_type: PDControl
+    control_params:
+      action_scale: 1.0
+      p_gain: 
+        - 10 # AAHead_yaw
+        - 10 # Head_pitch
+        - 30 # Left_Shoulder_Pitch
+        - 30 # Left_Shoulder_Roll
+        - 20 # Left_Elbow_Pitch
+        - 20 # Left_Elbow_Yaw
+        - 30 # Right_Shoulder_Pitch
+        - 30 # Right_Shoulder_Roll
+        - 20 # Right_Elbow_Pitch
+        - 20 # Right_Elbow_Yaw
+        - 50 # Waist
+        - 150 # Left_Hip_Pitch
+        - 150 # Left_Hip_Roll
+        - 150 # Left_Hip_Yaw
+        - 150 # Left_Knee_Pitch
+        - 40 # Left_Ankle_Pitch
+        - 20 # Left_Ankle_Roll
+        - 150 # Right_Hip_Pitch
+        - 150 # Right_Hip_Roll
+        - 150 # Right_Hip_Yaw
+        - 150 # Right_Knee_Pitch
+        - 40 # Right_Ankle_Pitch
+        - 20 # Right_Ankle_Roll
+      d_gain:
+        - 0.2 # AAHead_yaw
+        - 0.2 # Head_pitch
+        - 0.5 # Left_Shoulder_PitchLoading
+        - 0.5 # Left_Shoulder_Roll
+        - 0.5 # Left_Elbow_Pitch
+        - 0.5 # Left_Elbow_Yaw
+        - 0.5 # Right_Shoulder_Pitch
+        - 0.5 # Right_Shoulder_Roll
+        - 0.5 # Right_Elbow_Pitch
+        - 0.5 # Right_Elbow_Yaw
+        - 2.0 # Waist
+        - 2.5 # Left_Hip_Pitch
+        - 2.5 # Left_Hip_Roll
+        - 2.5 # Left_Hip_Yaw
+        - 2.5 # Left_Knee_Pitch
+        - 1.5 # Left_Ankle_Pitch
+        - 1.0 # Left_Ankle_Roll
+        - 2.5 # Right_Hip_Pitch
+        - 2.5 # Right_Hip_Roll
+        - 2.5 # Right_Hip_Yaw
+        - 2.5 # Right_Knee_Pitch
+        - 1.5 # Right_Ankle_Pitch
+        - 1.0 # Right_Ankle_Roll
+
+    domain_randomization_type: DefaultRandomizer
+    domain_randomization_params: 
+      # gravity
+      randomize_gravity: true
+      gravity_range: [9.51, 10.11]
+
+      # geom properties
+      randomize_geom_friction_tangential: true
+      geom_friction_tangential_range: [0.5, 2.0]
+      randomize_geom_friction_torsional: true
+      geom_friction_torsional_range: [0.1, 0.3]
+      randomize_geom_friction_rolling: true
+      geom_friction_rolling_range: [0.00008, 0.00012]
+      randomize_geom_damping: false
+      geom_damping_range: [100, 500]
+      randomize_geom_stiffness: false
+      geom_stiffness_range: [50000, 300000]
+
+      # joint properties
+      randomize_joint_damping: true
+      joint_damping_range: [0.005, .015]
+      randomize_joint_stiffness: false
+      joint_stiffness_range: [0.9, 1.1]
+      randomize_joint_friction_loss: true
+      joint_friction_loss_range: [0.0, 2.0]
+      randomize_joint_armature: true
+      joint_armature_range: [0.007, 0.013]
+
+      #base mass
+      randomize_base_mass: false
+      base_mass_to_add_range: [-0.01, 0.01]
+
+      #COM
+      randomize_com_displacement: true
+      com_displacement_range: [-0.1, 0.1] 
+
+      #link mass
+      randomize_link_mass: true
+      link_mass_multiplier_range: {
+                                    "root_body":[0.8, 1.2],
+                                    "other_bodies":[0.9, 1.1],
+                                  }
+
+      #PD Gains
+      add_p_gains_noise: true
+      add_d_gains_noise: true
+      p_gains_noise_scale: 0.15
+      d_gains_noise_scale: 0.15
+
+      # Observation Noise
+      add_joint_pos_noise: true
+      joint_pos_noise_scale: 0.03
+      add_joint_vel_noise: true
+      joint_vel_noise_scale: 1.0
+      add_gravity_noise: true
+      gravity_noise_scale: 0.015
+      add_free_joint_lin_vel_noise: false
+      lin_vel_noise_scale: 0.1
+      add_free_joint_ang_vel_noise: true
+      ang_vel_noise_scale: 0.2
+      add_policy_ang_vel_noise: true
+      policy_ang_vel_noise_scale: 0.2
+
+  # actor_obs_group: policy
+  # critic_obs_group: prioritized
+  # len_obs_history: 1
+
+  # hidden_layers: [512, 256]
+  # lr: 1e-5
+  # num_envs: 8192
+  # num_steps: 50
+  # total_timesteps: 10e6
+  # update_epochs: 20
+  # num_minibatches: 1
+  # gamma: 0.995
+  # gae_lambda: 0.95
+  # clip_eps: 0.2
+  # init_std: 0.135
+  # learnable_std: true
+  # ent_coef: 0.005
+  # vf_coef: 0.5
+  # max_grad_norm: 1.0
+  # activation: elu
+  # anneal_lr: false
+  # weight_decay: 0.0
+  # normalize_env: true
+  # debug: false
+  # n_seeds: 1  # while automatically take seeds from 1 to n_seeds
+  # vmap_across_seeds: true
+  # validation:
+  #   active: false
+  #   num_steps: 100
+  #   num_envs: 100
+  #   num: 10 # set to 0 to disable validation
+
+  actor_obs_group: policy
+  critic_obs_group: prioritized
+  hidden_layers: [512, 256]
+  lr: 1e-5
+  len_obs_history: 1
+  num_envs: 8192
+  num_steps: 24
+  total_timesteps: 10e6
+  update_epochs: 20
+  num_minibatches: 1
+  gamma: 0.995
+  gae_lambda: 0.95
+  clip_eps: 0.2
+  init_std: 0.135
+  learnable_std: True
+  ent_coef: 0.005
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  activation: elu
+  actor_output_activation: none
+  use_observationnorm: true
+  anneal_lr: false
+  weight_decay: 0.0
+  normalize_env: true
+  debug: false
+  n_seeds: 1  # while automatically take seeds from 1 to n_seeds
+  vmap_across_seeds: true
+  validation:
+    active: false
+    num_steps: 100
+    num_envs: 100
+    num: 10 # set to 0 to disable validation
+
+
+robot_joints_to_consider:
+  - AAHead_yaw
+  - Head_pitch
+  - Left_Shoulder_Pitch
+  - Left_Shoulder_Roll
+  - Left_Elbow_Pitch
+  - Left_Elbow_Yaw
+  - Right_Shoulder_Pitch
+  - Right_Shoulder_Roll
+  - Right_Elbow_Pitch
+  - Right_Elbow_Yaw
+  - Waist
+  - Left_Hip_Pitch
+  - Left_Hip_Roll
+  - Left_Hip_Yaw
+  - Left_Knee_Pitch
+  - Left_Ankle_Pitch
+  - Left_Ankle_Roll
+  - Right_Hip_Pitch
+  - Right_Hip_Roll
+  - Right_Hip_Yaw
+  - Right_Knee_Pitch
+  - Right_Ankle_Pitch
+  - Right_Ankle_Roll
