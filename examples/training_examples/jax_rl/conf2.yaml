@@ -336,7 +336,7 @@ experiment:
       d_gain:
         - 0.2 # AAHead_yaw
         - 0.2 # Head_pitch
-        - 0.5 # Left_Shoulder_PitchLoading
+        - 0.5 # Left_Shoulder_Pitch
         - 0.5 # Left_Shoulder_Roll
         - 0.5 # Left_Elbow_Pitch
         - 0.5 # Left_Elbow_Yaw
