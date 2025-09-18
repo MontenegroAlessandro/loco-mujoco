@@ -89,18 +89,22 @@ class TD3Actor(nn.Module):
     hidden_layer_dims: Sequence[int] = (256,256)
     activation: str = "tanh"
 
+    def setup(self):
+        self.activation_fn = get_activation_fn(self.activation)
+
     @nn.compact
     def __call__(self, obs):
-        activation_fn = get_activation_fn(self.activation)
-        
         x = obs
+        x = RunningMeanStd()(x)
 
-        for dim in self.hidden_layer_dims:
-            x = nn.Dense(features=dim)(x)
-            x = activation_fn(x)
-        
-        action = nn.Dense(features=self.action_dim)(x)
-        action = nn.tanh(action) 
+        action = FullyConnectedNet(
+            hidden_layer_dims=self.hidden_layer_dims,
+            output_dim=self.action_dim,
+            activation=self.activation,
+            output_activation=None,
+            use_running_mean_stand=False,
+            squeeze_output=False
+        )(x)
         
         return action
     
@@ -111,31 +115,121 @@ class TD3Critic(nn.Module):
     hidden_layer_dims: Sequence[int] = (256,256)
     activation: str = "tanh"
 
+    def setup(self):
+        self.activation_fn = get_activation_fn(self.activation)
+
     @nn.compact
     def __call__(self, obs, action):
-        # get the activation function
-        activation_fn = get_activation_fn(self.activation)
-        
         # concatenate observation and action
         x = jnp.concatenate([obs, action], axis=-1)
+        x = RunningMeanStd()(x)
 
         # get first critic result
-        q1 = x
-        for dim in self.hidden_layer_dims:
-            q1 = nn.Dense(features=dim)(q1)
-            q1 = activation_fn(q1)
-        q1 = nn.Dense(features=1)(q1)
-        q1 = jnp.squeeze(q1, axis=-1) # Remove last dimension
+        q1 = FullyConnectedNet(
+            hidden_layer_dims=self.hidden_layer_dims,
+            output_dim=1,
+            activation=self.activation,
+            output_activation=None,
+            use_running_mean_stand=False,
+            squeeze_output=False
+        )(x)
+        q1 = jnp.squeeze(q1, axis=-1)
 
         # get second critic result
-        q2 = x
-        for dim in self.hidden_layer_dims:
-            q2 = nn.Dense(features=dim)(q2)
-            q2 = activation_fn(q2)
-        q2 = nn.Dense(features=1)(q2)
-        q2 = jnp.squeeze(q2, axis=-1) # Remove last dimension
+        q2 = FullyConnectedNet(
+            hidden_layer_dims=self.hidden_layer_dims,
+            output_dim=1,
+            activation=self.activation,
+            output_activation=None,
+            use_running_mean_stand=False,
+            squeeze_output=False
+        )(x)
+        q2 = jnp.squeeze(q2, axis=-1)
         
         return q1, q2
+
+
+class DistributionalQNetwork(nn.Module):
+    num_atoms: int
+    hidden_layer_dims: Sequence[int]
+    activation: str = "relu"
+
+    @nn.compact
+    def __call__(self, obs, action, update_stats: bool = True):
+        x = jnp.concatenate([obs, action], axis=-1)
+        x = RunningMeanStd()(x) 
+
+        logits = FullyConnectedNet(
+            hidden_layer_dims=self.hidden_layer_dims,
+            output_dim=self.num_atoms,
+            activation=self.activation,
+            output_activation=None,
+            use_running_mean_stand=False, 
+            squeeze_output=False
+        )(x)
+        
+        return logits
+
+class FastTD3Critic(nn.Module):
+    num_atoms: int
+    v_min: float
+    v_max: float
+    hidden_layer_dims: Sequence[int] = (256, 256)
+    activation: str = "relu"
+
+    def setup(self):
+        self.q_support = jnp.linspace(self.v_min, self.v_max, self.num_atoms)
+        
+        self.qnet1 = DistributionalQNetwork(
+            num_atoms=self.num_atoms,
+            hidden_layer_dims=self.hidden_layer_dims,
+            activation=self.activation
+        )
+        self.qnet2 = DistributionalQNetwork(
+            num_atoms=self.num_atoms,
+            hidden_layer_dims=self.hidden_layer_dims,
+            activation=self.activation
+        )
+    
+    def __call__(self, obs, action, update_stats: bool = True):
+        logits1 = self.qnet1(obs, action, update_stats=update_stats)
+        logits2 = self.qnet2(obs, action, update_stats=update_stats)
+        return logits1, logits2
+    
+    def _project_single(self, logits, rewards, bootstrap, discount):
+        """Helper function to perform projection on a single distribution."""
+        delta_z = (self.v_max - self.v_min) / (self.num_atoms - 1)
+        batch_size = rewards.shape[0]
+
+        target_z = rewards[:, None] + bootstrap[:, None] * discount * self.q_support
+        target_z = jnp.clip(target_z, self.v_min, self.v_max)
+        
+        b = (target_z - self.v_min) / delta_z
+        l = jnp.floor(b).astype(jnp.int32)
+        u = jnp.ceil(b).astype(jnp.int32)
+
+        l = jnp.where(l == u, l - 1, l)
+        u = jnp.where(u > l, u, u + 1)
+        l = jnp.clip(l, 0, self.num_atoms - 1)
+        u = jnp.clip(u, 0, self.num_atoms - 1)
+
+        next_dist = nn.softmax(logits, axis=1)
+        proj_dist = jnp.zeros_like(next_dist)
+        
+        proj_dist = proj_dist.at[jnp.arange(batch_size)[:, None], l].add(next_dist * (u - b))
+        proj_dist = proj_dist.at[jnp.arange(batch_size)[:, None], u].add(next_dist * (b - l))
+
+        return proj_dist
+
+    def projection(self, logits1, logits2, rewards, bootstrap, discount):
+        proj1 = self._project_single(logits1, rewards, bootstrap, discount)
+        proj2 = self._project_single(logits2, rewards, bootstrap, discount)
+        return proj1, proj2
+    
+    def get_value(self, probs):
+        """Calculates the expected Q-value from a probability distribution."""
+        return jnp.sum(probs * self.q_support, axis=-1)
+
 
 class RunningMeanStd(nn.Module):
     """Layer that maintains running mean and variance for input normalization."""
