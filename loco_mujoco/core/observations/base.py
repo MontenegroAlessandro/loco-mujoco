@@ -4,6 +4,7 @@ from typing import List, Union
 from collections import UserDict
 
 import numpy as np
+import jax
 import mujoco
 import jax.numpy as jnp
 from dataclasses import make_dataclass
@@ -843,11 +844,16 @@ class ProjectedGravityVector(Observation):
         else:
             xquats = data.qpos[data_ind_cont.ProjectedGravityVector]
             xquats = xquats.reshape(-1, 4)
+
+            # normalize the quaternions to avoid nans
+            xquats /= backend.linalg.norm(xquats, axis=1)[:, None]
+
+            # jax.debug.print("xquats: {}", xquats)
             rots = R.from_quat(quat_scalarfirst2scalarlast(xquats))
 
             # get the gravity vector from the quaternions
             proj_grav = rots.inv().apply(np.array([0, 0, -1]))
-
+            # jax.debug.print("proj_grav: {}", proj_grav)
             # return the observation
             return backend.ravel(proj_grav)
 

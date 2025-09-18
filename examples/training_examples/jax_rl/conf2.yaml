@@ -128,147 +128,16 @@ experiment:
       - Right_Ankle_Pitch
       - Right_Ankle_Roll
 
-    # observation_spec:
-    #   # Critic observations (privileged)
-    #   - type: ProjectedGravityVector
-    #     obs_name: q_root_proj
-    #     xml_name: root
-    #     group: prioritized
-    #     allow_randomization: false
-    #   - type: JointPosArray
-    #     obs_name: joint_positions
-    #     group: prioritized
-    #     allow_randomization: false
-    #     xml_names: ${robot_joints_to_consider}
-    #   - type: FreeJointVelprioritized
-    #     obs_name: dq_root
-    #     xml_name: root
-    #     group: prioritized
-    #     allow_randomization: false
-    #   - type: JointVelArray
-    #     obs_name: joint_velocities
-    #     xml_names: ${robot_joints_to_consider}
-    #     group: prioritized
-    #     allow_randomization: false
-    #   - type: LastAction
-    #     obs_name: last_action
-    #     group: prioritized
-    #     allow_randomization: false
-
-    #   # Actor observations (unprivileged)
-    #   - type: ProjectedGravityVector
-    #     obs_name: q_root_proj_pi
-    #     xml_name: root
-    #     group: policy
-    #     allow_randomization: true
-    #   - type: JointPosArray
-    #     obs_name: joint_positions_pi
-    #     group: policy
-    #     allow_randomization: true
-    #     xml_names: ${robot_joints_to_consider}
-    #   - type: EntryFromFreeJointVel
-    #     obs_name: dq_root_pi_r
-    #     xml_name: root
-    #     entry_index: 3
-    #     group: policy
-    #     allow_randomization: true
-    #   - type: EntryFromFreeJointVel
-    #     obs_name: dq_root_pi_p
-    #     xml_name: root
-    #     entry_index: 4
-    #     group: policy
-    #     allow_randomization: true
-    #   - type: EntryFromFreeJointVel
-    #     obs_name: dq_root_pi_y
-    #     xml_name: root
-    #     entry_index: 5
-    #     group: policy
-    #     allow_randomization: true
-    #   - type: JointVelArray
-    #     obs_name: joint_velocities_pi
-    #     xml_names: ${robot_joints_to_consider}
-    #     group: policy
-    #     allow_randomization: true
-    #   - type: LastAction
-    #     obs_name: last_action_pi
-    #     group: policy
-    #     allow_randomization: true
-
-    # observation_spec:
-    #   - type: ProjectedGravityVector
-    #     obs_name: q_root_proj
-    #     xml_name: root
-    #     group: "prioritized"
-    #     allow_randomization: false
-    #   - type: JointPosArray
-    #     obs_name: joint_positions
-    #     group: "prioritized"
-    #     allow_randomization: false
-    #     xml_names: ${robot_joints_to_consider}
-    #   - type: FreeJointVel
-    #     obs_name: dq_root
-    #     xml_name: root
-    #     group: "prioritized"
-    #     allow_randomization: false
-    #   - type: JointVelArray
-    #     obs_name: joint_velocities
-    #     xml_names: ${robot_joints_to_consider}
-    #     group: "prioritized"
-    #     allow_randomization: false
-    #   - type: LastAction
-    #     obs_name: last_action
-    #     group: "prioritized"
-    #     allow_randomization: false
-
-    #   # Actor observations (unprivileged)
-    #   - type: ProjectedGravityVector
-    #     obs_name: q_root_pi
-    #     xml_name: root
-    #     group: "policy"
-    #     allow_randomization: true
-    #   - type: JointPosArray
-    #     obs_name: joint_positions_pi
-    #     group: "policy"
-    #     allow_randomization: true
-    #     xml_names: ${robot_joints_to_consider}
-    #   - type: EntryFromFreeJointVel
-    #     obs_name: dq_root_pi_r
-    #     xml_name: root
-    #     entry_index: 3
-    #     group: "policy"
-    #     allow_randomization: true
-    #   - type: EntryFromFreeJointVel
-    #     obs_name: dq_root_pi_p
-    #     xml_name: root
-    #     entry_index: 4
-    #     group: "policy"
-    #     allow_randomization: true
-    #   - type: EntryFromFreeJointVel
-    #     obs_name: dq_root_pi_y
-    #     xml_name: root
-    #     entry_index: 5
-    #     group: "policy"
-    #     allow_randomization: true
-    #   - type: JointVelArray
-    #     obs_name: joint_velocities_pi
-    #     xml_names: ${robot_joints_to_consider}
-    #     group: "policy"
-    #     allow_randomization: true
-    #   - type: LastAction
-    #     obs_name: last_action_pi
-    #     group: "policy"
-    #     allow_randomization: true
-
     observation_spec:
       # Critic observations (privileged)
       - type: ProjectedGravityVector
         obs_name: q_root_proj
         xml_name: root
-        group: [prioritized, policy]
+        group: prioritized
         allow_randomization: false
       - type: JointPosArray
         obs_name: joint_positions
-        group: [prioritized, policy]
+        group: prioritized
         allow_randomization: false
         xml_names: ${robot_joints_to_consider}
       - type: FreeJointVel
@@ -279,32 +148,98 @@ experiment:
       - type: JointVelArray
         obs_name: joint_velocities
         xml_names: ${robot_joints_to_consider}
-        group: [prioritized, policy]
+        group: prioritized
         allow_randomization: false
       - type: LastAction
         obs_name: last_action
-        group: [prioritized, policy]
+        group: prioritized
         allow_randomization: false
 
       # Actor observations (unprivileged)
+      - type: ProjectedGravityVector
+        obs_name: q_root_pi
+        xml_name: root
+        group: policy
+        allow_randomization: true
+      - type: JointPosArray
+        obs_name: joint_positions_pi
+        group: policy
+        allow_randomization: true
+        xml_names: ${robot_joints_to_consider}
       - type: EntryFromFreeJointVel
         obs_name: dq_root_pi_r
         xml_name: root
         entry_index: 3
         group: policy
-        allow_randomization: false
+        allow_randomization: true
       - type: EntryFromFreeJointVel
         obs_name: dq_root_pi_p
         xml_name: root
         entry_index: 4
         group: policy
-        allow_randomization: false
+        allow_randomization: true
       - type: EntryFromFreeJointVel
         obs_name: dq_root_pi_y
         xml_name: root
         entry_index: 5
         group: policy
+        allow_randomization: true
+      - type: JointVelArray
+        obs_name: joint_velocities_pi
+        xml_names: ${robot_joints_to_consider}
+        group: policy
+        allow_randomization: true
+      - type: LastAction
+        obs_name: last_action_pi
+        group: policy
         allow_randomization: false
+
+    # observation_spec:
+    #   # Critic observations (privileged)
+    #   - type: ProjectedGravityVector
+    #     obs_name: q_root_proj
+    #     xml_name: root
+    #     group: [prioritized, policy]
+    #     allow_randomization: false
+    #   - type: JointPosArray
+    #     obs_name: joint_positions
+    #     group: [prioritized, policy]
+    #     allow_randomization: false
+    #     xml_names: ${robot_joints_to_consider}
+    #   - type: FreeJointVel
+    #     obs_name: dq_root
+    #     xml_name: root
+    #     group: prioritized
+    #     allow_randomization: false
+    #   - type: JointVelArray
+    #     obs_name: joint_velocities
+    #     xml_names: ${robot_joints_to_consider}
+    #     group: [prioritized, policy]
+    #     allow_randomization: false
+    #   - type: LastAction
+    #     obs_name: last_action
+    #     group: [prioritized, policy]
+    #     allow_randomization: false
+
+    #   # Actor observations (unprivileged)
+    #   - type: EntryFromFreeJointVel
+    #     obs_name: dq_root_pi_r
+    #     xml_name: root
+    #     entry_index: 3
+    #     group: policy
+    #     allow_randomization: false
+    #   - type: EntryFromFreeJointVel
+    #     obs_name: dq_root_pi_p
+    #     xml_name: root
+    #     entry_index: 4
+    #     group: policy
+    #     allow_randomization: false
+    #   - type: EntryFromFreeJointVel
+    #     obs_name: dq_root_pi_y
+    #     xml_name: root
+    #     entry_index: 5
+    #     group: policy
+    #     allow_randomization: false
 
     control_type: PDControl
     control_params:
@@ -358,6 +293,9 @@ experiment:
         - 1.5 # Right_Ankle_Pitch
         - 1.0 # Right_Ankle_Roll
 
+    init_state_type: DefaultInitialStateHandler
+    init_state_params:
+      qpos_init: []
     domain_randomization_type: DefaultRandomizer
     domain_randomization_params: 
       # gravity
@@ -457,6 +395,12 @@ experiment:
   critic_obs_group: prioritized
   hidden_layers: [512, 256]
   lr: 1e-5
+  adaptive_lr: true       # The main flag to enable/disable the feature
+  lr_min: 1.0e-6          # Minimum learning rate
+  lr_max: 0.01            # Maximum learning rate
+  kl_target: 0.02         # Target KL divergence
+  kl_margin: 1.5          # Margin for scaling (e.g., if KL > 0.02*1.5, decrease LR)
+  kl_lr_scale: 1.5        # How much to scale LR by (multiply or divide)
   len_obs_history: 1
   num_envs: 8192
   num_steps: 24
@@ -470,7 +414,7 @@ experiment:
   learnable_std: True
   ent_coef: 0.005
   vf_coef: 0.5
-  max_grad_norm: 0.5
+  max_grad_norm: 1.0
   activation: elu
   actor_output_activation: none
   use_observationnorm: true
