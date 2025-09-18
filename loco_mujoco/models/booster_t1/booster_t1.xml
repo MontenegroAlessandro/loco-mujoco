@@ -41,7 +41,7 @@
     <default class="t1">
       <geom material="medium_gray"/>
       <site rgba="1 0 0 1" size="0.01" group="5"/>
-      <joint frictionloss="0.1" armature="0.005"/>
+      <joint limited="true" damping="0.01" frictionloss="0.0" armature="0.01"/>
       <motor ctrllimited="true" ctrlrange="-130 130"/>
       <default class="visual">
         <geom type="mesh" contype="0" conaffinity="0" group="0"/>
