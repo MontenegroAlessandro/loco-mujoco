@@ -34,8 +34,8 @@ experiment:
   
   # --- FastTD3 Hyperparameters ---
   # Network Arch
-  actor_hidden_dims: [512, 256, 128]
-  critic_hidden_dims: [1024, 512, 256]
+  actor_hidden_dims: [512, 256]
+  critic_hidden_dims: [512, 256]
   
   # Optimizers
   actor_lr: 3e-4
@@ -43,8 +43,10 @@ experiment:
   
   # Replay Buffer and Batching
   buffer_size: 1000000
-  batch_size: 32768   
-  learning_starts: 25000
+  # buffer_size: 1000
+  batch_size: 32768
+  # learning_starts: 25000
+  learning_starts: 250
   
   # TD3 Core Parameters
   gamma: 0.99
@@ -63,7 +65,9 @@ experiment:
   # General Training Config
   utd_ratio: 4
   num_envs: 2048
-  total_timesteps: 10e7
+  # num_envs: 100
+  # total_timesteps: 10e7
+  total_timesteps: 1e6
   normalize_env: true
   debug: false
   n_seeds: 1

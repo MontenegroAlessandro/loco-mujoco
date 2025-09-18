@@ -5,6 +5,7 @@ import sys
 import jax
 import jax.numpy as jnp
 import wandb
+import time
 from loco_mujoco import TaskFactory
 from loco_mujoco.algorithms import FastTD3Jax  
 from loco_mujoco.core.wrappers import LogWrapper, VecEnv, NormalizeVecReward 
@@ -46,10 +47,14 @@ def experiment(config: DictConfig):
         # JIT and vmap training function
         train_fn = jax.jit(jax.vmap(train_fn)) if config.experiment.n_seeds > 1 else jax.jit(train_fn)
 
+        print("Starting training...")
+
         # Get rng keys and run training
         rngs = [jax.random.PRNGKey(i) for i in range(config.experiment.n_seeds + 1)]
         rng, _rng = rngs[0], jnp.squeeze(jnp.vstack(rngs[1:]))
+        t_start = time.time()
         out = train_fn(_rng)
+        print(f"Training completed in {time.time() - t_start:.2f} seconds.")
 
         # Save agent state
         agent_state = out["agent_state"]

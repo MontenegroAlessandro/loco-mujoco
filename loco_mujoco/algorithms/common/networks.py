@@ -148,7 +148,6 @@ class TD3Critic(nn.Module):
         
         return q1, q2
 
-
 class DistributionalQNetwork(nn.Module):
     num_atoms: int
     hidden_layer_dims: Sequence[int]

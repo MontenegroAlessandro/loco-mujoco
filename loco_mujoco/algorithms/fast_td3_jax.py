@@ -169,7 +169,7 @@ class FastTD3Jax(JaxRLAlgorithmBase):
         )
     
     @classmethod
-    def _train_fn(cls, rng, env, agent_conf: FastTD3AgentConf, mh: MetricsHandler = None):
+    def _train_fn(cls, rng, env, agent_conf: FastTD3AgentConf, mh: MetricsHandler = None, wandb_run=None) -> Any:
         # extract the experiment config
         config = agent_conf.config.experiment
         action_limit = env.info.action_space.high[0]
@@ -221,7 +221,7 @@ class FastTD3Jax(JaxRLAlgorithmBase):
             replay_buffer = agent_state.replay_buffer
             ptr = replay_buffer.ptr
             indices = (ptr + jnp.arange(config.num_envs)) % config.buffer_size
-            
+
             new_replay_buffer = replay_buffer.replace(
                 obs=replay_buffer.obs.at[indices].set(last_obs),
                 actions=replay_buffer.actions.at[indices].set(action),
@@ -379,7 +379,7 @@ class FastTD3Jax(JaxRLAlgorithmBase):
                 lambda: _perform_learning_updates(agent_state, learning_rng),
                 lambda: (agent_state, {"critic_loss": 0.0, "actor_loss": 0.0})
             )
-            
+            metrics = {"critic_loss": 0., "actor_loss": 0.}
             runner_state = (agent_state, env_state, obsv, rng)
 
             return runner_state, metrics
