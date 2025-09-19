@@ -214,12 +214,23 @@ class FastTD3Jax(JaxRLAlgorithmBase):
                     actions, _ = agent_conf.actor_module.apply(actor_vars_loss, batch["obs"], mutable=['run_stats'])
                     
                     critic_vars_loss_actor = {'params': critic_ts.params, 'run_stats': critic_ts.run_stats}
-                    (q_logits, _), _ = agent_conf.critic_module.apply(critic_vars_loss_actor, batch["obs"], actions, mutable=['run_stats'])
+                    (q_logits_1, q_logits_2), _ = agent_conf.critic_module.apply(critic_vars_loss_actor, batch["obs"], actions, mutable=['run_stats'])
                     
-                    q_probs = nn.softmax(q_logits)
-                    q_value = agent_conf.critic_module.apply(
-                        critic_vars_loss_actor, q_probs, method=agent_conf.critic_module.get_value
+                    # first critic value
+                    q_probs_1 = nn.softmax(q_logits_1)
+                    q_value_1 = agent_conf.critic_module.apply(
+                        critic_vars_loss_actor, q_probs_1, method=agent_conf.critic_module.get_value
                     )
+
+                    # second critic value
+                    q_probs_2 = nn.softmax(q_logits_2)
+                    q_value_2 = agent_conf.critic_module.apply(
+                        critic_vars_loss_actor, q_probs_2, method=agent_conf.critic_module.get_value
+                    )
+
+                    # take the minimum (even if the original td3 is not doing it, the fast one does)
+                    q_value = jnp.minimum(q_value_1, q_value_2)
+                    
                     return -q_value.mean()
                     
                 actor_loss, actor_grads = jax.value_and_grad(_actor_loss_fn)(actor_ts.params)

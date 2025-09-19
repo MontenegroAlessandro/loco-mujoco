@@ -121,8 +121,8 @@ class TD3Critic(nn.Module):
     @nn.compact
     def __call__(self, obs, action):
         # concatenate observation and action
+        obs = RunningMeanStd()(obs)
         x = jnp.concatenate([obs, action], axis=-1)
-        x = RunningMeanStd()(x)
 
         # get first critic result
         q1 = FullyConnectedNet(
