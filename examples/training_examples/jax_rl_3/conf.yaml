@@ -36,7 +36,7 @@ experiment:
   # Network Arch
   actor_hidden_dims: [512, 256]
   critic_hidden_dims: [512, 256]
-  activation: tanh
+  activation: relu
   
   # Optimizers
   actor_lr: 3e-4

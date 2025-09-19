@@ -60,7 +60,7 @@ experiment:
   ent_coef: 0.0
   vf_coef: 0.5
   max_grad_norm: 0.5
-  activation: tanh
+  activation: relu # tanh
   anneal_lr: false
   weight_decay: 0.0
   normalize_env: true

@@ -121,8 +121,8 @@ class TD3Critic(nn.Module):
     @nn.compact
     def __call__(self, obs, action):
         # concatenate observation and action
-        obs = RunningMeanStd()(obs)
-        x = jnp.concatenate([obs, action], axis=-1)
+        obs = RunningMeanStd()(obs,squeeze_output=False)
+        x = jnp.squeeze(jnp.concatenate([obs, action], axis=-1))
 
         # get first critic result
         q1 = FullyConnectedNet(
@@ -155,8 +155,8 @@ class DistributionalQNetwork(nn.Module):
 
     @nn.compact
     def __call__(self, obs, action, update_stats: bool = True):
-        x = jnp.concatenate([obs, action], axis=-1)
-        x = RunningMeanStd()(x) 
+        obs = RunningMeanStd()(obs, squeeze_output=False)
+        x = jnp.squeeze(jnp.concatenate([obs, action], axis=-1))
 
         logits = FullyConnectedNet(
             hidden_layer_dims=self.hidden_layer_dims,
@@ -234,7 +234,7 @@ class RunningMeanStd(nn.Module):
     """Layer that maintains running mean and variance for input normalization."""
 
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, x, squeeze_output = True):
 
         x = jnp.atleast_2d(x)
 
@@ -269,4 +269,4 @@ class RunningMeanStd(nn.Module):
         var.value = new_var
         count.value = updated_count
 
-        return jnp.squeeze(normalized_x)
+        return jnp.squeeze(normalized_x) if squeeze_output else normalized_x

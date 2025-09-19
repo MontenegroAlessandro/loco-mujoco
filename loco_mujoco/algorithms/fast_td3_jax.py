@@ -13,6 +13,7 @@ from flax import struct
 from loco_mujoco.utils import MetricsHandler
 from loco_mujoco.core.wrappers import LogEnvState
 from tqdm import tqdm
+from functools import partial
 
 @dataclass(frozen=True)
 class FastTD3AgentConf(AgentConfBase):
@@ -216,7 +217,7 @@ class FastTD3Jax(JaxRLAlgorithmBase):
                     critic_vars_loss_actor = {'params': critic_ts.params, 'run_stats': critic_ts.run_stats}
                     (q_logits_1, q_logits_2), _ = agent_conf.critic_module.apply(critic_vars_loss_actor, batch["obs"], actions, mutable=['run_stats'])
                     
-                    # first critic value
+                    # first critic valure
                     q_probs_1 = nn.softmax(q_logits_1)
                     q_value_1 = agent_conf.critic_module.apply(
                         critic_vars_loss_actor, q_probs_1, method=agent_conf.critic_module.get_value
@@ -261,11 +262,11 @@ class FastTD3Jax(JaxRLAlgorithmBase):
         # [2] initialize the agent state and the replay buffer
         agent_state = cls._create_initial_agent_state(rng, env, agent_conf)
         replay_buffer = ReplayBuffer(
-            obs=np.zeros((config.buffer_size, *env.info.observation_space.shape), dtype=np.float32),
-            actions=np.zeros((config.buffer_size, *env.info.action_space.shape), dtype=np.float32),
-            rewards=np.zeros(config.buffer_size, dtype=np.float32),
-            next_obs=np.zeros((config.buffer_size, *env.info.observation_space.shape), dtype=np.float32),
-            dones=np.zeros(config.buffer_size, dtype=np.float32),
+            obs=np.zeros((int(config.buffer_size), *env.info.observation_space.shape), dtype=np.float32),
+            actions=np.zeros((int(config.buffer_size), *env.info.action_space.shape), dtype=np.float32),
+            rewards=np.zeros(int(config.buffer_size), dtype=np.float32),
+            next_obs=np.zeros((int(config.buffer_size), *env.info.observation_space.shape), dtype=np.float32),
+            dones=np.zeros(int(config.buffer_size), dtype=np.float32),
             ptr=0, size=0
         )
         
@@ -291,7 +292,8 @@ class FastTD3Jax(JaxRLAlgorithmBase):
             noise = jax.random.normal(action_rng, shape=action.shape) * agent_state.noise_scales
             action = jnp.clip(action + noise, -action_limit, action_limit)
             
-            next_obsv, reward, absorbing, done, info, env_state = env.step(env_state, action)
+            # next_obsv, reward, absorbing, done, info, env_state = env.step(env_state, action)
+            next_obsv, reward, absorbing, done, info, env_state = cls._wrap_step(env, env_state, action)
 
             # update the noise for the next interaction 
             new_scales = jax.random.uniform(noise_resample_rng, shape=(config.num_envs, 1), minval=config.std_min, maxval=config.std_max)
@@ -350,7 +352,7 @@ class FastTD3Jax(JaxRLAlgorithmBase):
                 if log_data:
                     wandb_run.log(log_data, step=i * config.num_envs)
         
-        return {"agent_state": agent_state}
+        return {"agent_state": agent_state, "metrics": {"critic_loss": np.array(critic_losses), "actor_loss": np.array(actor_losses)}}
 
     @classmethod
     def run_evaluation(cls, agent_conf, agent_state, eval_env, rng):
@@ -451,3 +453,8 @@ class FastTD3Jax(JaxRLAlgorithmBase):
             i += 1
         
         env.stop()
+
+    @staticmethod
+    @partial(jax.jit, static_argnames=['env'])
+    def _wrap_step(env, env_state, action):
+        return env.step(env_state, action)
