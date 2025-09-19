@@ -40,6 +40,8 @@ class AdditionalCarry:
     control_func_state: struct.PyTreeNode
     user_scene: MjvScene
 
+    total_timestep: int
+
 
 class Mujoco:
     """
@@ -156,6 +158,11 @@ class Mujoco:
         # create the MDP information
         self._mdp_info = MDPInfo(observation_space, action_space, gamma, horizon, self.dt)
 
+        # setup initial state handler
+        if init_state_params is None:
+            init_state_params = {}
+        self._init_state_handler = InitialStateHandler.registered[init_state_type](self, **init_state_params)
+
         # setup reward function
         reward_cls = Reward.registered[reward_type]
         self._reward_function = reward_cls(self) if reward_params is None else reward_cls(self, **reward_params)
@@ -171,10 +178,6 @@ class Mujoco:
         domain_randomization_params = {} if domain_randomization_params is None else domain_randomization_params
         self._domain_randomizer = DomainRandomizer.registered[domain_randomization_type](self, **domain_randomization_params)
 
-        # setup initial state handler
-        if init_state_params is None:
-            init_state_params = {}
-        self._init_state_handler = InitialStateHandler.registered[init_state_type](self, **init_state_params)
 
         # setup terminal state handler
         if terminal_state_params is None:
@@ -826,6 +829,7 @@ class Mujoco:
         carry = AdditionalCarry(
             key=key,
             cur_step_in_episode=1,
+            total_timestep=0,
             last_action=backend.zeros(self.info.action_space.shape),
             observation_states=self.obs_container.init_state(self, _k1, model, data, backend),
             reward_state=self._reward_function.init_state(self, _k2, model, data, backend),

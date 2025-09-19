@@ -488,6 +488,8 @@ class CrispBoosterLocomotionReward(Reward):
         self._nominal_joint_pos_coeff = kwargs.get("tracking_nominal_joint_pos_coeff", 0.0)
         self._nominal_joint_pos_names = kwargs.get("tracking_nominal_joint_pos_names", None)
 
+        self._joint_deviation_l1_coeff = kwargs.get("joint_deviation_l1_coeff", 0.0)   
+
         self._base_height_coeff = kwargs.get("base_height_coeff", 0.0)
         self._base_height_target = kwargs.get("base_height_target", 0.0)
 
@@ -526,7 +528,8 @@ class CrispBoosterLocomotionReward(Reward):
         self._limited_joints = np.array(model.jnt_limited, dtype=bool)
         self._limited_joints_qpos_id = model.jnt_qposadr[np.where(self._limited_joints)]
         self._joint_ranges = model.jnt_range[self._limited_joints]
-        self._nominal_joint_qpos = env._model.qpos0
+        # self._nominal_joint_qpos = env._model.qpos0
+        self._nominal_joint_qpos = env._init_state_handler.qpos_init
         if self._nominal_joint_pos_names is None:
             # take all limited joints
             self._nominal_joint_qpos_id = self._limited_joints_qpos_id
@@ -564,6 +567,7 @@ class CrispBoosterLocomotionReward(Reward):
                                         "tracking/tracking_reward_angvel": 0.,
                                         "tracking/joint_qpos_reward": 0.,
                                         "tracking/feet_swing_reward": 0.,
+                                        "penalties/joint_deviation_l1_penalty": 0.,
                                         "penalties/base_height_reward": 0.,
                                         "penalties/orientation_reward": 0.,
                                         "penalties/torque_reward": 0.,
@@ -810,6 +814,8 @@ class CrispBoosterLocomotionReward(Reward):
             backend.square(data.qpos[self._nominal_joint_qpos_id] - self._nominal_joint_qpos[self._nominal_joint_qpos_id]).sum()
         )
 
+        joint_deviation_l1_penalty = backend.sum(backend.abs(data.qpos[self._nominal_joint_qpos_id] - self._nominal_joint_qpos[self._nominal_joint_qpos_id]))
+
         # air time reward
         air_time_reward = 0.0
         tslt = reward_state.time_since_last_touchdown.copy()
@@ -892,6 +898,7 @@ class CrispBoosterLocomotionReward(Reward):
         tracking_reward_linvel_y *= (self._tracking_w_sum_linvel_y * env.dt)
         tracking_reward_angvel *= (self._tracking_w_sum_angvel * env.dt)
         joint_qpos_reward *= (self._nominal_joint_pos_coeff * env.dt)
+        joint_deviation_l1_penalty *= (self._joint_deviation_l1_coeff * env.dt)
         base_height_reward *= (self._base_height_coeff * env.dt)
         orientation_reward *= (self.orientation_coeff * env.dt)
         torque_reward *= (self._joint_torque_coeff * env.dt)
@@ -926,7 +933,7 @@ class CrispBoosterLocomotionReward(Reward):
             + joint_position_limit_reward + low_gains_reward
             + feet_slip_reward + feet_yaw_diff_reward + feet_yaw_mean_reward + feet_roll_reward
             + feet_distance_reward 
-            + air_time_reward + no_fly_reward + impact_reward
+            + air_time_reward + no_fly_reward + impact_reward + joint_deviation_l1_penalty
         )
         total_reward = (
             survival_reward + tracking_reward + penalty_rewards
@@ -948,6 +955,7 @@ class CrispBoosterLocomotionReward(Reward):
             "tracking/joint_qpos_reward": joint_qpos_reward,
             "tracking/feet_swing_reward": feet_swing_reward,
             "penalties/base_height_reward": base_height_reward,
+            "penalties/joint_deviation_l1_penalty": joint_deviation_l1_penalty,
             "penalties/orientation_reward": orientation_reward,
             "penalties/torque_reward": torque_reward,
             "penalties/torque_tiredness_reward": torque_tiredness_reward,

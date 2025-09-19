@@ -13,19 +13,17 @@ experiment:
   env_params:
     env_name: MjxBoosterT1
     horizon: 1000
+
     terminal_state_type: HeightBasedTerminalStateHandler
-    # terminal_state_type: NoTerminalStateHandler
-    # goal_type: GoalRandomRootVelocity
-    # goal_params:
-    #   visualize_goal: true
+
     goal_type: GoalChangingRandomRootVelocity
     goal_params:
       max_x_vel: 0.7
       max_y_vel: 0.5
       max_yaw_vel: 2
-      max_height: 0.65
-      min_height: 0.6
-      resample_rate: 0.008
+      max_height: 0.68
+      min_height: 0.67
+      resample_rate: 0.002
       still_proportion: 0.2
       gait_frequency_range: [0.5, 1.5] # Hz
       visualize_goal: true
@@ -33,33 +31,19 @@ experiment:
 
     
     headless: true
-    # reward_type: LocomotionReward
-    # reward_params:
-    #   tracking_w_exp_xy: 4.0
-    #   tracking_w_exp_yaw: 4.0
-    #   tracking_w_sum_xy: 2.0
-    #   tracking_w_sum_yaw: 1.0
-    #   air_time_coeff: 0.1
-    #   joint_acc_coeff: 2.0e-05
-    #   air_time_max: 0.5
-    #   joint_torque_coeff: 2.0e-07
-    #   joint_position_limit_coeff: 2.0
-    #   action_rate_coeff: 0.1
-    #   symmetry_air_coeff: 0.005
-    #   energy_coeff: 5.0e-05
 
     reward_type: CrispBoosterLocomotionReward
     reward_params:
-      survival: 0.5
+      survival: 1.0
       # tracking rewards
       tracking_w_exp_linvel_x: 4
-      tracking_w_sum_linvel_x: 1
+      tracking_w_sum_linvel_x: 1.5
       tracking_w_exp_linvel_y: 4
-      tracking_w_sum_linvel_y: 1
+      tracking_w_sum_linvel_y: 1.5
       tracking_w_exp_angvel: 4
-      tracking_w_sum_angvel: 0.5
+      tracking_w_sum_angvel: 1.0
       tracking_nominal_joint_pos_exp: 4
-      tracking_nominal_joint_pos_coeff: 0.5
+      tracking_nominal_joint_pos_coeff: 0
       tracking_nominal_joint_pos_names: 
         - AAHead_yaw
         - Head_pitch
@@ -73,28 +57,29 @@ experiment:
         - Right_Elbow_Yaw
         - Waist
       # penalties
-      base_height_target: 1.0
-      base_height_coeff: -20
-      orientation_coeff: -5
+      joint_deviation_l1_coeff: -0.3
+      base_height_target: 0.68
+      base_height_coeff: -10
+      orientation_coeff: -2
       joint_torque_coeff: -2e-5
       torque_tiredness_coeff: 0
       energy_coeff: -2e-4
-      z_vel_coeff: -2.
-      roll_pitch_vel_coeff: -0.2
+      z_vel_coeff: -0.3
+      roll_pitch_vel_coeff: -0.1
       joint_vel_coeff: -1e-4
-      joint_acc_coeff: -5e-7
-      root_acc_coeff: -1e-4
-      action_rate_coeff: -1.0
+      joint_acc_coeff: -2.5e-7
+      root_acc_coeff: -5e-5
+      action_rate_coeff: -0.25
       joint_position_limit_scale: 0.98
-      joint_position_limit_coeff: -1
-      feet_slip_coeff: -1.
-      feet_yaw_diff_coeff: -1
-      feet_yaw_mean_coeff: -1
-      feet_roll_coeff: -0.1
+      joint_position_limit_coeff: -5.0
+      feet_slip_coeff: -0.1
+      feet_yaw_diff_coeff: 0.0
+      feet_yaw_mean_coeff: 0.0
+      feet_roll_coeff: 0.0
       feet_distance_target: 0.3
-      feet_swing_coeff: 3
+      feet_swing_coeff: 5.0
       feet_swing_period: 0.2
-      feet_distance_coeff: -1
+      feet_distance_coeff: 0.0
       # extra regularization / penalties
       low_gains_coeff: 0.0
       air_time_max: 0.3
@@ -194,121 +179,132 @@ experiment:
         group: policy
         allow_randomization: false
 
-    # observation_spec:
-    #   # Critic observations (privileged)
-    #   - type: ProjectedGravityVector
-    #     obs_name: q_root_proj
-    #     xml_name: root
-    #     group: [prioritized, policy]
-    #     allow_randomization: false
-    #   - type: JointPosArray
-    #     obs_name: joint_positions
-    #     group: [prioritized, policy]
-    #     allow_randomization: false
-    #     xml_names: ${robot_joints_to_consider}
-    #   - type: FreeJointVel
-    #     obs_name: dq_root
-    #     xml_name: root
-    #     group: prioritized
-    #     allow_randomization: false
-    #   - type: JointVelArray
-    #     obs_name: joint_velocities
-    #     xml_names: ${robot_joints_to_consider}
-    #     group: [prioritized, policy]
-    #     allow_randomization: false
-    #   - type: LastAction
-    #     obs_name: last_action
-    #     group: [prioritized, policy]
-    #     allow_randomization: false
-
-    #   # Actor observations (unprivileged)
-    #   - type: EntryFromFreeJointVel
-    #     obs_name: dq_root_pi_r
-    #     xml_name: root
-    #     entry_index: 3
-    #     group: policy
-    #     allow_randomization: false
-    #   - type: EntryFromFreeJointVel
-    #     obs_name: dq_root_pi_p
-    #     xml_name: root
-    #     entry_index: 4
-    #     group: policy
-    #     allow_randomization: false
-    #   - type: EntryFromFreeJointVel
-    #     obs_name: dq_root_pi_y
-    #     xml_name: root
-    #     entry_index: 5
-    #     group: policy
-    #     allow_randomization: false
-
     control_type: PDControl
     control_params:
+      scale_action_to_jnt_limits: False
       action_scale: 1.0
+      
       p_gain: 
-        - 10 # AAHead_yaw
-        - 10 # Head_pitch
-        - 30 # Left_Shoulder_Pitch
-        - 30 # Left_Shoulder_Roll
-        - 20 # Left_Elbow_Pitch
-        - 20 # Left_Elbow_Yaw
-        - 30 # Right_Shoulder_Pitch
-        - 30 # Right_Shoulder_Roll
-        - 20 # Right_Elbow_Pitch
-        - 20 # Right_Elbow_Yaw
-        - 50 # Waist
-        - 150 # Left_Hip_Pitch
-        - 150 # Left_Hip_Roll
-        - 150 # Left_Hip_Yaw
-        - 150 # Left_Knee_Pitch
-        - 40 # Left_Ankle_Pitch
-        - 20 # Left_Ankle_Roll
-        - 150 # Right_Hip_Pitch
-        - 150 # Right_Hip_Roll
-        - 150 # Right_Hip_Yaw
-        - 150 # Right_Knee_Pitch
-        - 40 # Right_Ankle_Pitch
-        - 20 # Right_Ankle_Roll
+        - 40 # AAHead_yaw
+        - 40 # Head_pitch
+        - 40 # Left_Shoulder_Pitch
+        - 40 # Left_Shoulder_Roll
+        - 40 # Left_Elbow_Pitch
+        - 40 # Left_Elbow_Yaw
+        - 40 # Right_Shoulder_Pitch
+        - 40 # Right_Shoulder_Roll
+        - 40 # Right_Elbow_Pitch
+        - 40 # Right_Elbow_Yaw
+        - 200 # Waist
+        - 200 # Left_Hip_Pitch
+        - 200 # Left_Hip_Roll
+        - 200 # Left_Hip_Yaw
+        - 200 # Left_Knee_Pitch
+        - 50 # Left_Ankle_Pitch
+        - 50 # Left_Ankle_Roll
+        - 200 # Right_Hip_Pitch
+        - 200 # Right_Hip_Roll
+        - 200 # Right_Hip_Yaw
+        - 200 # Right_Knee_Pitch
+        - 50 # Right_Ankle_Pitch
+        - 50 # Right_Ankle_Roll
+
       d_gain:
-        - 0.2 # AAHead_yaw
-        - 0.2 # Head_pitch
-        - 0.5 # Left_Shoulder_PitchLoading
-        - 0.5 # Left_Shoulder_Roll
-        - 0.5 # Left_Elbow_Pitch
-        - 0.5 # Left_Elbow_Yaw
-        - 0.5 # Right_Shoulder_Pitch
-        - 0.5 # Right_Shoulder_Roll
-        - 0.5 # Right_Elbow_Pitch
-        - 0.5 # Right_Elbow_Yaw
-        - 2.0 # Waist
-        - 2.5 # Left_Hip_Pitch
-        - 2.5 # Left_Hip_Roll
-        - 2.5 # Left_Hip_Yaw
-        - 2.5 # Left_Knee_Pitch
-        - 1.5 # Left_Ankle_Pitch
+        - 2.0 # AAHead_yaw
+        - 2.0 # Head_pitch
+        - 2.0 # Left_Shoulder_Pitch
+        - 2.0 # Left_Shoulder_Roll
+        - 2.0 # Left_Elbow_Pitch
+        - 2.0 # Left_Elbow_Yaw
+        - 2.0 # Right_Shoulder_Pitch
+        - 2.0 # Right_Shoulder_Roll
+        - 2.0 # Right_Elbow_Pitch
+        - 2.0 # Right_Elbow_Yaw
+        - 5.0 # Waist
+        - 5.0 # Left_Hip_Pitch
+        - 5.0 # Left_Hip_Roll
+        - 5.0 # Left_Hip_Yaw
+        - 5.0 # Left_Knee_Pitch
+        - 1.0 # Left_Ankle_Pitch
         - 1.0 # Left_Ankle_Roll
-        - 2.5 # Right_Hip_Pitch
-        - 2.5 # Right_Hip_Roll
-        - 2.5 # Right_Hip_Yaw
-        - 2.5 # Right_Knee_Pitch
-        - 1.5 # Right_Ankle_Pitch
+        - 5.0 # Right_Hip_Pitch
+        - 5.0 # Right_Hip_Roll
+        - 5.0 # Right_Hip_Yaw
+        - 5.0 # Right_Knee_Pitch
+        - 1.0 # Right_Ankle_Pitch
         - 1.0 # Right_Ankle_Roll
+
+      nominal_joint_positions:
+        - 0.0 # AAHead_yaw
+        - 0.0 # Head_pitch
+        - 0.2 # Left_Shoulder_Pitch
+        - -1.35 # Left_Shoulder_Roll
+        - 0.0 # Left_Elbow_Pitch
+        - -0.5 # Left_Elbow_Yaw
+        - 0.2 # Right_Shoulder_Pitch
+        - 1.35 # Right_Shoulder_Roll
+        - 0.0 # Right_Elbow_Pitch
+        - 0.5 # Right_Elbow_Yaw
+        - 0.0 # Waist
+        - -0.2 # Left_Hip_Pitch
+        - 0.0 # Left_Hip_Roll
+        - 0.0 # Left_Hip_Yaw
+        - 0.4 # Left_Knee_Pitch
+        - -0.25 # Left_Ankle_Pitch
+        - 0.0 # Left_Ankle_Roll
+        - -0.2 # Right_Hip_Pitch
+        - 0.0 # Right_Hip_Roll
+        - 0.0 # Right_Hip_Yaw
+        - 0.4 # Right_Knee_Pitch
+        - -0.25 # Right_Ankle_Pitch
+        - 0.0 # Right_Ankle_Roll
 
     init_state_type: DefaultInitialStateHandler
     init_state_params:
-      qpos_init: []
-    domain_randomization_type: DefaultRandomizer
+      qpos_init: [0, 0, 0.7, 
+                  1, 0, 0, 0, 
+                  0, 0,
+                  0.2, -1.35, 0, -0.5,
+                  0.2, 1.35, 0, 0.5,
+                  0,
+                  -0.2, 0, 0, 0.4, -0.25, 0,
+                  -0.2, 0, 0, 0.4, -0.25, 0]
+
+      qvel_init: [0, 0, 0, 
+                  0, 0, 0, 
+                  0, 0, 
+                  0, 0, 0, 0, 
+                  0, 0, 0, 0, 
+                  0, 
+                  0, 0, 0, 0, 0, 0,
+                  0, 0, 0, 0, 0, 0]
+
+    domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
+
+      total_timesteps: 200e6
+      num_curriculum_steps: 1
+      num_environments: 8192
+      num_total_timesteps: 200e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
 
       # geom properties
-      randomize_geom_friction_tangential: true
-      geom_friction_tangential_range: [0.5, 2.0]
-      randomize_geom_friction_torsional: true
-      geom_friction_torsional_range: [0.1, 0.3]
-      randomize_geom_friction_rolling: true
-      geom_friction_rolling_range: [0.00008, 0.00012]
+      randomize_model_geom_friction_tangential: false
+      model_geom_friction_tangential_range: [0.5, 1.5]
+      randomize_model_geom_friction_torsional: false
+      model_geom_friction_torsional_range: [0.1, 0.3]
+      randomize_model_geom_friction_rolling: false
+      model_geom_friction_rolling_range: [0.00008, 0.00012]
+
+      randomize_floor_geom_friction_tangential: true
+      floor_geom_friction_tangential_range: [0.5, 1.5]
+      randomize_floor_geom_friction_torsional: true
+      floor_geom_friction_torsional_range: [0.1, 0.3]
+      randomize_floor_geom_friction_rolling: true
+      floor_geom_friction_rolling_range: [0.00008, 0.00012]
+
       randomize_geom_damping: false
       geom_damping_range: [100, 500]
       randomize_geom_stiffness: false
@@ -330,7 +326,7 @@ experiment:
 
       #COM
       randomize_com_displacement: true
-      com_displacement_range: [-0.1, 0.1] 
+      com_displacement_range: [-0.05, 0.05] 
 
       #link mass
       randomize_link_mass: true
@@ -349,7 +345,7 @@ experiment:
       add_joint_pos_noise: true
       joint_pos_noise_scale: 0.03
       add_joint_vel_noise: true
-      joint_vel_noise_scale: 1.0
+      joint_vel_noise_scale: 1.2
       add_gravity_noise: true
       gravity_noise_scale: 0.015
       add_free_joint_lin_vel_noise: false
@@ -359,37 +355,34 @@ experiment:
       add_policy_ang_vel_noise: true
       policy_ang_vel_noise_scale: 0.2
 
-  # actor_obs_group: policy
-  # critic_obs_group: prioritized
-  # len_obs_history: 1
+      #Observation Normalization
+      normalize_observations: true
+      norm_factors: {
+                      "joint_pos": 1.0,
+                      "joint_vel": 0.1,
+                      "gravity": 1.0,
+                      "lin_vel": 1.0,
+                      "ang_vel": 1.0,
+                    }
 
-  # hidden_layers: [512, 256]
-  # lr: 1e-5
-  # num_envs: 8192
-  # num_steps: 50
-  # total_timesteps: 10e6
-  # update_epochs: 20
-  # num_minibatches: 1
-  # gamma: 0.995
-  # gae_lambda: 0.95
-  # clip_eps: 0.2
-  # init_std: 0.135
-  # learnable_std: true
-  # ent_coef: 0.005
-  # vf_coef: 0.5
-  # max_grad_norm: 1.0
-  # activation: elu
-  # anneal_lr: false
-  # weight_decay: 0.0
-  # normalize_env: true
-  # debug: false
-  # n_seeds: 1  # while automatically take seeds from 1 to n_seeds
-  # vmap_across_seeds: true
-  # validation:
-  #   active: false
-  #   num_steps: 100
-  #   num_envs: 100
-  #   num: 10 # set to 0 to disable validation
+      # Pushing
+      push_robots: true
+      push_force_amplitude: 20 # Newtons
+      push_torque_amplitude: 2 # Newton-meters
+      push_active_duration: 1.0 # seconds
+      push_relief_duration: 2.0 # seconds
+      push_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 push per second
+
+      #Lowpass filter
+      apply_action_filtering: false
+      filter_action_alpha: 0.0
+
+      # Kicking
+      kick_robots: true
+      kick_min_vel: 0.0
+      kick_max_vel: 0.6 # m/s
+      kick_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 kick per second
+      kick_at_reset: true
 
   actor_obs_group: policy
   critic_obs_group: prioritized
@@ -404,7 +397,7 @@ experiment:
   len_obs_history: 1
   num_envs: 8192
   num_steps: 24
-  total_timesteps: 10e6
+  total_timesteps: 500e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995

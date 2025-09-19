@@ -2,7 +2,9 @@ import os
 import jax
 import time
 
-from loco_mujoco import ImitationFactory
+from loco_mujoco import ImitationFactory, RLFactory
+
+import omegaconf
 
 
 # can increase the speed by ~30% on some GPUs
@@ -10,7 +12,11 @@ os.environ['XLA_FLAGS'] = (
     '--xla_gpu_triton_gemm_any=True ')
 
 # create env
-env = ImitationFactory.make("MjxUnitreeG1", default_dataset_conf=dict(task="stepinplace1"))
+# env = ImitationFactory.make("MjxUnitreeG1", default_dataset_conf=dict(task="stepinplace1"))
+
+# load config
+config = omegaconf.OmegaConf.load("/home/olegkaidanov/polimi_lmj/loco-mujoco/examples/training_examples/jax_rl/conf2.yaml")
+env = RLFactory.make(**config.experiment.env_params, **config.experiment.task_factory.params)
 
 # create keys
 key = jax.random.key(0)
@@ -35,7 +41,7 @@ while i < 100000:
     # step
     keys = jax.random.split(key, n_envs + 1)
     key, action_keys = keys[0], keys[1:]
-    action = rng_sample_uni_action(action_keys)
+    action = rng_sample_uni_action(action_keys) * 0.0
     state = rng_step(state, action)
 
     # parallel render

@@ -207,6 +207,10 @@ class Mjx(Mujoco):
         done = jnp.logical_or(done, jnp.any(jnp.isnan(cur_obs)))
         cur_obs = jnp.nan_to_num(cur_obs, nan=0.0)
 
+        total_timestep = carry.total_timestep
+        total_timestep = total_timestep + 1
+        carry = carry.replace(total_timestep=total_timestep)
+
         # create state
         carry = carry.replace(cur_step_in_episode=carry.cur_step_in_episode + 1)
         state = state.replace(data=data, observation=cur_obs, reward=reward,

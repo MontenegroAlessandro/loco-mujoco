@@ -38,7 +38,8 @@ class PDControl(ControlFunction):
                  p_gain: Union[float, np.ndarray],
                  d_gain: Union[float, np.ndarray],
                  nominal_joint_positions: np.ndarray = None,
-                 scale_action_to_jnt_limits: bool = True,
+                 scale_action_to_jnt_limits: bool = False,
+                 action_scale: float = 1.0,
                  **kwargs: Any):
         """
         Initialize the PDControl class.
@@ -56,7 +57,10 @@ class PDControl(ControlFunction):
         self._ctrl_ranges = []
         self._jnt_ranges = []
         self._jnt_names = []
+
         self._scale_action_to_jnt_limits = scale_action_to_jnt_limits
+        self._action_scale = action_scale
+        
         for actuator in env.mjspec.actuators:
             jnt_name = actuator.target
             ctrl_range = actuator.ctrlrange if actuator.ctrllimited else np.array([-np.inf, np.inf])
@@ -80,7 +84,7 @@ class PDControl(ControlFunction):
         if nominal_joint_positions is None:
             self._nominal_joint_positions = env._model.qpos0[self._qpos_ids]
         else:
-            self._nominal_joint_positions = nominal_joint_positions
+            self._nominal_joint_positions = np.array(nominal_joint_positions)
 
         self._high_pos_target = self._jnt_ranges[:, 1] - self._nominal_joint_positions
         self._low_pos_target = self._jnt_ranges[:, 0] - self._nominal_joint_positions
@@ -90,8 +94,11 @@ class PDControl(ControlFunction):
         self.norm_act_delta = (self._high_pos_target - self._low_pos_target) / 2.0
 
         # set the action space limits for the agent to -1 and 1
-        low = -np.ones_like(self.norm_act_mean)
-        high = np.ones_like(self.norm_act_mean)
+        # low = -np.ones_like(self.norm_act_mean)
+        # high = np.ones_like(self.norm_act_mean)
+
+        low = self._low_pos_target
+        high = self._high_pos_target
 
         super(PDControl, self).__init__(env, low, high, **kwargs)
 
@@ -152,6 +159,8 @@ class PDControl(ControlFunction):
             unnormalized_action = self._unnormalize_action(action)
         else:
             unnormalized_action = action
+
+        unnormalized_action = unnormalized_action * self._action_scale
 
         pd_state = carry.control_func_state
 

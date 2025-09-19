@@ -1151,8 +1151,8 @@ class GoalChangingRandomRootVelocity(Goal, RootVelocityArrowVisualizer):
                  max_x_vel: float = 1.0,
                  max_y_vel: float = 1.0,
                  max_yaw_vel: float = 1.0,
-                 max_height: float = 1.04,
-                 min_height: float = 0.65,
+                 max_height: float = 0.68,
+                 min_height: float = 0.67,
                  resample_rate: float = 1/800,
                  still_proportion: float = 0.1,
                  gait_frequency_range: List[float] = [1.0, 2.0],
@@ -1229,7 +1229,7 @@ class GoalChangingRandomRootVelocity(Goal, RootVelocityArrowVisualizer):
         Returns:
             GoalRandomRootVelocityAndFrequencyState: Initialized state.
         """
-        return GoalRandomRootVelocityAndFrequencyState(0.0, 0.0, 0.0, 0.6, 0.0)
+        return GoalRandomRootVelocityAndFrequencyState(0.0, 0.0, 0.0, 0.68, 0.0)
 
     def reset_state(self,
                     env: Any,
