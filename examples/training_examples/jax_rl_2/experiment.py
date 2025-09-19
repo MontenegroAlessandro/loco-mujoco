@@ -44,7 +44,7 @@ def experiment(config: DictConfig):
         train_fn = TD3Jax.build_train_fn(env, agent_conf)
 
         # JIT and vmap training function
-        train_fn = jax.jit(jax.vmap(train_fn)) if config.experiment.n_seeds > 1 else jax.jit(train_fn)
+        train_fn = jax.vmap(train_fn) if config.experiment.n_seeds > 1 else train_fn
 
         # Get rng keys and run training
         rngs = [jax.random.PRNGKey(i) for i in range(config.experiment.n_seeds + 1)]
