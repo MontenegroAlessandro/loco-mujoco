@@ -28,6 +28,13 @@ def experiment(config: DictConfig):
         # Create env
         factory = TaskFactory.get_factory_cls(config.experiment.task_factory.name)
         env = factory.make(**config.experiment.env_params, **config.experiment.task_factory.params)
+
+        # Create eval env
+        eval_env = factory.make(**config.experiment.env_params, **config.experiment.task_factory.params)
+        eval_env = LogWrapper(eval_env)
+        eval_env = VecEnv(eval_env)
+        if config.experiment.normalize_env:
+            eval_env = NormalizeVecReward(eval_env, config.experiment.gamma)
         
         # --- TD3 SPECIFIC CHANGES START HERE ---
 
@@ -41,7 +48,7 @@ def experiment(config: DictConfig):
         agent_conf = TD3Jax.init_agent_conf(env, config)
 
         # Build training function
-        train_fn = TD3Jax.build_train_fn(env, agent_conf)
+        train_fn = TD3Jax.build_train_fn(env, agent_conf, wandb_run=run, eval_env=eval_env)
 
         # JIT and vmap training function
         train_fn = jax.vmap(train_fn) if config.experiment.n_seeds > 1 else train_fn

@@ -58,7 +58,10 @@ experiment:
   utd_ratio: 1 # Standard TD3 usually has a UTD of 1
   num_envs: 2048
   total_timesteps: 10e7
+  n_seeds: 1
+  vmap_across_seeds: true
   normalize_env: true
+  debug: false
   log_interval: 1e6 # Log every 1000 parallel steps
   validation:
     active: false

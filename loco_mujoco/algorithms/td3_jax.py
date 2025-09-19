@@ -48,7 +48,7 @@ class TD3AgentState(AgentStateBase):
     critic_train_state: TrainState
     target_actor_params: FrozenDict
     target_critic_params: FrozenDict
-    replay_buffer: ReplayBuffer
+    # replay_buffer: ReplayBuffer
     noise_scales: jnp.ndarray
 
     def serialize(self):
@@ -71,7 +71,7 @@ class TD3AgentState(AgentStateBase):
             critic_train_state=flax.serialization.from_state_dict(critic_ts, d["critic_train_state"]),
             target_actor_params=d["target_actor_params"],
             target_critic_params=d["target_critic_params"],
-            replay_buffer=flax.serialization.from_state_dict(ReplayBuffer, d["replay_buffer"])
+            # replay_buffer=flax.serialization.from_state_dict(ReplayBuffer, d["replay_buffer"])
         )
 
 class TD3Jax(JaxRLAlgorithmBase):
@@ -230,11 +230,12 @@ class TD3Jax(JaxRLAlgorithmBase):
                 return new_actor_ts, new_target_actor_p, new_target_critic_p, actor_loss
             
             # Delayed update
-            actor_ts, target_actor_p, target_critic_p, actor_loss = jax.lax.cond(
-                critic_train_state.step % config.policy_frequency == 0,
-                lambda: _actor_and_target_update(agent_state.actor_train_state, critic_train_state, agent_state.target_actor_params, agent_state.target_critic_params),
-                lambda: (agent_state.actor_train_state, agent_state.target_actor_params, agent_state.target_critic_params, 0.0)
-            )
+            # actor_ts, target_actor_p, target_critic_p, actor_loss = jax.lax.cond(
+            #     critic_train_state.step % config.policy_frequency == 0,
+            #     lambda: _actor_and_target_update(agent_state.actor_train_state, critic_train_state, agent_state.target_actor_params, agent_state.target_critic_params),
+            #     lambda: (agent_state.actor_train_state, agent_state.target_actor_params, agent_state.target_critic_params, 0.0)
+            # )
+            actor_ts, target_actor_p, target_critic_p, actor_loss = _actor_and_target_update(agent_state.actor_train_state, critic_train_state, agent_state.target_actor_params, agent_state.target_critic_params)
             
             metrics = {"critic_loss": critic_loss, "actor_loss": actor_loss}
             
