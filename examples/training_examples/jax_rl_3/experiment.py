@@ -29,23 +29,29 @@ def experiment(config: DictConfig):
         # Create env
         factory = TaskFactory.get_factory_cls(config.experiment.task_factory.name)
         env = factory.make(**config.experiment.env_params, **config.experiment.task_factory.params)
-        
-        # --- TD3 SPECIFIC CHANGES START HERE ---
 
         # Wrap env to log episode stats
         env = LogWrapper(env)
         env = VecEnv(env)
         if config.experiment.normalize_env:
             env = NormalizeVecReward(env, config.experiment.gamma)
+
+        # Create eval env
+        eval_env = factory.make(**config.experiment.env_params, **config.experiment.task_factory.params)
+        eval_env = LogWrapper(eval_env)
+        eval_env = VecEnv(eval_env)
+        if config.experiment.normalize_env:
+            eval_env = NormalizeVecReward(eval_env, config.experiment.gamma)
         
         # Get initial agent configuration
         agent_conf = FastTD3Jax.init_agent_conf(env, config)
 
         # Build training function
-        train_fn = FastTD3Jax.build_train_fn(env, agent_conf)
+        train_fn = FastTD3Jax.build_train_fn(env, agent_conf, wandb_run=run, eval_env=eval_env)
 
         # JIT and vmap training function
-        train_fn = jax.jit(jax.vmap(train_fn)) if config.experiment.n_seeds > 1 else jax.jit(train_fn)
+        # train_fn = jax.jit(jax.vmap(train_fn)) if config.experiment.n_seeds > 1 else jax.jit(train_fn)
+        train_fn = jax.vmap(train_fn) if config.experiment.n_seeds > 1 else train_fn
 
         print("Starting training...")
 

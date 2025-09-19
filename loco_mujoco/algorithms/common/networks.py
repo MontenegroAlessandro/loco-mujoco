@@ -87,7 +87,7 @@ class TD3Actor(nn.Module):
     """
     action_dim: int
     hidden_layer_dims: Sequence[int] = (256,256)
-    activation: str = "tanh"
+    activation: str = "relu"
 
     def setup(self):
         self.activation_fn = get_activation_fn(self.activation)
@@ -113,7 +113,7 @@ class TD3Critic(nn.Module):
     [AM] Critic twin networks for TD3 (i.e., Q-function).
     """
     hidden_layer_dims: Sequence[int] = (256,256)
-    activation: str = "tanh"
+    activation: str = "relu"
 
     def setup(self):
         self.activation_fn = get_activation_fn(self.activation)

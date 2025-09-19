@@ -34,8 +34,7 @@ class AdaptiveLRState:
 
 class TrainState(train_state.TrainState):
     run_stats: Any
-
-    adaptive_lr_state: Optional[AdaptiveLRState]
+    adaptive_lr_state: Optional[AdaptiveLRState] = None
 
 @struct.dataclass
 class TrainStateBuffer:

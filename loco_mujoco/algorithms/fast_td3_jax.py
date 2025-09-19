@@ -3,13 +3,16 @@ import jax.numpy as jnp
 import optax
 import flax
 import flax.linen as nn
+import numpy as np
 from dataclasses import dataclass
 from loco_mujoco.algorithms import AgentConfBase, AgentStateBase, TD3Actor, TD3Critic, JaxRLAlgorithmBase, FastTD3Critic, ReplayBuffer, TrainState
 from omegaconf import DictConfig, OmegaConf
-from typing import Any
+# from typing import Any
 from flax import struct
-from flax.core import FrozenDict
+# from flax.core import FrozenDict
 from loco_mujoco.utils import MetricsHandler
+from loco_mujoco.core.wrappers import LogEnvState
+from tqdm import tqdm
 
 @dataclass(frozen=True)
 class FastTD3AgentConf(AgentConfBase):
@@ -42,7 +45,7 @@ class FastTD3AgentState(AgentStateBase):
     critic_train_state: TrainState
     target_actor_params: flax.core.FrozenDict
     target_critic_params: flax.core.FrozenDict
-    replay_buffer: ReplayBuffer
+    # replay_buffer: ReplayBuffer
     noise_scales: jnp.ndarray
     
     def serialize(self):
@@ -51,7 +54,7 @@ class FastTD3AgentState(AgentStateBase):
             "critic_train_state": flax.serialization.to_state_dict(self.critic_train_state),
             "target_actor_params": self.target_actor_params,
             "target_critic_params": self.target_critic_params,
-            "replay_buffer": flax.serialization.to_state_dict(self.replay_buffer)
+            # "replay_buffer": flax.serialization.to_state_dict(self.replay_buffer)
         }
         return serialized_state
 
@@ -65,7 +68,7 @@ class FastTD3AgentState(AgentStateBase):
             critic_train_state=flax.serialization.from_state_dict(critic_ts, d["critic_train_state"]),
             target_actor_params=d["target_actor_params"],
             target_critic_params=d["target_critic_params"],
-            replay_buffer=flax.serialization.from_state_dict(ReplayBuffer, d["replay_buffer"])
+            # replay_buffer=flax.serialization.from_state_dict(ReplayBuffer, d["replay_buffer"])
         )
 
 class FastTD3Jax(JaxRLAlgorithmBase):
@@ -139,16 +142,16 @@ class FastTD3Jax(JaxRLAlgorithmBase):
         target_critic_params = critic_variables['params']
         
         # Initialize an empty replay buffer
-        buffer_size = config.buffer_size
-        replay_buffer = ReplayBuffer(
-            obs=jnp.zeros((buffer_size, env.info.observation_space.shape[0])),
-            actions=jnp.zeros((buffer_size, env.info.action_space.shape[0])),
-            rewards=jnp.zeros(buffer_size),
-            next_obs=jnp.zeros((buffer_size, env.info.observation_space.shape[0])),
-            dones=jnp.zeros(buffer_size, dtype=jnp.int32),
-            ptr=0,
-            size=0
-        )
+        # buffer_size = config.buffer_size
+        # replay_buffer = ReplayBuffer(
+        #     obs=jnp.zeros((buffer_size, env.info.observation_space.shape[0])),
+        #     actions=jnp.zeros((buffer_size, env.info.action_space.shape[0])),
+        #     rewards=jnp.zeros(buffer_size),
+        #     next_obs=jnp.zeros((buffer_size, env.info.observation_space.shape[0])),
+        #     dones=jnp.zeros(buffer_size, dtype=jnp.int32),
+        #     ptr=0,
+        #     size=0
+        # )
 
         # initialize noise scales
         noise_scales = jax.random.uniform(
@@ -164,233 +167,463 @@ class FastTD3Jax(JaxRLAlgorithmBase):
             critic_train_state=critic_train_state,
             target_actor_params=target_actor_params,
             target_critic_params=target_critic_params,
-            replay_buffer=replay_buffer,
+            # replay_buffer=replay_buffer,
             noise_scales=noise_scales
         )
-    
+
     @classmethod
-    def _train_fn(cls, rng, env, agent_conf: FastTD3AgentConf, mh: MetricsHandler = None, wandb_run=None) -> Any:
-        # extract the experiment config
+    def _train_fn(cls, rng, env, agent_conf: FastTD3AgentConf, eval_env = None, mh: MetricsHandler = None, wandb_run=None):
         config = agent_conf.config.experiment
         action_limit = env.info.action_space.high[0]
+
+        # [1] learning step (to be jitted)
+        @jax.jit
+        def _learning_step(agent_state, batch):
+            rng, noise_rng = jax.random.split(jax.random.PRNGKey(agent_state.actor_train_state.step))
+            
+            # update the critic
+            noise = (jax.random.normal(noise_rng, batch["actions"].shape) * config.policy_noise).clip(-config.noise_clip, config.noise_clip)
+            actor_vars = {'params': agent_state.target_actor_params, 'run_stats': agent_state.actor_train_state.run_stats}
+            next_action_dist, _ = agent_state.actor_train_state.apply_fn(actor_vars, batch["next_obs"], mutable=['run_stats'])
+            next_action = (next_action_dist + noise).clip(-action_limit, action_limit)
+            
+            critic_vars = {'params': agent_state.target_critic_params, 'run_stats': agent_state.critic_train_state.run_stats}
+            (target_logits1, target_logits2), _ = agent_conf.critic_module.apply(critic_vars, batch["next_obs"], next_action, mutable=['run_stats'])
+            
+            proj1, proj2 = agent_conf.critic_module.apply(critic_vars, target_logits1, target_logits2, batch["rewards"], (1.0 - batch["dones"]), config.gamma, method=agent_conf.critic_module.projection)
+            q1_val = agent_conf.critic_module.apply(critic_vars, nn.softmax(target_logits1), method=agent_conf.critic_module.get_value)
+            q2_val = agent_conf.critic_module.apply(critic_vars, nn.softmax(target_logits2), method=agent_conf.critic_module.get_value)
+            target_dist = jnp.where(q1_val[:, None] < q2_val[:, None], proj1, proj2)
+
+            def _critic_loss_fn(critic_params):
+                critic_vars_loss = {'params': critic_params, 'run_stats': agent_state.critic_train_state.run_stats}
+                (logits1, logits2), _ = agent_conf.critic_module.apply(critic_vars_loss, batch["obs"], batch["actions"], mutable=['run_stats'])
+                loss1 = -jnp.sum(target_dist * nn.log_softmax(logits1), axis=1).mean()
+                loss2 = -jnp.sum(target_dist * nn.log_softmax(logits2), axis=1).mean()
+                return loss1 + loss2
+
+            critic_loss, critic_grads = jax.value_and_grad(_critic_loss_fn)(agent_state.critic_train_state.params)
+            critic_train_state = agent_state.critic_train_state.apply_gradients(grads=critic_grads)
+            
+            # update the actor and the targets
+            def _actor_and_target_update(actor_ts, critic_ts, target_actor_p, target_critic_p):
+                def _actor_loss_fn(actor_params):
+                    actor_vars_loss = {'params': actor_params, 'run_stats': actor_ts.run_stats}
+                    actions, _ = agent_conf.actor_module.apply(actor_vars_loss, batch["obs"], mutable=['run_stats'])
+                    
+                    critic_vars_loss_actor = {'params': critic_ts.params, 'run_stats': critic_ts.run_stats}
+                    (q_logits, _), _ = agent_conf.critic_module.apply(critic_vars_loss_actor, batch["obs"], actions, mutable=['run_stats'])
+                    
+                    q_probs = nn.softmax(q_logits)
+                    q_value = agent_conf.critic_module.apply(
+                        critic_vars_loss_actor, q_probs, method=agent_conf.critic_module.get_value
+                    )
+                    return -q_value.mean()
+                    
+                actor_loss, actor_grads = jax.value_and_grad(_actor_loss_fn)(actor_ts.params)
+                new_actor_ts = actor_ts.apply_gradients(grads=actor_grads)
+                
+                # Target network soft update 
+                new_target_actor_p = jax.tree.map(lambda x, y: x * (1.0 - config.tau) + y * config.tau, target_actor_p, new_actor_ts.params)
+                new_target_critic_p = jax.tree.map(lambda x, y: x * (1.0 - config.tau) + y * config.tau, target_critic_p, critic_ts.params)
+
+                return new_actor_ts, new_target_actor_p, new_target_critic_p, actor_loss
+            
+            # Delayed update
+            actor_ts, target_actor_p, target_critic_p, actor_loss = jax.lax.cond(
+                critic_train_state.step % config.policy_frequency == 0,
+                lambda: _actor_and_target_update(agent_state.actor_train_state, critic_train_state, agent_state.target_actor_params, agent_state.target_critic_params),
+                lambda: (agent_state.actor_train_state, agent_state.target_actor_params, agent_state.target_critic_params, 0.0)
+            )
+            
+            metrics = {"critic_loss": critic_loss, "actor_loss": actor_loss}
+            
+            return agent_state.replace(
+                actor_train_state=actor_ts,
+                critic_train_state=critic_train_state,
+                target_actor_params=target_actor_p,
+                target_critic_params=target_critic_p
+            ), metrics
+
+        # [2] initialize the agent state and the replay buffer
+        agent_state = cls._create_initial_agent_state(rng, env, agent_conf)
+        replay_buffer = ReplayBuffer(
+            obs=np.zeros((config.buffer_size, *env.info.observation_space.shape), dtype=np.float32),
+            actions=np.zeros((config.buffer_size, *env.info.action_space.shape), dtype=np.float32),
+            rewards=np.zeros(config.buffer_size, dtype=np.float32),
+            next_obs=np.zeros((config.buffer_size, *env.info.observation_space.shape), dtype=np.float32),
+            dones=np.zeros(config.buffer_size, dtype=np.float32),
+            ptr=0, size=0
+        )
         
-        # create initial agent state and env state
-        initial_agent_state = cls._create_initial_agent_state(rng, env, agent_conf)
         reset_rng = jax.random.split(rng, config.num_envs)
         obsv, env_state = env.reset(reset_rng)
 
-        def _update_step(runner_state, _):
-            # unroll info
-            agent_state, env_state, last_obs, rng = runner_state
-            
-            # ENV INTERACTION
-            # take randomness seeds
+        # metrics storing
+        critic_losses = []
+        actor_losses = []
+        all_episode_metrics = []
+        
+        # [3] training loop
+        num_updates = int(config.total_timesteps // config.num_envs)
+        for i in tqdm(range(num_updates)):
+            # [3.1] environment interaction and replay buffer update
             rng, action_rng, noise_resample_rng = jax.random.split(rng, 3)
-
-            actor_vars = {
-                'params': agent_state.actor_train_state.params, 
-                'run_stats': agent_state.actor_train_state.run_stats
-            }
-
-            # action selection with exploration noise
-            action, updates = agent_state.actor_train_state.apply_fn(
-                actor_vars, last_obs, mutable=['run_stats']
-            ) # select the action from the deterministic policy
-
+            actor_vars = {'params': agent_state.actor_train_state.params, 'run_stats': agent_state.actor_train_state.run_stats}
+            action, updates = agent_state.actor_train_state.apply_fn(actor_vars, obsv, mutable=['run_stats'])
             new_actor_ts = agent_state.actor_train_state.replace(run_stats=updates['run_stats'])
-            agent_state = agent_state.replace(actor_train_state=new_actor_ts)
-
-            noise = jax.random.normal(action_rng, shape=action.shape) * agent_state.noise_scales # sample gaussian noise
-            action = jnp.clip(action + noise, -action_limit, action_limit) # clip the action + noise
-
-            # apply the action
-            obsv, reward, absorbing, done, info, env_state = env.step(env_state, action)
-
-            # resample the noise
-            new_scales = jax.random.uniform(
-                noise_resample_rng,
-                shape=(config.num_envs, 1),
-                minval=config.std_min,
-                maxval=config.std_max
-            )
-            updated_noise_scales = jnp.where(
-                done[:, None], new_scales, agent_state.noise_scales
-            )
-
-            # add the transition to the replay buffer
-            replay_buffer = agent_state.replay_buffer
-            ptr = replay_buffer.ptr
-            indices = (ptr + jnp.arange(config.num_envs)) % config.buffer_size
-
-            new_replay_buffer = replay_buffer.replace(
-                obs=replay_buffer.obs.at[indices].set(last_obs),
-                actions=replay_buffer.actions.at[indices].set(action),
-                rewards=replay_buffer.rewards.at[indices].set(reward),
-                next_obs=replay_buffer.next_obs.at[indices].set(obsv),
-                dones=replay_buffer.dones.at[indices].set(done),
-                ptr=(ptr + config.num_envs) % config.buffer_size,
-                size=jnp.minimum(replay_buffer.size + config.num_envs, config.buffer_size)
-            )
-            agent_state = agent_state.replace(replay_buffer=new_replay_buffer, noise_scales=updated_noise_scales)
             
-            # LEARNING
-            def _learning_step(agent_state, rng):
-                # sample a batch of transitions from the replay buffer
-                rng, sample_rng = jax.random.split(rng)
-                batch_indices = jax.random.randint(sample_rng, (config.batch_size,), 0, agent_state.replay_buffer.size)
-                batch = ReplayBuffer(
-                    obs=agent_state.replay_buffer.obs[batch_indices],
-                    actions=agent_state.replay_buffer.actions[batch_indices],
-                    rewards=agent_state.replay_buffer.rewards[batch_indices],
-                    next_obs=agent_state.replay_buffer.next_obs[batch_indices],
-                    dones=agent_state.replay_buffer.dones[batch_indices],
-                    ptr=0, 
-                    size=0 
-                )
+            noise = jax.random.normal(action_rng, shape=action.shape) * agent_state.noise_scales
+            action = jnp.clip(action + noise, -action_limit, action_limit)
+            
+            next_obsv, reward, absorbing, done, info, env_state = env.step(env_state, action)
 
-                # update the critic
-                rng, noise_rng = jax.random.split(rng)
-                noise = (jax.random.normal(noise_rng, batch.actions.shape) * config.policy_noise).clip(-config.noise_clip, config.noise_clip)
-
-                actor_vars = {
-                    'params': agent_state.target_actor_params, 
-                    'run_stats': agent_state.actor_train_state.run_stats
-                }
-                next_action_dist, _ = agent_state.actor_train_state.apply_fn(actor_vars, batch.next_obs, mutable=['run_stats'])
-                next_action = (next_action_dist + noise).clip(-action_limit, action_limit)
-                
-                critic_vars = {
-                    'params': agent_state.target_critic_params, 
-                    'run_stats': agent_state.critic_train_state.run_stats
-                }
-                (target_logits1, target_logits2), _ = agent_conf.critic_module.apply(critic_vars, batch.next_obs, next_action, mutable=['run_stats'])
-                
-                # Project the target distributions
-                proj1, proj2 = agent_conf.critic_module.apply(
-                    critic_vars, target_logits1, target_logits2, batch.rewards,
-                    (1.0 - batch.dones), config.gamma, method=agent_conf.critic_module.projection
-                )
-
-                # Clipped Double Q-Learning: select the distribution corresponding to the smaller Q-value
-                q1_val = agent_conf.critic_module.apply(
-                    critic_vars, nn.softmax(target_logits1), method=agent_conf.critic_module.get_value
-                )
-                q2_val = agent_conf.critic_module.apply(
-                    critic_vars, nn.softmax(target_logits2), method=agent_conf.critic_module.get_value
-                )
-                
-                # Select the target distribution from the critic with the lower Q-value
-                target_dist = jnp.where(q1_val[:, None] < q2_val[:, None], proj1, proj2)
-
-                def _critic_loss_fn(critic_params):
-                    critic_vars_loss = {
-                        'params': critic_params, 
-                        'run_stats': agent_state.critic_train_state.run_stats
+            # update the noise for the next interaction 
+            new_scales = jax.random.uniform(noise_resample_rng, shape=(config.num_envs, 1), minval=config.std_min, maxval=config.std_max)
+            updated_noise_scales = jnp.where(done[:, None], new_scales, agent_state.noise_scales)
+            
+            # replay buffer update (circular array)
+            ptr = replay_buffer.ptr
+            indices = (ptr + np.arange(config.num_envs)) % config.buffer_size
+            replay_buffer.obs[indices] = np.asarray(obsv)
+            replay_buffer.actions[indices] = np.asarray(action)
+            replay_buffer.rewards[indices] = np.asarray(reward)
+            replay_buffer.next_obs[indices] = np.asarray(next_obsv)
+            replay_buffer.dones[indices] = np.asarray(done)
+            replay_buffer.ptr = (ptr + config.num_envs) % config.buffer_size
+            replay_buffer.size = min(replay_buffer.size + config.num_envs, config.buffer_size)
+            
+            obsv = next_obsv
+            agent_state = agent_state.replace(actor_train_state=new_actor_ts, noise_scales=updated_noise_scales)
+            
+            # learn (just after the warm up)
+            if i * config.num_envs > config.learning_starts:
+                # learn for utd_ratio times
+                for _ in range(config.utd_ratio):
+                    # sample batch
+                    batch_indices = np.random.randint(0, replay_buffer.size, size=config.batch_size)
+                    batch = {
+                        "obs": replay_buffer.obs[batch_indices],
+                        "actions": replay_buffer.actions[batch_indices],
+                        "rewards": replay_buffer.rewards[batch_indices],
+                        "next_obs": replay_buffer.next_obs[batch_indices],
+                        "dones": replay_buffer.dones[batch_indices],
                     }
-                    (logits1, logits2), _ = agent_conf.critic_module.apply(critic_vars_loss, batch.obs, batch.actions, mutable=['run_stats'])
-                    loss1 = -jnp.sum(target_dist * nn.log_softmax(logits1), axis=1).mean()
-                    loss2 = -jnp.sum(target_dist * nn.log_softmax(logits2), axis=1).mean()
-                    return loss1 + loss2
+                    # learn step
+                    agent_state, metrics = _learning_step(agent_state, batch)
+                    # metrics update
+                    critic_losses.append(jax.device_get(metrics["critic_loss"]))
+                    actor_losses.append(jax.device_get(metrics["actor_loss"]))
+            
+            # log stuff
+            if i % config.get("log_interval", 100) == 0 and wandb_run is not None:
+                log_data = {}
 
-                critic_loss, critic_grads = jax.value_and_grad(_critic_loss_fn)(agent_state.critic_train_state.params)
-                critic_train_state = agent_state.critic_train_state.apply_gradients(grads=critic_grads)
-                
-                # delayed policy updates
-                def _actor_and_target_update(actor_ts, critic_ts, target_actor_p, target_critic_p):
-                    def _actor_loss_fn(actor_params):
-                        actor_vars_loss = {'params': actor_params, 'run_stats': actor_ts.run_stats}
-                        actions, _ = agent_conf.actor_module.apply(actor_vars_loss, batch.obs, mutable=['run_stats'])
-                        
-                        critic_vars_loss_actor = {'params': critic_ts.params, 'run_stats': critic_ts.run_stats}
-                        (q_logits, _), _ = agent_conf.critic_module.apply(critic_vars_loss_actor, batch.obs, actions, mutable=['run_stats'])
-                        
-                        q_probs = nn.softmax(q_logits)
-                        
-                        q_probs = nn.softmax(q_logits)
-                        q_value = agent_conf.critic_module.apply(
-                            critic_vars_loss_actor, q_probs, method=agent_conf.critic_module.get_value
-                        )
-                        return -q_value.mean()
-                    
-                    actor_loss, actor_grads = jax.value_and_grad(_actor_loss_fn)(actor_ts.params)
-                    new_actor_ts = actor_ts.apply_gradients(grads=actor_grads)
-                    
-                    # Target network soft update 
-                    new_target_actor_p = jax.tree.map(lambda x, y: x * (1.0 - config.tau) + y * config.tau, target_actor_p, new_actor_ts.params)
-                    new_target_critic_p = jax.tree.map(lambda x, y: x * (1.0 - config.tau) + y * config.tau, target_critic_p, critic_ts.params)
-                    
-                    return new_actor_ts, new_target_actor_p, new_target_critic_p, actor_loss
+                # Add learning metrics if training has started
+                if i * config.num_envs > config.learning_starts:
+                    log_data["Loss/Critic Loss"] = jax.device_get(metrics["critic_loss"])
+                    log_data["Loss/Actor Loss"] = jax.device_get(metrics["actor_loss"])
 
-                # Delayed update
-                actor_ts, target_actor_p, target_critic_p, actor_loss = jax.lax.cond(
-                    critic_train_state.step % config.policy_frequency == 0,
-                    lambda: _actor_and_target_update(agent_state.actor_train_state, critic_train_state, agent_state.target_actor_params, agent_state.target_critic_params),
-                    lambda: (agent_state.actor_train_state, agent_state.target_actor_params, agent_state.target_critic_params, 0.0)
-                )
+                eval_rng, rng = jax.random.split(rng)
+                eval_return, eval_length = cls.run_evaluation(agent_conf, agent_state, eval_env, eval_rng)
 
-                metrics = {"critic_loss": critic_loss, "actor_loss": actor_loss}
-                return agent_state.replace(
-                    actor_train_state=actor_ts,
-                    critic_train_state=critic_train_state,
-                    target_actor_params=target_actor_p,
-                    target_critic_params=target_critic_p
-                ), metrics
+                # Add evaluation metrics to the log data
+                if not np.isnan(eval_return):
+                    log_data["Evaluation/Mean Return"] = eval_return
+                    log_data["Evaluation/Mean Length"] = eval_length
 
-            # UTD updates
-            rng, learning_rng = jax.random.split(rng)
+                if log_data:
+                    wandb_run.log(log_data, step=i * config.num_envs)
+        
+        return {"agent_state": agent_state}
 
-            def _perform_learning_updates(agent_s, rng_key):
-                """A function that runs the learning step `utd_ratio` times."""
+    # In fast_td3_jax.py, inside the FastTD3Jax class
 
-                # This is the body of our for-loop. It performs one learning step.
-                def _single_update(i, loop_carry):
-                    agent_s_loop, metrics_accumulator = loop_carry
-                    
-                    # Create a unique RNG key for each gradient update
-                    update_rng = jax.random.fold_in(rng_key, i)
-                    
-                    # Perform one learning step
-                    updated_agent_s, metrics = _learning_step(agent_s_loop, update_rng)
-                    
-                    # Accumulate the metrics from this step
-                    metrics_accumulator = jax.tree.map(lambda acc, new: acc + new, metrics_accumulator, metrics)
-                    
-                    return updated_agent_s, metrics_accumulator
+    @classmethod
+    def run_evaluation(cls, agent_conf, agent_state, eval_env, rng):
+        """Runs a deterministic evaluation and manually computes metrics."""
+        config = agent_conf.config.experiment
+        action_limit = eval_env.info.action_space.high[0]
 
-                # Initial values for the loop carry
-                initial_metrics = {"critic_loss": 0.0, "actor_loss": 0.0}
-                
-                # Use fori_loop to run the update `utd_ratio` times
-                final_agent_s, total_metrics = jax.lax.fori_loop(
-                    0,
-                    config.utd_ratio,
-                    _single_update,
-                    (agent_s, initial_metrics)
-                )
-                
-                # Average the metrics over the number of updates
-                avg_metrics = jax.tree.map(lambda x: x / config.utd_ratio, total_metrics)
-                
-                return final_agent_s, avg_metrics
+        @jax.jit
+        def _eval_step(carry, _):
+            # Unpack the carry state
+            agent_state, obsv, env_state, rng, episode_returns, episode_lengths = carry
+            
+            # Select action deterministically
+            actor_vars = {'params': agent_state.actor_train_state.params, 
+                          'run_stats': agent_state.actor_train_state.run_stats}
+            action, _ = agent_state.actor_train_state.apply_fn(actor_vars, obsv, mutable=['run_stats'])
+            action = jnp.clip(action, -action_limit, action_limit)
 
-            # Use cond to call the learning loop only after `learning_starts`
-            agent_state, metrics = jax.lax.cond(
-                agent_state.replay_buffer.size > config.learning_starts,
-                lambda: _perform_learning_updates(agent_state, learning_rng),
-                lambda: (agent_state, {"critic_loss": 0.0, "actor_loss": 0.0})
-            )
-            metrics = {"critic_loss": 0., "actor_loss": 0.}
-            runner_state = (agent_state, env_state, obsv, rng)
+            # Step the environment
+            next_obsv, reward, absorbing, done, info, env_state = eval_env.step(env_state, action)
+            
+            # --- Manual Metric Calculation ---
+            # Update current episode stats
+            new_returns = episode_returns + reward
+            new_lengths = episode_lengths + 1
+            
+            # Store the final return and length if an episode is done, otherwise store NaN
+            finished_returns = jnp.where(done, new_returns, jnp.nan)
+            finished_lengths = jnp.where(done, new_lengths, jnp.nan)
+            
+            # Reset stats for environments that are done
+            next_episode_returns = jnp.where(done, 0.0, new_returns)
+            next_episode_lengths = jnp.where(done, 0, new_lengths)
+            
+            # Pack the next carry state and the output for this step
+            next_carry = (agent_state, next_obsv, env_state, rng, next_episode_returns, next_episode_lengths)
+            output = (finished_returns, finished_lengths)
 
-            return runner_state, metrics
+            return next_carry, output
 
-        # --- Run the main loop ---
-        runner_state_initial = (initial_agent_state, env_state, obsv, rng)
-        final_runner_state, collected_metrics = jax.lax.scan(
-            _update_step, runner_state_initial, None, length=config.total_timesteps
+        # --- Setup and Run the Scan Loop ---
+        num_eval_envs = config.validation.num_envs
+        reset_rng = jax.random.split(rng, num_eval_envs)
+        obsv, env_state = eval_env.reset(reset_rng)
+
+        # Initial carry now includes arrays to track returns and lengths
+        initial_carry = (
+            agent_state, obsv, env_state, rng,
+            jnp.zeros(num_eval_envs), jnp.zeros(num_eval_envs)
         )
         
-        return {"agent_state": final_runner_state[0], "metrics": collected_metrics}
+        # Run the evaluation loop
+        _, (all_returns, all_lengths) = jax.lax.scan(
+            _eval_step, initial_carry, None, length=config.validation.num_steps
+        )
+
+        # Calculate the mean over all completed episodes, ignoring the NaNs
+        mean_return = jnp.nanmean(all_returns)
+        mean_length = jnp.nanmean(all_lengths)
+        
+        return mean_return, mean_length
+
+    # @classmethod
+    # def _old_train_fn(cls, rng, env, agent_conf: FastTD3AgentConf, mh: MetricsHandler = None, wandb_run=None) -> Any:
+    #     # extract the experiment config
+    #     config = agent_conf.config.experiment
+    #     action_limit = env.info.action_space.high[0]
+    #     num_updates = int(config.total_timesteps // config.num_envs)
+        
+    #     # create initial agent state and env state
+    #     initial_agent_state = cls._create_initial_agent_state(rng, env, agent_conf)
+    #     reset_rng = jax.random.split(rng, config.num_envs)
+    #     obsv, env_state = env.reset(reset_rng)
+
+    #     def _update_step(runner_state, _):
+    #         # unroll info
+    #         agent_state, env_state, last_obs, rng = runner_state
+            
+    #         # ENV INTERACTION
+    #         # take randomness seeds
+    #         rng, action_rng, noise_resample_rng = jax.random.split(rng, 3)
+
+    #         actor_vars = {
+    #             'params': agent_state.actor_train_state.params, 
+    #             'run_stats': agent_state.actor_train_state.run_stats
+    #         }
+
+    #         # action selection with exploration noise
+    #         action, updates = agent_state.actor_train_state.apply_fn(
+    #             actor_vars, last_obs, mutable=['run_stats']
+    #         ) # select the action from the deterministic policy
+
+    #         new_actor_ts = agent_state.actor_train_state.replace(run_stats=updates['run_stats'])
+    #         agent_state = agent_state.replace(actor_train_state=new_actor_ts)
+
+    #         noise = jax.random.normal(action_rng, shape=action.shape) * agent_state.noise_scales # sample gaussian noise
+    #         action = jnp.clip(action + noise, -action_limit, action_limit) # clip the action + noise
+
+    #         # apply the action
+    #         obsv, reward, absorbing, done, info, env_state = env.step(env_state, action)
+
+    #         # resample the noise
+    #         new_scales = jax.random.uniform(
+    #             noise_resample_rng,
+    #             shape=(config.num_envs, 1),
+    #             minval=config.std_min,
+    #             maxval=config.std_max
+    #         )
+    #         updated_noise_scales = jnp.where(
+    #             done[:, None], new_scales, agent_state.noise_scales
+    #         )
+
+    #         # add the transition to the replay buffer
+    #         replay_buffer = agent_state.replay_buffer
+    #         ptr = replay_buffer.ptr
+    #         indices = (ptr + jnp.arange(config.num_envs)) % config.buffer_size
+
+    #         new_replay_buffer = replay_buffer.replace(
+    #             obs=replay_buffer.obs.at[indices].set(last_obs),
+    #             actions=replay_buffer.actions.at[indices].set(action),
+    #             rewards=replay_buffer.rewards.at[indices].set(reward),
+    #             next_obs=replay_buffer.next_obs.at[indices].set(obsv),
+    #             dones=replay_buffer.dones.at[indices].set(done),
+    #             ptr=(ptr + config.num_envs) % config.buffer_size,
+    #             size=jnp.minimum(replay_buffer.size + config.num_envs, config.buffer_size)
+    #         )
+    #         agent_state = agent_state.replace(replay_buffer=new_replay_buffer, noise_scales=updated_noise_scales)
+            
+    #         # LEARNING
+    #         def _learning_step(agent_state, rng):
+    #             # sample a batch of transitions from the replay buffer
+    #             rng, sample_rng = jax.random.split(rng)
+    #             batch_indices = jax.random.randint(sample_rng, (config.batch_size,), 0, agent_state.replay_buffer.size)
+    #             batch = ReplayBuffer(
+    #                 obs=agent_state.replay_buffer.obs[batch_indices],
+    #                 actions=agent_state.replay_buffer.actions[batch_indices],
+    #                 rewards=agent_state.replay_buffer.rewards[batch_indices],
+    #                 next_obs=agent_state.replay_buffer.next_obs[batch_indices],
+    #                 dones=agent_state.replay_buffer.dones[batch_indices],
+    #                 ptr=0, 
+    #                 size=0 
+    #             )
+
+    #             # update the critic
+    #             rng, noise_rng = jax.random.split(rng)
+    #             noise = (jax.random.normal(noise_rng, batch.actions.shape) * config.policy_noise).clip(-config.noise_clip, config.noise_clip)
+
+    #             actor_vars = {
+    #                 'params': agent_state.target_actor_params, 
+    #                 'run_stats': agent_state.actor_train_state.run_stats
+    #             }
+    #             next_action_dist, _ = agent_state.actor_train_state.apply_fn(actor_vars, batch.next_obs, mutable=['run_stats'])
+    #             next_action = (next_action_dist + noise).clip(-action_limit, action_limit)
+                
+    #             critic_vars = {
+    #                 'params': agent_state.target_critic_params, 
+    #                 'run_stats': agent_state.critic_train_state.run_stats
+    #             }
+    #             (target_logits1, target_logits2), _ = agent_conf.critic_module.apply(critic_vars, batch.next_obs, next_action, mutable=['run_stats'])
+                
+    #             # Project the target distributions
+    #             proj1, proj2 = agent_conf.critic_module.apply(
+    #                 critic_vars, target_logits1, target_logits2, batch.rewards,
+    #                 (1.0 - batch.dones), config.gamma, method=agent_conf.critic_module.projection
+    #             )
+
+    #             # Clipped Double Q-Learning: select the distribution corresponding to the smaller Q-value
+    #             q1_val = agent_conf.critic_module.apply(
+    #                 critic_vars, nn.softmax(target_logits1), method=agent_conf.critic_module.get_value
+    #             )
+    #             q2_val = agent_conf.critic_module.apply(
+    #                 critic_vars, nn.softmax(target_logits2), method=agent_conf.critic_module.get_value
+    #             )
+                
+    #             # Select the target distribution from the critic with the lower Q-value
+    #             target_dist = jnp.where(q1_val[:, None] < q2_val[:, None], proj1, proj2)
+
+    #             def _critic_loss_fn(critic_params):
+    #                 critic_vars_loss = {
+    #                     'params': critic_params, 
+    #                     'run_stats': agent_state.critic_train_state.run_stats
+    #                 }
+    #                 (logits1, logits2), _ = agent_conf.critic_module.apply(critic_vars_loss, batch.obs, batch.actions, mutable=['run_stats'])
+    #                 loss1 = -jnp.sum(target_dist * nn.log_softmax(logits1), axis=1).mean()
+    #                 loss2 = -jnp.sum(target_dist * nn.log_softmax(logits2), axis=1).mean()
+    #                 return loss1 + loss2
+
+    #             critic_loss, critic_grads = jax.value_and_grad(_critic_loss_fn)(agent_state.critic_train_state.params)
+    #             critic_train_state = agent_state.critic_train_state.apply_gradients(grads=critic_grads)
+                
+    #             # delayed policy updates
+    #             def _actor_and_target_update(actor_ts, critic_ts, target_actor_p, target_critic_p):
+    #                 def _actor_loss_fn(actor_params):
+    #                     actor_vars_loss = {'params': actor_params, 'run_stats': actor_ts.run_stats}
+    #                     actions, _ = agent_conf.actor_module.apply(actor_vars_loss, batch.obs, mutable=['run_stats'])
+                        
+    #                     critic_vars_loss_actor = {'params': critic_ts.params, 'run_stats': critic_ts.run_stats}
+    #                     (q_logits, _), _ = agent_conf.critic_module.apply(critic_vars_loss_actor, batch.obs, actions, mutable=['run_stats'])
+                        
+    #                     q_probs = nn.softmax(q_logits)
+                        
+    #                     q_probs = nn.softmax(q_logits)
+    #                     q_value = agent_conf.critic_module.apply(
+    #                         critic_vars_loss_actor, q_probs, method=agent_conf.critic_module.get_value
+    #                     )
+    #                     return -q_value.mean()
+                    
+    #                 actor_loss, actor_grads = jax.value_and_grad(_actor_loss_fn)(actor_ts.params)
+    #                 new_actor_ts = actor_ts.apply_gradients(grads=actor_grads)
+                    
+    #                 # Target network soft update 
+    #                 new_target_actor_p = jax.tree.map(lambda x, y: x * (1.0 - config.tau) + y * config.tau, target_actor_p, new_actor_ts.params)
+    #                 new_target_critic_p = jax.tree.map(lambda x, y: x * (1.0 - config.tau) + y * config.tau, target_critic_p, critic_ts.params)
+                    
+    #                 return new_actor_ts, new_target_actor_p, new_target_critic_p, actor_loss
+
+    #             # Delayed update
+    #             actor_ts, target_actor_p, target_critic_p, actor_loss = jax.lax.cond(
+    #                 critic_train_state.step % config.policy_frequency == 0,
+    #                 lambda: _actor_and_target_update(agent_state.actor_train_state, critic_train_state, agent_state.target_actor_params, agent_state.target_critic_params),
+    #                 lambda: (agent_state.actor_train_state, agent_state.target_actor_params, agent_state.target_critic_params, 0.0)
+    #             )
+
+    #             metrics = {"critic_loss": critic_loss, "actor_loss": actor_loss}
+    #             return agent_state.replace(
+    #                 actor_train_state=actor_ts,
+    #                 critic_train_state=critic_train_state,
+    #                 target_actor_params=target_actor_p,
+    #                 target_critic_params=target_critic_p
+    #             ), metrics
+
+    #         # UTD updates
+    #         rng, learning_rng = jax.random.split(rng)
+
+    #         def _perform_learning_updates(agent_s, rng_key):
+    #             """A function that runs the learning step `utd_ratio` times."""
+
+    #             # This is the body of our for-loop. It performs one learning step.
+    #             def _single_update(i, loop_carry):
+    #                 agent_s_loop, metrics_accumulator = loop_carry
+                    
+    #                 # Create a unique RNG key for each gradient update
+    #                 update_rng = jax.random.fold_in(rng_key, i)
+                    
+    #                 # Perform one learning step
+    #                 updated_agent_s, metrics = _learning_step(agent_s_loop, update_rng)
+                    
+    #                 # Accumulate the metrics from this step
+    #                 metrics_accumulator = jax.tree.map(lambda acc, new: acc + new, metrics_accumulator, metrics)
+                    
+    #                 return updated_agent_s, metrics_accumulator
+
+    #             # Initial values for the loop carry
+    #             initial_metrics = {"critic_loss": 0.0, "actor_loss": 0.0}
+                
+    #             # Use fori_loop to run the update `utd_ratio` times
+    #             final_agent_s, total_metrics = jax.lax.fori_loop(
+    #                 0,
+    #                 config.utd_ratio,
+    #                 _single_update,
+    #                 (agent_s, initial_metrics)
+    #             )
+                
+    #             # Average the metrics over the number of updates
+    #             avg_metrics = jax.tree.map(lambda x: x / config.utd_ratio, total_metrics)
+                
+    #             return final_agent_s, avg_metrics
+
+    #         # Use cond to call the learning loop only after `learning_starts`
+    #         agent_state, metrics = jax.lax.cond(
+    #             agent_state.replay_buffer.size > config.learning_starts,
+    #             lambda: _perform_learning_updates(agent_state, learning_rng),
+    #             lambda: (agent_state, {"critic_loss": 0.0, "actor_loss": 0.0})
+    #         )
+    #         metrics = {"critic_loss": 0., "actor_loss": 0.}
+    #         runner_state = (agent_state, env_state, obsv, rng)
+
+    #         return runner_state, metrics
+
+    #     # --- Run the main loop ---
+    #     runner_state_initial = (initial_agent_state, env_state, obsv, rng)
+    #     final_runner_state, collected_metrics = jax.lax.scan(
+    #         _update_step, runner_state_initial, None, length=num_updates
+    #     )
+        
+    #     return {"agent_state": final_runner_state[0], "metrics": collected_metrics}
     
     @classmethod
     def play_policy(cls, env, agent_conf: FastTD3AgentConf, agent_state: FastTD3AgentState, n_envs: int, 

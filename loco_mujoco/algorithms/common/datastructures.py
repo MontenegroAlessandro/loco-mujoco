@@ -1,15 +1,15 @@
-import jax.numpy as jnp
-from flax import struct
+import numpy as np
+from dataclasses import dataclass
 
-@struct.dataclass
+@dataclass
 class ReplayBuffer:
     """
     [AM] Replay buffer for TD3 agent.
     """
-    obs: jnp.ndarray
-    actions: jnp.ndarray
-    rewards: jnp.ndarray
-    next_obs: jnp.ndarray
-    dones: jnp.ndarray
+    obs: np.ndarray
+    actions: np.ndarray
+    rewards: np.ndarray
+    next_obs: np.ndarray
+    dones: np.ndarray
     ptr: int    # pointer to the current index
     size: int   # size of the replay buffer

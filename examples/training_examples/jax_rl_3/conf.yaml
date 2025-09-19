@@ -42,8 +42,8 @@ experiment:
   critic_lr: 3e-4
   
   # Replay Buffer and Batching
-  buffer_size: 1000000
-  # buffer_size: 1000
+  # buffer_size: 1000000
+  buffer_size: 1000
   batch_size: 32768
   # learning_starts: 25000
   learning_starts: 250
@@ -64,8 +64,8 @@ experiment:
   
   # General Training Config
   utd_ratio: 4
-  num_envs: 2048
-  # num_envs: 100
+  # num_envs: 2048
+  num_envs: 100
   # total_timesteps: 10e7
   total_timesteps: 1e6
   normalize_env: true
@@ -77,3 +77,4 @@ experiment:
     num_steps: 100
     num_envs: 100
     num: 10 # set to 0 to disable validation
+  log_interval: 100
