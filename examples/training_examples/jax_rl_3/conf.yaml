@@ -3,7 +3,7 @@ defaults:
   - override hydra/launcher: basic
 
 wandb:
-  project: "loco_mujoco_fast_td3" # New project name
+  project: "loco_mujoco_fast_td3"
 
 experiment:
   task_factory:
@@ -36,17 +36,18 @@ experiment:
   # Network Arch
   actor_hidden_dims: [512, 256]
   critic_hidden_dims: [512, 256]
+  activation: tanh
   
   # Optimizers
   actor_lr: 3e-4
   critic_lr: 3e-4
   
   # Replay Buffer and Batching
-  # buffer_size: 1000000
-  buffer_size: 1000
+  buffer_size: 1000000
+  # buffer_size: 1000
   batch_size: 32768
-  # learning_starts: 25000
-  learning_starts: 250
+  learning_starts: 25000
+  # learning_starts: 250
   
   # TD3 Core Parameters
   gamma: 0.99
@@ -64,10 +65,10 @@ experiment:
   
   # General Training Config
   utd_ratio: 4
-  # num_envs: 2048
-  num_envs: 100
-  # total_timesteps: 10e7
-  total_timesteps: 1e6
+  num_envs: 2048
+  # num_envs: 100
+  total_timesteps: 10e7
+  # total_timesteps: 1e6
   normalize_env: true
   debug: false
   n_seeds: 1
@@ -77,4 +78,4 @@ experiment:
     num_steps: 100
     num_envs: 100
     num: 10 # set to 0 to disable validation
-  log_interval: 100
+  log_interval: 1e6
