@@ -75,7 +75,7 @@ experiment:
   vmap_across_seeds: true
   validation:
     active: false
-    num_steps: 100
+    num_steps: 1000
     num_envs: 100
     num: 10 # set to 0 to disable validation
   log_interval: 1e6
