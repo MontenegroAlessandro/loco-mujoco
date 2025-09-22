@@ -107,7 +107,7 @@ class TD3Actor(nn.Module):
             squeeze_output=False
         )(x)
 
-        action = self.max_action * nn.tanh(action)
+        # action = self.max_action * nn.tanh(action)
         
         return action
     

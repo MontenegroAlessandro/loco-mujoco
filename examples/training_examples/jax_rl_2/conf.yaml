@@ -32,8 +32,8 @@ experiment:
       symmetry_air_coeff: 0.005
       energy_coeff: 5.0e-05
   # Network Arch
-  actor_hidden_dims: [256, 256]
-  critic_hidden_dims: [256, 256]
+  actor_hidden_dims: [512, 256]
+  critic_hidden_dims: [512, 256]
   activation: relu
   
   # Optimizers
@@ -42,8 +42,8 @@ experiment:
   
   # Replay Buffer and Batching
   buffer_size: 1000000
-  batch_size: 1000 
-  learning_starts: 25000
+  batch_size: 5000 
+  learning_starts: 100000 # total interactions with environment
   
   # TD3 Core Parameters
   gamma: 0.99
@@ -55,9 +55,9 @@ experiment:
   policy_frequency: 2
   
   # General Training Config
-  utd_ratio: 20
+  utd_ratio: 10
   num_envs: 2048
-  total_timesteps: 10e7
+  total_timesteps: 10e7 # total interactions
   n_seeds: 1
   vmap_across_seeds: true
   normalize_env: true
