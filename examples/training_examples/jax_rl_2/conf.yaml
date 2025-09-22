@@ -42,17 +42,17 @@ experiment:
   
   # Replay Buffer and Batching
   buffer_size: 1000000
-  batch_size: 256 # Standard TD3 often uses a smaller batch size
+  batch_size: 1000 
   learning_starts: 25000
   
   # TD3 Core Parameters
   gamma: 0.99
   tau: 0.005
-  policy_noise: 0.2
+  policy_noise: 0.5
   noise_clip: 0.5
-  std_min: 0.1
-  std_max: 0.4
-  policy_frequency: 2
+  std_min: 0.5
+  std_max: 0.5
+  policy_frequency: 4
   
   # General Training Config
   utd_ratio: 1 # Standard TD3 usually has a UTD of 1
@@ -65,6 +65,6 @@ experiment:
   log_interval: 1e6 # Log every 1000 parallel steps
   validation:
     active: false
-    num_steps: 100
+    num_steps: 1000
     num_envs: 100
     num: 10 # set to 0 to disable validation

@@ -86,7 +86,8 @@ class TD3Jax(JaxRLAlgorithmBase):
         actor_module = TD3Actor(
             action_dim=env.info.action_space.shape[0],
             hidden_layer_dims=config.experiment.actor_hidden_dims,
-            activation=config.experiment.activation
+            activation=config.experiment.activation,
+            max_action=env.info.action_space.high[0]
         )
         
         critic_module = TD3Critic(
@@ -155,7 +156,6 @@ class TD3Jax(JaxRLAlgorithmBase):
             critic_train_state=critic_train_state,
             target_actor_params=target_actor_params,
             target_critic_params=target_critic_params,
-            # replay_buffer=replay_buffer,
             noise_scales=noise_scales
         )
     
@@ -180,15 +180,14 @@ class TD3Jax(JaxRLAlgorithmBase):
             
             # update critic
             # actions computation
-            actor_vars_target = {'params': agent_state.target_actor_params}
-            next_pi, _ = agent_state.actor_train_state.apply_fn(actor_vars_target, batch["next_obs"], mutable=False)
-            next_actions = next_pi * action_limit # rescale what given by the net
-            noise = jnp.clip(jax.random.normal(noise_rng, next_actions.shape) * config.policy_noise, -config.noise_clip, config.noise_clip)
-            next_actions = jnp.clip(next_actions + noise, -action_limit, action_limit)
+            actor_vars_target = {'params': agent_state.target_actor_params, 'run_stats': agent_state.actor_train_state.run_stats}
+            next_pi, _ = agent_state.actor_train_state.apply_fn(actor_vars_target, batch["next_obs"], mutable=[])
+            noise = jnp.clip(jax.random.normal(noise_rng, next_pi.shape) * config.policy_noise, -config.noise_clip, config.noise_clip)
+            next_actions = jnp.clip(next_pi + noise, -action_limit, action_limit)
 
             # critic values
-            critic_vars_target = {'params': agent_state.target_critic_params}
-            (q1_next, q2_next), _ = agent_conf.critic_module.apply(critic_vars_target, batch["next_obs"], next_actions, mutable=False)
+            critic_vars_target = {'params': agent_state.target_critic_params, 'run_stats': agent_state.critic_train_state.run_stats}
+            (q1_next, q2_next), _ = agent_conf.critic_module.apply(critic_vars_target, batch["next_obs"], next_actions, mutable=[])
             min_q_next = jnp.minimum(q1_next, q2_next)
             target_q = batch["rewards"] + (1.0 - batch["dones"]) * config.gamma * min_q_next
 
@@ -224,7 +223,6 @@ class TD3Jax(JaxRLAlgorithmBase):
                 lambda: _actor_and_target_update(agent_state.actor_train_state, critic_train_state, agent_state.target_actor_params, agent_state.target_critic_params),
                 lambda: (agent_state.actor_train_state, agent_state.target_actor_params, agent_state.target_critic_params, 0.0)
             )
-            # actor_ts, target_actor_p, target_critic_p, actor_loss = _actor_and_target_update(agent_state.actor_train_state, critic_train_state, agent_state.target_actor_params, agent_state.target_critic_params)
             
             metrics = {"critic_loss": critic_loss, "actor_loss": actor_loss}
             
@@ -266,7 +264,6 @@ class TD3Jax(JaxRLAlgorithmBase):
             new_actor_ts = agent_state.actor_train_state.replace(run_stats=updates['run_stats'])
             
             noise = jax.random.normal(action_rng, shape=action.shape) * agent_state.noise_scales
-            action = action * action_limit # rescale
             action = jnp.clip(action + noise, -action_limit, action_limit)
             
             # next_obsv, reward, absorbing, done, info, env_state = env.step(env_state, action)
@@ -348,7 +345,7 @@ class TD3Jax(JaxRLAlgorithmBase):
                 'run_stats': agent_state.actor_train_state.run_stats
             }
             action, _ = agent_state.actor_train_state.apply_fn(actor_vars, obsv, mutable=['run_stats'])
-            action = jnp.clip(action * action_limit, -action_limit, action_limit)
+            action = jnp.clip(action, -action_limit, action_limit)
 
             # Step the environment
             next_obsv, reward, absorbing, done, info, env_state = eval_env.step(env_state, action)
@@ -423,7 +420,7 @@ class TD3Jax(JaxRLAlgorithmBase):
             # Add exploration noise if not deterministic
             if not deterministic:
                 noise = jax.random.normal(_rng, action.shape) * agent_conf.config.experiment.exploration_noise
-                action = jnp.clip(action * action_limit + noise, -action_limit, action_limit)
+                action = jnp.clip(action + noise, -action_limit, action_limit)
 
             obs, reward, absorbing, done, info, env_state = env.step(env_state, action)
             

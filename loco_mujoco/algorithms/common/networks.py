@@ -88,6 +88,7 @@ class TD3Actor(nn.Module):
     action_dim: int
     hidden_layer_dims: Sequence[int] = (256,256)
     activation: str = "relu"
+    max_action:int = 1
 
     def setup(self):
         self.activation_fn = get_activation_fn(self.activation)
@@ -106,8 +107,7 @@ class TD3Actor(nn.Module):
             squeeze_output=False
         )(x)
 
-        # Here we squash the action in -1 and 1, the caller will rescale with the correct action limit
-        action = jnp.tanh(action)
+        action = self.max_action * nn.tanh(action)
         
         return action
     
