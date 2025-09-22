@@ -48,23 +48,23 @@ experiment:
   # TD3 Core Parameters
   gamma: 0.99
   tau: 0.005
-  policy_noise: 0.5
+  policy_noise: 0.2
   noise_clip: 0.5
-  std_min: 0.5
-  std_max: 0.5
-  policy_frequency: 4
+  std_min: 0.1
+  std_max: 0.1
+  policy_frequency: 2
   
   # General Training Config
-  utd_ratio: 1 # Standard TD3 usually has a UTD of 1
+  utd_ratio: 20
   num_envs: 2048
   total_timesteps: 10e7
   n_seeds: 1
   vmap_across_seeds: true
   normalize_env: true
   debug: false
-  log_interval: 1e6 # Log every 1000 parallel steps
+  log_interval: 1e6 
   validation:
     active: false
     num_steps: 1000
     num_envs: 100
-    num: 10 # set to 0 to disable validation
+    num: 10 

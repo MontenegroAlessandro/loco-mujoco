@@ -75,13 +75,13 @@ def experiment(config: DictConfig):
             episode_metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), episode_metrics)
             
             # Log metrics
-            for i in range(len(metrics.critic_loss)):
-                step = int(i * config.experiment.num_envs)
+            for i in range(len(metrics["critic_loss"])):
+                step = int(i * config.experiment.num_envs * config.utd_ratio)
                 log_data = {
                     "Loss/Critic Loss": metrics.critic_loss[i],
                     "Loss/Actor Loss": metrics.actor_loss[i],
-                    "Episode/Mean Return": jnp.mean(episode_metrics.returned_episode_returns[i]),
-                    "Episode/Mean Length": jnp.mean(episode_metrics.returned_episode_lengths[i])
+                    # "Episode/Mean Return": jnp.mean(episode_metrics.returned_episode_returns[i]),
+                    # "Episode/Mean Length": jnp.mean(episode_metrics.returned_episode_lengths[i])
                 }
                 run.log(log_data, step=step)
 
