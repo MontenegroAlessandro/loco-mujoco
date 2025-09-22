@@ -357,7 +357,7 @@ class TD3Jax(JaxRLAlgorithmBase):
                 'params': agent_state.actor_train_state.params, 
                 'run_stats': agent_state.actor_train_state.run_stats
             }
-            action, _ = agent_state.actor_train_state.apply_fn(actor_vars, obsv, mutable=['run_stats'])
+            action, _ = agent_state.actor_train_state.apply_fn(actor_vars, obsv, mutable=[])
             action = jnp.clip(action, -action_limit, action_limit)
 
             # Step the environment
