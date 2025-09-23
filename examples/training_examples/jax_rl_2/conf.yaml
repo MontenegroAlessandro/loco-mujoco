@@ -41,22 +41,22 @@ experiment:
   critic_lr: 3e-4
   
   # Replay Buffer and Batching
-  buffer_size: 2048000 
-  batch_size: 512 
-  learning_starts: 12800 
+  buffer_size: 4096000 
+  batch_size: 2048
+  learning_starts: 204800 
   
   # TD3 Core Parameters
-  gamma: 0.99
+  gamma: 0.995
   tau: 0.005
-  policy_noise: 0.001 # noise scale for the target computation
+  policy_noise: 0.1 # 0.001 # noise scale for the target computation
   noise_clip: 0.5 
-  std_min: 0.001 # min exploration noise with the env
-  std_max: 0.1 # max exploration noise with the env
+  std_min: 0.2 # 0.01 # min exploration noise with the env
+  std_max: 0.2 # 0.02 # max exploration noise with the env
   policy_frequency: 2
   
   # General Training Config
-  utd_ratio: 2
-  num_envs: 128
+  utd_ratio: 4
+  num_envs: 2048
   total_timesteps: 10e7 # total interactions
   n_seeds: 1
   vmap_across_seeds: true

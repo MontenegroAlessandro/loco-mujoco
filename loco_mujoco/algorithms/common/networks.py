@@ -303,7 +303,9 @@ class RunningMinMax(nn.Module):
             min.value = jnp.maximum(min.value, batch_min)
 
         # Normalize input
-        normalized_x = (x - min.value) / (max.value - min.value + 1e-8)
-        normalized_x = jnp.clip(normalized_x, 0.0, 1.0)
+        # normalized_x = (x - min.value) / (max.value - min.value + 1e-8)
+        # normalized_x = jnp.clip(normalized_x, 0.0, 1.0)
+
+        normalized_x = x
 
         return jnp.squeeze(normalized_x) if squeeze_output else normalized_x

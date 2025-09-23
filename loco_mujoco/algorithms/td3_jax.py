@@ -78,6 +78,7 @@ class EvalState:
     obs: jnp.ndarray
     rng: jax.random.PRNGKey
     episode_returns: jnp.ndarray
+    episode_cumulative_rewards: jnp.ndarray
     episode_lengths: jnp.ndarray
     dones: jnp.ndarray 
     discounts: jnp.ndarray
@@ -294,7 +295,7 @@ class TD3Jax(JaxRLAlgorithmBase):
             ptr = replay_buffer.ptr
             indices = (ptr + np.arange(config.num_envs)) % config.buffer_size
             replay_buffer.obs[indices] = np.asarray(obsv)
-            replay_buffer.actions[indices] = np.asarray(action) # save the original action, paper says clipped_action
+            replay_buffer.actions[indices] = np.asarray(noised_action) # save the original action, paper says clipped_action
             replay_buffer.rewards[indices] = np.asarray(reward)
             replay_buffer.next_obs[indices] = np.asarray(next_obsv)
             replay_buffer.dones[indices] = np.asarray(done)
@@ -338,11 +339,12 @@ class TD3Jax(JaxRLAlgorithmBase):
 
                 rng, eval_rng = jax.random.split(rng)
                 # eval_return, eval_length = cls.run_evaluation(agent_conf, agent_state, eval_env, eval_rng)
-                eval_return, eval_length, mean_init_q1, mean_init_q2 = cls.run_episodic_evaluation(agent_conf, agent_state, eval_env, eval_rng)
+                eval_return, eval_cum_rew, eval_length, mean_init_q1, mean_init_q2 = cls.run_episodic_evaluation(agent_conf, agent_state, eval_env, eval_rng)
 
                 # Add evaluation metrics to the log data
                 if not np.isnan(eval_return):
                     log_data["Evaluation/Mean Return (Discounted)"] = eval_return
+                    log_data["Evaluation/Mean Return (UNDiscounted)"] = eval_cum_rew
                     log_data["Evaluation/Mean Length"] = eval_length
                     log_data["Evaluation/Mean Initial Q1"] = mean_init_q1
                     log_data["Evaluation/Mean Initial Q2"] = mean_init_q2
@@ -433,6 +435,7 @@ class TD3Jax(JaxRLAlgorithmBase):
             obs=obsv,
             rng=rng,
             episode_returns=jnp.zeros(num_eval_envs),
+            episode_cumulative_rewards=jnp.zeros(num_eval_envs),
             episode_lengths=jnp.zeros(num_eval_envs),
             dones=jnp.zeros(num_eval_envs, dtype=jnp.bool_),
             discounts=jnp.ones(num_eval_envs)
@@ -471,6 +474,9 @@ class TD3Jax(JaxRLAlgorithmBase):
             next_obsv, reward, _, done, _, next_env_state = eval_env.step(state.env_state, action)
             
             # Update returns and lengths only for environments that are still active
+            new_cum_rew = jnp.where(
+                state.done, state.episode_cumulative_rewards, state.episode_cumulative_rewards + reward
+            )
             reward = state.discounts * reward # discount the reward
             new_returns = jnp.where(
                 state.dones, state.episode_returns, state.episode_returns + reward
@@ -489,6 +495,7 @@ class TD3Jax(JaxRLAlgorithmBase):
                 env_state=next_env_state,
                 obs=next_obsv,
                 episode_returns=new_returns,
+                episode_cumulative_rewards=new_cum_rew,
                 episode_lengths=new_lengths,
                 dones=new_dones,
                 discounts=new_discounts
@@ -500,11 +507,12 @@ class TD3Jax(JaxRLAlgorithmBase):
         # The final returns and lengths are now stored in the state
         mean_return = jnp.mean(final_state.episode_returns)
         mean_length = jnp.mean(final_state.episode_lengths)
+        mean_cum_reward = jnp.mean(final_state.episode_cumulative_rewards)
         mean_initial_q1 = jnp.mean(q1)
         mean_initial_q2 = jnp.mean(q2)
-        print(f"Ret = {mean_return}, Len = {mean_length}, Init Q1 = {mean_initial_q1}, Init Q2 = {mean_initial_q2}")
+        print(f"Ret (disc) = {mean_return}, Ret (undisc) = {mean_cum_reward}, Len = {mean_length}, Init Q1 = {mean_initial_q1}, Init Q2 = {mean_initial_q2}")
         
-        return mean_return, mean_length, mean_initial_q1, mean_initial_q2
+        return mean_return, mean_cum_reward, mean_length, mean_initial_q1, mean_initial_q2
 
     @classmethod
     def play_policy(cls, env, agent_conf: TD3AgentConf, agent_state: TD3AgentState, n_envs: int, 
