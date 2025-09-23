@@ -3,11 +3,13 @@ from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from flax import struct
 from flax.training import train_state
 
 from loco_mujoco.environments.base import TrajState
 from loco_mujoco.core.wrappers.mjx import Metrics
+from dataclasses import dataclass
 
 
 class Transition(NamedTuple):
@@ -85,3 +87,37 @@ class BestTrainStates:
             n=n,
             size=0
         )
+    
+@dataclass
+class ReplayBuffer:
+    """
+    [AM] Replay buffer for TD3 agent. Done in numpy for efficiency reasons. 
+    """
+    obs: np.ndarray
+    actions: np.ndarray
+    rewards: np.ndarray
+    next_obs: np.ndarray
+    dones: np.ndarray
+    ptr: int    # pointer to the current index
+    size: int   # size of the replay buffer
+
+@dataclass
+class PhasedExplorationSchedule:
+    """[AM] Implementing PES noise scheduler."""
+    phases: int
+    noise_max: float
+    noise_min: float
+    smooth: float
+
+    @classmethod
+    def create(cls, phases: int, noise_max: float, noise_min: float):
+        smooth = jnp.log(noise_max / noise_min) / jnp.log(phases)
+        return cls(
+            phases=phases,
+            noise_max=noise_max,
+            noise_min=noise_min,
+            smooth=smooth
+        )
+    
+    def update_sigma(self, current_phase: int):
+        return self.noise_max * jnp.power(current_phase, -self.smooth)

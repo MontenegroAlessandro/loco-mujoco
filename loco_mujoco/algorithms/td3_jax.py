@@ -4,7 +4,7 @@ import optax
 import flax
 import numpy as np
 from dataclasses import dataclass
-from loco_mujoco.algorithms import AgentConfBase, AgentStateBase, TD3Actor, TD3Critic, JaxRLAlgorithmBase, ReplayBuffer, TrainState
+from loco_mujoco.algorithms import AgentConfBase, AgentStateBase, TD3Actor, TD3Critic, JaxRLAlgorithmBase, ReplayBuffer, TrainState, PhasedExplorationSchedule
 from omegaconf import DictConfig, OmegaConf
 from typing import Any
 from flax import struct
@@ -272,9 +272,18 @@ class TD3Jax(JaxRLAlgorithmBase):
         log_interval = config.get("log_interval", 100)
         log_interval = log_interval if log_interval < config.num_envs else int(log_interval // config.num_envs)
         start_learning = int(config.learning_starts // config.num_envs)
+
+        # if needed, initialize the exploration scheduler
+        noise_scheduler = None
+        if config.schedule_noise and config.std_max > config.std_min:
+            noise_scheduler = PhasedExplorationSchedule.create(phases=num_updates, noise_max=config.std_max, noise_min=config.std_min)
         
         print(f"Action Limits ({-action_limit},{action_limit})")
         for i in tqdm(range(num_updates)):
+            if noise_scheduler is not None:
+                new_scales = noise_scheduler.update_sigma(i+1) * jax.ones((config.num_envs,1))
+                agent_state = agent_state.replace(noise_scales=new_scales)
+
             # [3.1] environment interaction and replay buffer update
             rng, action_rng, noise_resample_rng = jax.random.split(rng, 3)
             actor_vars = {'params': agent_state.actor_train_state.params, 'run_stats': agent_state.actor_train_state.run_stats}
@@ -288,8 +297,11 @@ class TD3Jax(JaxRLAlgorithmBase):
             next_obsv, reward, absorbing, done, info, env_state = cls._wrap_step(env, env_state, clipped_action)
 
             # update the noise for the next interaction 
-            new_scales = jax.random.uniform(noise_resample_rng, shape=(config.num_envs, 1), minval=config.std_min, maxval=config.std_max)
-            updated_noise_scales = jnp.where(done[:, None], new_scales, agent_state.noise_scales)
+            if noise_scheduler is None:
+                new_scales = jax.random.uniform(noise_resample_rng, shape=(config.num_envs, 1), minval=config.std_min, maxval=config.std_max)
+                updated_noise_scales = jnp.where(done[:, None], new_scales, agent_state.noise_scales)
+            else:
+                updated_noise_scales = agent_state.noise_scales
             
             # replay buffer update (circular array)
             ptr = replay_buffer.ptr
