@@ -84,7 +84,7 @@ def experiment(config: DictConfig):
             #     run.log(log_data, step=step)
 
         # Run the environment with the trained agent to record video
-        TD3Jax.play_policy(eval_env, agent_conf, agent_state, n_envs=20, n_steps=200, record=True, deterministic=True)
+        TD3Jax.play_policy(eval_env, agent_conf, agent_state, n_envs=20, n_steps=1000, record=True, deterministic=True)
         video_file = env.video_file_path
         run.log({"Agent Video": wandb.Video(video_file)})
 

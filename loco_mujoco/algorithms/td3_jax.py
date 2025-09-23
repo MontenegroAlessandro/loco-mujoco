@@ -325,8 +325,8 @@ class TD3Jax(JaxRLAlgorithmBase):
                     critic_losses.append(jax.device_get(metrics["critic_loss"]))
                     actor_losses.append(jax.device_get(metrics["actor_loss"]))
                     # log rewards in rb
-                    print(f"Mean rewards in rb {replay_buffer.rewards.mean()}")
-                    print(f"Mean rewards in batch {batch["rewards"].mean()}")
+                    # print(f"Mean rewards in rb {replay_buffer.rewards.mean()}")
+                    # print(f"Mean rewards in batch {batch["rewards"].mean()}")
             
             # log stuff
             if i % log_interval == 0 and wandb_run is not None:
