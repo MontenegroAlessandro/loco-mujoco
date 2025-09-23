@@ -35,8 +35,6 @@ def experiment(config: DictConfig):
         eval_env = VecEnv(eval_env)
         if config.experiment.normalize_env:
             eval_env = NormalizeVecReward(eval_env, config.experiment.gamma)
-        
-        # --- TD3 SPECIFIC CHANGES START HERE ---
 
         # Wrap env to log episode stats
         env = LogWrapper(env)
@@ -64,29 +62,29 @@ def experiment(config: DictConfig):
         run.config.update({"agent_save_path": save_path})
 
         # --- METRICS LOGGING ---
-        if not config.experiment.debug:
-            metrics = out["metrics"]
+        # if not config.experiment.debug:
+            # metrics = out["metrics"]
             # To get episode returns, you must ensure your TD3 _train_fn also returns them.
             # Assuming the LogWrapper provides them in `info` and they are passed up.
-            episode_metrics = out["episode_metrics"] 
+            # episode_metrics = out["episode_metrics"] 
 
             # Calculate mean across seeds
-            metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), metrics)
-            episode_metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), episode_metrics)
+            # metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), metrics)
+            # episode_metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), episode_metrics)
             
             # Log metrics
-            for i in range(len(metrics["critic_loss"])):
-                step = int(i * config.experiment.num_envs * config.utd_ratio)
-                log_data = {
-                    "Loss/Critic Loss": metrics.critic_loss[i],
-                    "Loss/Actor Loss": metrics.actor_loss[i],
-                    # "Episode/Mean Return": jnp.mean(episode_metrics.returned_episode_returns[i]),
-                    # "Episode/Mean Length": jnp.mean(episode_metrics.returned_episode_lengths[i])
-                }
-                run.log(log_data, step=step)
+            # for i in range(len(metrics["critic_loss"])):
+            #     step = int(i * config.experiment.num_envs * config.experiment.utd_ratio)
+            #     log_data = {
+            #         "Loss/Critic Loss": metrics.critic_loss[i],
+            #         "Loss/Actor Loss": metrics.actor_loss[i],
+            #         # "Episode/Mean Return": jnp.mean(episode_metrics.returned_episode_returns[i]),
+            #         # "Episode/Mean Length": jnp.mean(episode_metrics.returned_episode_lengths[i])
+            #     }
+            #     run.log(log_data, step=step)
 
         # Run the environment with the trained agent to record video
-        TD3Jax.play_policy(env, agent_conf, agent_state, n_envs=1, n_steps=1000, record=True, deterministic=True)
+        TD3Jax.play_policy(eval_env, agent_conf, agent_state, n_envs=20, n_steps=200, record=True, deterministic=True)
         video_file = env.video_file_path
         run.log({"Agent Video": wandb.Video(video_file)})
 

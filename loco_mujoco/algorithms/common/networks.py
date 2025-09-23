@@ -101,13 +101,13 @@ class TD3Actor(nn.Module):
         action = FullyConnectedNet(
             hidden_layer_dims=self.hidden_layer_dims,
             output_dim=self.action_dim,
-            activation=self.activation,
+            activation="tanh", # activation=self.activation,
             output_activation=None,
             use_running_mean_stand=False,
             squeeze_output=False
         )(x)
 
-        # action = self.max_action * nn.tanh(action)
+        action = self.max_action * nn.tanh(action)
         
         return action
     

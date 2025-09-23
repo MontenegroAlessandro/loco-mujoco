@@ -56,7 +56,6 @@ class TD3AgentState(AgentStateBase):
             "critic_train_state": flax.serialization.to_state_dict(self.critic_train_state),
             "target_actor_params": self.target_actor_params,
             "target_critic_params": self.target_critic_params,
-            "replay_buffer": flax.serialization.to_state_dict(self.replay_buffer)
         }
         return serialized_state
 
@@ -272,6 +271,7 @@ class TD3Jax(JaxRLAlgorithmBase):
         log_interval = log_interval if log_interval < config.num_envs else int(log_interval // config.num_envs)
         start_learning = int(config.learning_starts // config.num_envs)
         
+        print(f"Action Limits ({-action_limit},{action_limit})")
         for i in tqdm(range(num_updates)):
             # [3.1] environment interaction and replay buffer update
             rng, action_rng, noise_resample_rng = jax.random.split(rng, 3)
@@ -324,6 +324,9 @@ class TD3Jax(JaxRLAlgorithmBase):
                     # metrics update
                     critic_losses.append(jax.device_get(metrics["critic_loss"]))
                     actor_losses.append(jax.device_get(metrics["actor_loss"]))
+                    # log rewards in rb
+                    print(f"Mean rewards in rb {replay_buffer.rewards.mean()}")
+                    print(f"Mean rewards in batch {batch["rewards"].mean()}")
             
             # log stuff
             if i % log_interval == 0 and wandb_run is not None:
@@ -451,6 +454,7 @@ class TD3Jax(JaxRLAlgorithmBase):
             next_obsv, reward, _, done, _, next_env_state = eval_env.step(state.env_state, action)
             
             # Update returns and lengths only for environments that are still active
+            # TODO integrate the gamma 
             new_returns = jnp.where(
                 state.dones, state.episode_returns, state.episode_returns + reward
             )
@@ -473,12 +477,9 @@ class TD3Jax(JaxRLAlgorithmBase):
         final_state = jax.lax.while_loop(cond_fun, body_fun, initial_eval_state)
         
         # The final returns and lengths are now stored in the state
-        print(f"{final_state.episode_returns}")
-        input()
         mean_return = jnp.mean(final_state.episode_returns)
         mean_length = jnp.mean(final_state.episode_lengths)
-        print(f"{mean_return}")
-        input()
+        print(f"Ret = {mean_return}, Len = {mean_length}")
         
         return mean_return, mean_length
 
@@ -489,8 +490,8 @@ class TD3Jax(JaxRLAlgorithmBase):
         action_limit = env.info.action_space.high[0]
         
         @jax.jit
-        def sample_action(params, obs):
-            action = agent_conf.actor_module.apply({'params': params}, obs) * action_limit
+        def sample_action(params, run_stats, obs):
+            action = agent_conf.actor_module.apply({'params': params, 'run_stats': run_stats}, obs)
             return action
 
         if rng is None:
@@ -507,7 +508,7 @@ class TD3Jax(JaxRLAlgorithmBase):
         i = 0
         while i < n_steps:
             rng, _rng = jax.random.split(rng)
-            action = sample_action(agent_state.actor_train_state.params, obs)
+            action = sample_action(agent_state.actor_train_state.params, agent_state.actor_train_state.run_stats, obs)
             
             # Add exploration noise if not deterministic
             if not deterministic:
