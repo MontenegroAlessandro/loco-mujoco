@@ -85,8 +85,17 @@ def experiment(config: DictConfig):
 
         # Run the environment with the trained agent to record video
         TD3Jax.play_policy(eval_env, agent_conf, agent_state, n_envs=20, n_steps=1000, record=True, deterministic=True)
-        video_file = env.video_file_path
-        run.log({"Agent Video": wandb.Video(video_file)})
+
+        # Get the video path from the environment that did the recording
+        video_file = eval_env.video_file_path
+
+        # Check if the file exists before logging
+        if video_file and os.path.exists(video_file):
+            run.log({"Agent Video": wandb.Video(video_file)})
+        else:
+            print(f"Video file not found at path: {video_file}")
+
+        wandb.finish()
 
         wandb.finish()
 

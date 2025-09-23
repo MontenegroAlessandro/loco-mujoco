@@ -96,7 +96,8 @@ class TD3Actor(nn.Module):
     @nn.compact
     def __call__(self, obs):
         x = obs
-        x = RunningMeanStd(update_stats=True)(x)
+        # x = RunningMeanStd(update_stats=True)(x)
+        x = RunningMinMax(update_stats=True)(x)
 
         action = FullyConnectedNet(
             hidden_layer_dims=self.hidden_layer_dims,
@@ -124,7 +125,8 @@ class TD3Critic(nn.Module):
     @nn.compact
     def __call__(self, obs, action):
         # concatenate observation and action
-        obs = RunningMeanStd(update_stats=True)(obs,squeeze_output=False)
+        # obs = RunningMeanStd(update_stats=True)(obs,squeeze_output=False)
+        obs = RunningMinMax(update_stats=True)(obs,squeeze_output=False)
         x = jnp.concatenate([obs, action], axis=-1)
 
         # get first critic result
@@ -275,5 +277,33 @@ class RunningMeanStd(nn.Module):
             mean.value = new_mean
             var.value = new_var
             count.value = updated_count
+
+        return jnp.squeeze(normalized_x) if squeeze_output else normalized_x
+
+class RunningMinMax(nn.Module):
+    """Layer that maintains running max and min for input normalization."""
+    update_stats: bool = True
+
+    @nn.compact
+    def __call__(self, x, squeeze_output = True):
+
+        x = jnp.atleast_2d(x)
+
+        # Initialize running mean, variance, and count
+        max = self.variable('run_stats', 'max', lambda: jnp.full(x.shape[-1], -jnp.inf))
+        min = self.variable('run_stats', 'min', lambda: jnp.full(x.shape[-1], jnp.inf))
+
+        # Compute batch mean and variance
+        if self.update_stats and self.is_mutable_collection('run_stats'):
+            batch_max = jnp.max(x, axis=0)
+            batch_min = jnp.min(x, axis=0)
+
+            # Update state variables
+            max.value = jnp.maximum(max.value, batch_max)
+            min.value = jnp.maximum(min.value, batch_min)
+
+        # Normalize input
+        normalized_x = (x - min.value) / (max.value - min.value + 1e-8)
+        normalized_x = jnp.clip(normalized_x, 0.0, 1.0)
 
         return jnp.squeeze(normalized_x) if squeeze_output else normalized_x

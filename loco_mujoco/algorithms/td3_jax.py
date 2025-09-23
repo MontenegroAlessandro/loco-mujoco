@@ -80,6 +80,7 @@ class EvalState:
     episode_returns: jnp.ndarray
     episode_lengths: jnp.ndarray
     dones: jnp.ndarray 
+    discounts: jnp.ndarray
 
 class TD3Jax(JaxRLAlgorithmBase):
     """
@@ -278,11 +279,12 @@ class TD3Jax(JaxRLAlgorithmBase):
             actor_vars = {'params': agent_state.actor_train_state.params, 'run_stats': agent_state.actor_train_state.run_stats}
             action, updates = agent_state.actor_train_state.apply_fn(actor_vars, obsv, mutable=['run_stats'])
             new_actor_ts = agent_state.actor_train_state.replace(run_stats=updates['run_stats'])
-            
+            # compute noise, noise the action, clip the noised action
             noise = jax.random.normal(action_rng, shape=action.shape) * agent_state.noise_scales
-            action = jnp.clip(action + noise, -action_limit, action_limit)
+            noised_action = action + noise
+            clipped_action = jnp.clip(noised_action, -action_limit, action_limit)
             
-            next_obsv, reward, absorbing, done, info, env_state = cls._wrap_step(env, env_state, action)
+            next_obsv, reward, absorbing, done, info, env_state = cls._wrap_step(env, env_state, clipped_action)
 
             # update the noise for the next interaction 
             new_scales = jax.random.uniform(noise_resample_rng, shape=(config.num_envs, 1), minval=config.std_min, maxval=config.std_max)
@@ -292,7 +294,7 @@ class TD3Jax(JaxRLAlgorithmBase):
             ptr = replay_buffer.ptr
             indices = (ptr + np.arange(config.num_envs)) % config.buffer_size
             replay_buffer.obs[indices] = np.asarray(obsv)
-            replay_buffer.actions[indices] = np.asarray(action)
+            replay_buffer.actions[indices] = np.asarray(action) # save the original action, paper says clipped_action
             replay_buffer.rewards[indices] = np.asarray(reward)
             replay_buffer.next_obs[indices] = np.asarray(next_obsv)
             replay_buffer.dones[indices] = np.asarray(done)
@@ -324,9 +326,6 @@ class TD3Jax(JaxRLAlgorithmBase):
                     # metrics update
                     critic_losses.append(jax.device_get(metrics["critic_loss"]))
                     actor_losses.append(jax.device_get(metrics["actor_loss"]))
-                    # log rewards in rb
-                    # print(f"Mean rewards in rb {replay_buffer.rewards.mean()}")
-                    # print(f"Mean rewards in batch {batch["rewards"].mean()}")
             
             # log stuff
             if i % log_interval == 0 and wandb_run is not None:
@@ -339,12 +338,14 @@ class TD3Jax(JaxRLAlgorithmBase):
 
                 rng, eval_rng = jax.random.split(rng)
                 # eval_return, eval_length = cls.run_evaluation(agent_conf, agent_state, eval_env, eval_rng)
-                eval_return, eval_length = cls.run_episodic_evaluation(agent_conf, agent_state, eval_env, eval_rng)
+                eval_return, eval_length, mean_init_q1, mean_init_q2 = cls.run_episodic_evaluation(agent_conf, agent_state, eval_env, eval_rng)
 
                 # Add evaluation metrics to the log data
                 if not np.isnan(eval_return):
-                    log_data["Evaluation/Mean Return"] = eval_return
+                    log_data["Evaluation/Mean Return (Discounted)"] = eval_return
                     log_data["Evaluation/Mean Length"] = eval_length
+                    log_data["Evaluation/Mean Initial Q1"] = mean_init_q1
+                    log_data["Evaluation/Mean Initial Q2"] = mean_init_q2
 
                 if log_data:
                     wandb_run.log(log_data, step=i * config.num_envs)
@@ -420,6 +421,7 @@ class TD3Jax(JaxRLAlgorithmBase):
         config = agent_conf.config.experiment
         action_limit = eval_env.info.action_space.high[0]
         num_eval_envs = config.validation.num_envs
+        gamma = agent_conf.config.experiment.gamma
         
         # Reset environments
         reset_rngs = jax.random.split(rng, num_eval_envs)
@@ -432,8 +434,23 @@ class TD3Jax(JaxRLAlgorithmBase):
             rng=rng,
             episode_returns=jnp.zeros(num_eval_envs),
             episode_lengths=jnp.zeros(num_eval_envs),
-            dones=jnp.zeros(num_eval_envs, dtype=jnp.bool_)
+            dones=jnp.zeros(num_eval_envs, dtype=jnp.bool_),
+            discounts=jnp.ones(num_eval_envs)
         )
+
+        # Save the initial values for the quality nets
+        # get states 
+        actor_vars = {
+            'params': agent_state.actor_train_state.params,
+            'run_stats': agent_state.actor_train_state.run_stats
+        }
+        actions = agent_state.actor_train_state.apply_fn(actor_vars, obsv, mutable=False)
+        # no clip the action before passing to the critic
+        critic_vars = {
+            'params': agent_state.critic_train_state.params,
+            'run_stats': agent_state.critic_train_state.run_stats
+        }
+        q1, q2 = agent_state.critic_train_state.apply_fn(critic_vars, obsv, actions, mutable=False)
 
         def cond_fun(state: EvalState):
             """Loop continues as long as any environment is not done."""
@@ -454,9 +471,12 @@ class TD3Jax(JaxRLAlgorithmBase):
             next_obsv, reward, _, done, _, next_env_state = eval_env.step(state.env_state, action)
             
             # Update returns and lengths only for environments that are still active
-            # TODO integrate the gamma 
+            reward = state.discounts * reward # discount the reward
             new_returns = jnp.where(
                 state.dones, state.episode_returns, state.episode_returns + reward
+            )
+            new_discounts = jnp.where(
+                state.dones, state.discounts, state.discounts * gamma
             )
             new_lengths = jnp.where(
                 state.dones, state.episode_lengths, state.episode_lengths + 1
@@ -470,7 +490,8 @@ class TD3Jax(JaxRLAlgorithmBase):
                 obs=next_obsv,
                 episode_returns=new_returns,
                 episode_lengths=new_lengths,
-                dones=new_dones
+                dones=new_dones,
+                discounts=new_discounts
             )
 
         # JIT and run the while loop
@@ -479,9 +500,11 @@ class TD3Jax(JaxRLAlgorithmBase):
         # The final returns and lengths are now stored in the state
         mean_return = jnp.mean(final_state.episode_returns)
         mean_length = jnp.mean(final_state.episode_lengths)
-        print(f"Ret = {mean_return}, Len = {mean_length}")
+        mean_initial_q1 = jnp.mean(q1)
+        mean_initial_q2 = jnp.mean(q2)
+        print(f"Ret = {mean_return}, Len = {mean_length}, Init Q1 = {mean_initial_q1}, Init Q2 = {mean_initial_q2}")
         
-        return mean_return, mean_length
+        return mean_return, mean_length, mean_initial_q1, mean_initial_q2
 
     @classmethod
     def play_policy(cls, env, agent_conf: TD3AgentConf, agent_state: TD3AgentState, n_envs: int, 
