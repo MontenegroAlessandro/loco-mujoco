@@ -50,8 +50,8 @@ experiment:
   tau: 0.005
   policy_noise: 0.1 # 0.001 # noise scale for the target computation
   noise_clip: 0.5 
-  std_min: 0.2 # 0.01 # min exploration noise with the env
-  std_max: 0.2 # 0.02 # max exploration noise with the env
+  std_min: 0.5 # 0.01 # min exploration noise with the env
+  std_max: 0.01 # 0.02 # max exploration noise with the env
   schedule_noise: true
   policy_frequency: 2
   

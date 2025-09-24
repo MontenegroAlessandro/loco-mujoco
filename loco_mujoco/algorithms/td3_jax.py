@@ -487,7 +487,7 @@ class TD3Jax(JaxRLAlgorithmBase):
             
             # Update returns and lengths only for environments that are still active
             new_cum_rew = jnp.where(
-                state.done, state.episode_cumulative_rewards, state.episode_cumulative_rewards + reward
+                state.dones, state.episode_cumulative_rewards, state.episode_cumulative_rewards + reward
             )
             reward = state.discounts * reward # discount the reward
             new_returns = jnp.where(
