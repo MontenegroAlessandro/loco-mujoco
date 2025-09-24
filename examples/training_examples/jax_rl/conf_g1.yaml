@@ -1,0 +1,495 @@
+defaults:
+  - override hydra/job_logging: default
+  - override hydra/launcher: basic
+
+
+wandb:
+  project: "UnitreeG1"
+
+experiment:
+  task_factory:
+    name: RLFactory
+    params: {}
+  env_params:
+    env_name: MjxUnitreeG1
+    horizon: 1000
+
+    terminal_state_type: HeightBasedTerminalStateHandler
+
+    goal_type: GoalChangingRandomRootVelocity
+    goal_params:
+      max_x_vel: 0.9
+      max_y_vel: 0.5
+      max_yaw_vel: 2
+      max_height: 0.78
+      min_height: 0.77
+      resample_rate: 0.002
+      still_proportion: 0.2
+      gait_frequency_range: [0.5, 1.5] # Hz
+      visualize_goal: true
+      group: [prioritized, policy]
+
+    
+    headless: false
+
+    reward_type: CrispBoosterLocomotionReward
+    reward_params:
+      survival: 0.25
+      # tracking rewards
+      tracking_w_exp_linvel_x: 4
+      tracking_w_sum_linvel_x: 1.5
+      tracking_w_exp_linvel_y: 4
+      tracking_w_sum_linvel_y: 1.5
+      tracking_w_exp_angvel: 4
+      tracking_w_sum_angvel: 1.0
+      tracking_nominal_joint_pos_exp: 4
+      tracking_nominal_joint_pos_coeff: 0
+      tracking_nominal_joint_pos_names: 
+        - waist_yaw_joint
+        - waist_roll_joint
+        - waist_pitch_joint
+        - left_shoulder_pitch_joint
+        - left_shoulder_roll_joint
+        - left_shoulder_yaw_joint
+        - left_elbow_joint
+        - left_wrist_roll_joint
+        - left_wrist_pitch_joint
+        - left_wrist_yaw_joint
+        - right_shoulder_pitch_joint
+        - right_shoulder_roll_joint
+        - right_shoulder_yaw_joint
+        - right_elbow_joint
+        - right_wrist_roll_joint
+        - right_wrist_pitch_joint
+        - right_wrist_yaw_joint
+      # penalties
+      joint_deviation_l1_coeff: -0.3
+      base_height_target: 0.78
+      base_height_coeff: -5
+      orientation_coeff: -2
+      joint_torque_coeff: -1e-5
+      torque_tiredness_coeff: 0
+      energy_coeff: -1e-4
+      z_vel_coeff: -0.0
+      roll_pitch_vel_coeff: -0.1
+      joint_vel_coeff: -1e-4
+      joint_acc_coeff: -1e-7
+      root_acc_coeff: -5e-6
+      action_rate_coeff: -0.25
+      joint_position_limit_scale: 0.98
+      joint_position_limit_coeff: -5.0
+      feet_slip_coeff: -0.1
+      feet_yaw_diff_coeff: 0.0
+      feet_yaw_mean_coeff: 0.0
+      feet_roll_coeff: 0.0
+      feet_distance_target: 0.3
+      feet_swing_coeff: 7.0
+      feet_swing_period: 0.2
+      feet_distance_coeff: 0.0
+      # extra regularization / penalties
+      low_gains_coeff: 0.0
+      air_time_max: 0.3
+      air_time_coeff: 0
+      no_fly_coeff: 0
+      impact_threshold: 150
+      impact_coeff: 0
+
+    actuation_spec:
+      - left_hip_pitch_joint
+      - left_hip_roll_joint
+      - left_hip_yaw_joint
+      - left_knee_joint
+      - left_ankle_pitch_joint
+      - left_ankle_roll_joint
+      - right_hip_pitch_joint
+      - right_hip_roll_joint
+      - right_hip_yaw_joint
+      - right_knee_joint
+      - right_ankle_pitch_joint
+      - right_ankle_roll_joint
+      - waist_yaw_joint
+      - waist_roll_joint
+      - waist_pitch_joint
+      - left_shoulder_pitch_joint
+      - left_shoulder_roll_joint
+      - left_shoulder_yaw_joint
+      - left_elbow_joint
+      - left_wrist_roll_joint
+      - left_wrist_pitch_joint
+      - left_wrist_yaw_joint
+      - right_shoulder_pitch_joint
+      - right_shoulder_roll_joint
+      - right_shoulder_yaw_joint
+      - right_elbow_joint
+      - right_wrist_roll_joint
+      - right_wrist_pitch_joint
+      - right_wrist_yaw_joint
+
+    observation_spec:
+      # Critic observations (privileged)
+      - type: ProjectedGravityVector
+        obs_name: q_root_proj
+        xml_name: root
+        group: prioritized
+        allow_randomization: false
+      - type: JointPosArray
+        obs_name: joint_positions
+        group: prioritized
+        allow_randomization: false
+        xml_names: ${robot_joints_to_consider}
+      - type: FreeJointVel
+        obs_name: dq_root
+        xml_name: root
+        group: prioritized
+        allow_randomization: false
+      - type: JointVelArray
+        obs_name: joint_velocities
+        xml_names: ${robot_joints_to_consider}
+        group: prioritized
+        allow_randomization: false
+      - type: LastAction
+        obs_name: last_action
+        group: prioritized
+        allow_randomization: false
+
+      # Actor observations (unprivileged)
+      - type: ProjectedGravityVector
+        obs_name: q_root_pi
+        xml_name: root
+        group: policy
+        allow_randomization: true
+      - type: JointPosArray
+        obs_name: joint_positions_pi
+        group: policy
+        allow_randomization: true
+        xml_names: ${robot_joints_to_consider}
+      - type: EntryFromFreeJointVel
+        obs_name: dq_root_pi_r
+        xml_name: root
+        entry_index: 3
+        group: policy
+        allow_randomization: true
+      - type: EntryFromFreeJointVel
+        obs_name: dq_root_pi_p
+        xml_name: root
+        entry_index: 4
+        group: policy
+        allow_randomization: true
+      - type: EntryFromFreeJointVel
+        obs_name: dq_root_pi_y
+        xml_name: root
+        entry_index: 5
+        group: policy
+        allow_randomization: true
+      - type: JointVelArray
+        obs_name: joint_velocities_pi
+        xml_names: ${robot_joints_to_consider}
+        group: policy
+        allow_randomization: true
+      - type: LastAction
+        obs_name: last_action_pi
+        group: policy
+        allow_randomization: false
+
+    control_type: PDControl
+    control_params:
+      scale_action_to_jnt_limits: False
+      action_scale: 1.0
+      
+      p_gain:
+        - 100
+        - 100
+        - 100
+        - 150 
+        - 20
+        - 20
+
+        - 100
+        - 100
+        - 100
+        - 150 
+        - 20
+        - 20
+        
+        - 100 # waist yaw
+        - 100 # waist roll
+        - 100 # waist pitch
+        
+        - 30
+        - 30
+        - 30
+        - 30
+        - 30
+        - 10
+        - 10
+        
+        - 30
+        - 30
+        - 30
+        - 30
+        - 30
+        - 10
+        - 10
+
+      d_gain:
+        - 2
+        - 2
+        - 2
+        - 3
+        - 1
+        - 1
+
+        - 2
+        - 2
+        - 2
+        - 3
+        - 1
+        - 1
+
+        - 3
+        - 3
+        - 3
+  
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+        
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+
+      nominal_joint_positions:
+        - -0.1 # - left_hip_pitch_joint
+        - 0.0 # - left_hip_roll_joint
+        - 0.0 # - left_hip_yaw_joint
+        - 0.3  # - left_knee_joint
+        - -0.2  # - left_ankle_pitch_joint
+        - 0.0  # - left_ankle_roll_joint
+        - -0.1  # - right_hip_pitch_joint
+        - 0.0  # - right_hip_roll_joint
+        - 0.0  # - right_hip_yaw_joint
+        - 0.3  # - right_knee_joint
+        - -0.2  # - right_ankle_pitch_joint
+        - 0.0  # - right_ankle_roll_joint
+        - 0.0  # - waist_yaw_joint
+        - 0.0  # - waist_roll_joint
+        - 0.0  # - waist_pitch_joint
+        - 0.0  # - left_shoulder_pitch_joint
+        - 0.0  # - left_shoulder_roll_joint
+        - 0.0  # - left_shoulder_yaw_joint
+        - 0.0  # - left_elbow_joint
+        - 0.0  # - left_wrist_roll_joint
+        - 0.0  # - left_wrist_pitch_joint
+        - 0.0  # - left_wrist_yaw_joint
+        - 0.0  # - right_shoulder_pitch_joint
+        - 0.0  # - right_shoulder_roll_joint
+        - 0.0  # - right_shoulder_yaw_joint
+        - 0.0  # - right_elbow_joint
+        - 0.0  # - right_wrist_roll_joint
+        - 0.0  # - right_wrist_pitch_joint
+        - 0.0  # - right_wrist_yaw_joint
+
+    init_state_type: DefaultInitialStateHandler
+    init_state_params:
+      
+      qpos_init: [0, 0, 0.8, 
+                  1, 0, 0, 0,
+                  -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
+                  -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
+                  0.0, 0.0, 0.0,
+                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+                  ]
+
+      qvel_init: [0, 0, 0, 
+                  0, 0, 0, 
+                  0, 0, 0, 0, 0, 0,
+                  0, 0, 0, 0, 0, 0,
+                  0, 0, 0,
+                  0, 0, 0, 0, 0, 0, 0,
+                  0, 0, 0, 0, 0, 0, 0
+                  ]
+
+    domain_randomization_type: CustomRandomizer
+    domain_randomization_params: 
+
+      total_timesteps: 200e6
+      num_curriculum_steps: 1
+      num_environments: 8192
+      num_total_timesteps: 200e6
+      # gravity
+      randomize_gravity: true
+      gravity_range: [9.51, 10.11]
+
+      # geom properties
+      randomize_model_geom_friction_tangential: false
+      model_geom_friction_tangential_range: [0.5, 1.5]
+      randomize_model_geom_friction_torsional: false
+      model_geom_friction_torsional_range: [0.1, 0.3]
+      randomize_model_geom_friction_rolling: false
+      model_geom_friction_rolling_range: [0.00008, 0.00012]
+
+      randomize_floor_geom_friction_tangential: true
+      floor_geom_friction_tangential_range: [0.5, 1.5]
+      randomize_floor_geom_friction_torsional: true
+      floor_geom_friction_torsional_range: [0.1, 0.3]
+      randomize_floor_geom_friction_rolling: true
+      floor_geom_friction_rolling_range: [0.00008, 0.00012]
+
+      randomize_geom_damping: false
+      geom_damping_range: [100, 500]
+      randomize_geom_stiffness: false
+      geom_stiffness_range: [50000, 300000]
+
+      # joint properties
+      randomize_joint_damping: true
+      joint_damping_range: [0.005, .015]
+      randomize_joint_stiffness: false
+      joint_stiffness_range: [0.9, 1.1]
+      randomize_joint_friction_loss: true
+      joint_friction_loss_range: [0.0, 2.0]
+      randomize_joint_armature: true
+      joint_armature_range: [0.007, 0.013]
+
+      #base mass
+      randomize_base_mass: false
+      base_mass_to_add_range: [-0.01, 0.01]
+
+      #COM
+      randomize_com_displacement: true
+      com_displacement_range: [-0.05, 0.05] 
+
+      #link mass
+      randomize_link_mass: true
+      link_mass_multiplier_range: {
+                                    "root_body":[0.8, 1.2],
+                                    "other_bodies":[0.9, 1.1],
+                                  }
+
+      #PD Gains
+      add_p_gains_noise: true
+      add_d_gains_noise: true
+      p_gains_noise_scale: 0.15
+      d_gains_noise_scale: 0.15
+
+      # Observation Noise
+      add_joint_pos_noise: true
+      joint_pos_noise_scale: 0.03
+      add_joint_vel_noise: true
+      joint_vel_noise_scale: 1.2
+      add_gravity_noise: true
+      gravity_noise_scale: 0.015
+      add_free_joint_lin_vel_noise: false
+      lin_vel_noise_scale: 0.1
+      add_free_joint_ang_vel_noise: true
+      ang_vel_noise_scale: 0.2
+      add_policy_ang_vel_noise: true
+      policy_ang_vel_noise_scale: 0.2
+
+      #Observation Normalization
+      normalize_observations: true
+      norm_factors: {
+                      "joint_pos": 1.0,
+                      "joint_vel": 0.1,
+                      "gravity": 1.0,
+                      "lin_vel": 1.0,
+                      "ang_vel": 1.0,
+                    }
+
+      # Pushing
+      push_robots: true
+      push_force_amplitude: 20 # Newtons
+      push_torque_amplitude: 2 # Newton-meters
+      push_active_duration: 1.0 # seconds
+      push_relief_duration: 2.0 # seconds
+      push_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 push per second
+
+      #Lowpass filter
+      apply_action_filtering: false
+      filter_action_alpha: 0.0
+
+      # Kicking
+      kick_robots: true
+      kick_min_vel: 0.0
+      kick_max_vel: 0.6 # m/s
+      kick_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 kick per second
+      kick_at_reset: true
+
+  actor_obs_group: policy
+  critic_obs_group: prioritized
+  hidden_layers: [512, 256, 128]
+  lr: 1e-5
+  adaptive_lr: true       # The main flag to enable/disable the feature
+  lr_min: 1.0e-6          # Minimum learning rate
+  lr_max: 0.01            # Maximum learning rate
+  kl_target: 0.02         # Target KL divergence
+  kl_margin: 1.5          # Margin for scaling (e.g., if KL > 0.02*1.5, decrease LR)
+  kl_lr_scale: 1.5        # How much to scale LR by (multiply or divide)
+  len_obs_history: 1
+  num_envs: 8192
+  num_steps: 24
+  total_timesteps: 200e6
+  update_epochs: 20
+  num_minibatches: 1
+  gamma: 0.995
+  gae_lambda: 0.95
+  clip_eps: 0.2
+  init_std: 0.2
+  learnable_std: True
+  ent_coef: 0.005
+  vf_coef: 0.5
+  max_grad_norm: 1.0
+  activation: elu
+  actor_output_activation: none
+  use_observationnorm: true
+  anneal_lr: false
+  weight_decay: 0.0
+  normalize_env: true
+  debug: false
+  n_seeds: 1  # while automatically take seeds from 1 to n_seeds
+  vmap_across_seeds: true
+  validation:
+    active: false
+    num_steps: 100
+    num_envs: 100
+    num: 10 # set to 0 to disable validation
+
+
+robot_joints_to_consider:
+  - left_hip_pitch_joint
+  - left_hip_roll_joint
+  - left_hip_yaw_joint
+  - left_knee_joint
+  - left_ankle_pitch_joint
+  - left_ankle_roll_joint
+  - right_hip_pitch_joint
+  - right_hip_roll_joint
+  - right_hip_yaw_joint
+  - right_knee_joint
+  - right_ankle_pitch_joint
+  - right_ankle_roll_joint
+  - waist_yaw_joint
+  - waist_roll_joint
+  - waist_pitch_joint
+  - left_shoulder_pitch_joint
+  - left_shoulder_roll_joint
+  - left_shoulder_yaw_joint
+  - left_elbow_joint
+  - left_wrist_roll_joint
+  - left_wrist_pitch_joint
+  - left_wrist_yaw_joint
+  - right_shoulder_pitch_joint
+  - right_shoulder_roll_joint
+  - right_shoulder_yaw_joint
+  - right_elbow_joint
+  - right_wrist_roll_joint
+  - right_wrist_pitch_joint
+  - right_wrist_yaw_joint

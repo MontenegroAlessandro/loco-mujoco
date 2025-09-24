@@ -251,14 +251,27 @@ class UnitreeG1(BaseRobotHumanoid):
         equ_constr_to_remove = []
 
         if self._disable_arms:
+            # joints_to_remove += ["right_shoulder_pitch_joint", "right_shoulder_roll_joint", "right_shoulder_yaw_joint",
+            #                      "right_elbow_pitch_joint", "right_elbow_roll_joint",
+            #                      "left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_shoulder_yaw_joint",
+            #                      "left_elbow_pitch_joint", "left_elbow_roll_joint"]
+            # motors_to_remove += ["right_shoulder_pitch_joint", "right_shoulder_roll_joint", "right_shoulder_yaw_joint",
+            #                      "right_elbow_pitch_joint", "right_elbow_roll_joint",
+            #                      "left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_shoulder_yaw_joint",
+            #                      "left_elbow_pitch_joint", "left_elbow_roll_joint"]
+            
             joints_to_remove += ["right_shoulder_pitch_joint", "right_shoulder_roll_joint", "right_shoulder_yaw_joint",
-                                 "right_elbow_pitch_joint", "right_elbow_roll_joint",
+                                 "right_elbow_joint", 
+                                 "right_wrist_roll_joint", "right_wrist_pitch_joint", "right_wrist_yaw_joint",
                                  "left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_shoulder_yaw_joint",
-                                 "left_elbow_pitch_joint", "left_elbow_roll_joint"]
+                                 "left_elbow_joint", 
+                                 "left_wrist_roll_joint", "left_wrist_pitch_joint", "left_wrist_yaw_joint"]
             motors_to_remove += ["right_shoulder_pitch_joint", "right_shoulder_roll_joint", "right_shoulder_yaw_joint",
-                                 "right_elbow_pitch_joint", "right_elbow_roll_joint",
+                                 "right_elbow_joint", 
+                                 "right_wrist_roll_joint", "right_wrist_pitch_joint", "right_wrist_yaw_joint",
                                  "left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_shoulder_yaw_joint",
-                                 "left_elbow_pitch_joint", "left_elbow_roll_joint"]
+                                 "left_elbow_joint", 
+                                 "left_wrist_roll_joint", "left_wrist_pitch_joint", "left_wrist_yaw_joint"]
 
         if self._disable_back_joint:
             joints_to_remove += ["torso_joint"]
@@ -373,7 +386,7 @@ class UnitreeG1(BaseRobotHumanoid):
         """
         Returns the default XML file path for the Unitree G1 environment.
         """
-        return (loco_mujoco.PATH_TO_MODELS / "unitree_g1" / "g1_23dof.xml").as_posix()
+        return (loco_mujoco.PATH_TO_MODELS / "unitree_g1" / "g1_29dof_rev_1_0.xml").as_posix()
 
     @info_property
     def upper_body_xml_name(self) -> str:
@@ -381,6 +394,19 @@ class UnitreeG1(BaseRobotHumanoid):
         Returns the name of the upper body in the Mujoco XML file.
         """
         return "torso_link"
+    
+    @info_property
+    def foot_geom_names(self) -> List[str]:
+        """
+        Returns the names of the foot geometries.
+
+        Returns:
+            List[str]: The names of the foot geometries.
+        """
+        print("---------using new foot geom names for G1---------------")
+        return ["left_foot_1_col", "left_foot_2_col", "left_foot_3_col",
+                "right_foot_1_col", "right_foot_2_col", "right_foot_3_col",
+                ]
 
     @info_property
     def root_height_healthy_range(self) -> Tuple[float, float]:
