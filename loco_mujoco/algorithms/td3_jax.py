@@ -283,7 +283,7 @@ class TD3Jax(JaxRLAlgorithmBase):
         print(f"Action Limits ({-action_limit},{action_limit})")
         for i in tqdm(range(num_updates)):
             if noise_scheduler is not None:
-                new_scales = noise_scheduler.update_sigma(i+1) * jax.ones((config.num_envs,1))
+                new_scales = noise_scheduler.update_sigma(i+1) * jnp.ones((config.num_envs,1))
                 agent_state = agent_state.replace(noise_scales=new_scales)
 
             # [3.1] environment interaction and replay buffer update
