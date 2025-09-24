@@ -108,16 +108,25 @@ class PhasedExplorationSchedule:
     noise_max: float
     noise_min: float
     smooth: float
+    linear: bool
 
     @classmethod
-    def create(cls, phases: int, noise_max: float, noise_min: float):
-        smooth = jnp.log(noise_max / noise_min) / jnp.log(phases)
+    def create(cls, phases: int, noise_max: float, noise_min: float, linear: bool = True):
+        if linear:
+            smooth = float((noise_min - noise_max) / phases)
+        else:
+            smooth = jnp.log(noise_max / noise_min) / jnp.log(phases)
         return cls(
             phases=phases,
             noise_max=noise_max,
             noise_min=noise_min,
-            smooth=smooth
+            smooth=smooth,
+            linear=linear
         )
     
     def update_sigma(self, current_phase: int):
-        return self.noise_max * jnp.power(current_phase, -self.smooth)
+        if self.linear:
+            new_sigma = self.noise_max + self.smooth * current_phase
+        else:
+            new_sigma = self.noise_max * jnp.power(current_phase, -self.smooth)
+        return new_sigma

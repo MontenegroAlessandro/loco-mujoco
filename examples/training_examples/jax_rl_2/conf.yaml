@@ -53,6 +53,7 @@ experiment:
   std_min: 0.5 # 0.01 # min exploration noise with the env
   std_max: 0.01 # 0.02 # max exploration noise with the env
   schedule_noise: true
+  linear_schedule: true # if false exponential schedule
   policy_frequency: 2
   
   # General Training Config

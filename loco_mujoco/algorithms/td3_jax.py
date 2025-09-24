@@ -276,7 +276,9 @@ class TD3Jax(JaxRLAlgorithmBase):
         # if needed, initialize the exploration scheduler
         noise_scheduler = None
         if config.schedule_noise and config.std_max > config.std_min:
-            noise_scheduler = PhasedExplorationSchedule.create(phases=num_updates, noise_max=config.std_max, noise_min=config.std_min)
+            noise_scheduler = PhasedExplorationSchedule.create(
+                phases=num_updates, noise_max=config.std_max, noise_min=config.std_min, linear=config.linear_schedule
+            )
         
         print(f"Action Limits ({-action_limit},{action_limit})")
         for i in tqdm(range(num_updates)):
