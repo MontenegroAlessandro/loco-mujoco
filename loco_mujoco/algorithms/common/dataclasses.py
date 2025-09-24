@@ -130,3 +130,43 @@ class PhasedExplorationSchedule:
         else:
             new_sigma = self.noise_max * jnp.power(current_phase, -self.smooth)
         return new_sigma
+
+@struct.dataclass
+class RunningMeanStdState:
+    mean: jnp.ndarray
+    var: jnp.ndarray
+    count: jnp.ndarray
+
+    @classmethod
+    def create(cls, obs_shape):
+        """Initializes the running mean-std state."""
+        return cls(
+            mean=jnp.zeros(obs_shape),
+            var=jnp.ones(obs_shape),
+            count=jnp.array(1e-6)
+        )
+
+    def update(self, batch: jnp.ndarray):
+        """
+        Updates the running mean and variance with a new batch of data.
+        Uses Welford's algorithm for numerical stability.
+        """
+        batch_mean = jnp.mean(batch, axis=0)
+        batch_var = jnp.var(batch, axis=0)
+        batch_count = batch.shape[0]
+
+        updated_count = self.count + batch_count
+
+        delta = batch_mean - self.mean
+        new_mean = self.mean + delta * batch_count / updated_count
+        
+        m_a = self.var * self.count
+        m_b = batch_var * batch_count
+        M2 = m_a + m_b + jnp.square(delta) * self.count * batch_count / updated_count
+        new_var = M2 / updated_count
+
+        return self.replace(mean=new_mean, var=new_var, count=updated_count)
+
+    def normalize(self, x: jnp.ndarray):
+        """Normalizes the input data using the current running stats."""
+        return (x - self.mean) / jnp.sqrt(self.var + 1e-8)
