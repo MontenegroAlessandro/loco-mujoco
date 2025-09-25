@@ -762,8 +762,18 @@ class BoosterT1(BaseRobotHumanoid):
         Returns the healthy range of the root height. This is only used when HeightBasedTerminalStateHandler is used.
 
         """
-        return (0.3, 1.0)
+        return (0.45, 1.0)
     
+    # @info_property
+    # def foot_geom_names(self) -> List[str]:
+    #     """
+    #     Returns the names of the foot geometries.
+
+    #     Returns:
+    #         List[str]: The names of the foot geometries.
+    #     """
+    #     return ["right_foot_collision", "left_foot_collision"]
+
     @info_property
     def foot_geom_names(self) -> List[str]:
         """
@@ -772,4 +782,4 @@ class BoosterT1(BaseRobotHumanoid):
         Returns:
             List[str]: The names of the foot geometries.
         """
-        return ["right_foot_collision", "left_foot_collision"]
+        return ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]

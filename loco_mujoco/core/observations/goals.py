@@ -1152,7 +1152,7 @@ class GoalChangingRandomRootVelocity(Goal, RootVelocityArrowVisualizer):
                  max_y_vel: float = 1.0,
                  max_yaw_vel: float = 1.0,
                  max_height: float = 0.68,
-                 min_height: float = 0.67,
+                 min_height: float = 0.68,
                  resample_rate: float = 1/800,
                  still_proportion: float = 0.1,
                  gait_frequency_range: List[float] = [1.0, 2.0],

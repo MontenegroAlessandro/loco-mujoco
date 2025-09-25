@@ -56,7 +56,7 @@ class MjxBoosterT1(BoosterT1):
 
     mjx_enabled = True
 
-    def __init__(self, timestep=0.002, n_substeps=5, **kwargs):
+    def __init__(self, timestep=0.005, n_substeps=4, **kwargs):
         if "model_option_conf" not in kwargs.keys():
             model_option_conf = dict(iterations=2, ls_iterations=4, disableflags=mujoco.mjtDisableBit.mjDSBL_EULERDAMP)
         else:

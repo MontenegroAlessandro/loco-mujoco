@@ -1,10 +1,33 @@
 defaults:
   - override hydra/job_logging: default
-  - override hydra/launcher: basic
+  - override hydra/launcher: pegasus_cluster # comment out when running locally
+  - _self_
 
+
+hydra:
+  mode: MULTIRUN
+  job_logging: {}
+  hydra_logging: {}
+  sweeper:
+    params:
+      wandb.note: "feet roll sweep"
+
+      experiment.env_params.reward_params.action_rate_coeff: -1.0
+      experiment.env_params.reward_params.survival: 0.25  
+      experiment.env_params.reward_params.tracking_w_sum_linvel_x: 1.5
+      experiment.env_params.reward_params.tracking_w_sum_linvel_y: 1.5
+      experiment.env_params.reward_params.tracking_w_sum_angvel: 1.0
+      experiment.env_params.reward_params.feet_swing_coeff: 6.0
+      experiment.env_params.reward_params.feet_yaw_diff_coeff: -1.0
+      experiment.env_params.reward_params.feet_yaw_mean_coeff: -1.0
+      experiment.env_params.reward_params.feet_roll_coeff: -1.0
+      experiment.env_params.reward_params.joint_vel_coeff: -3.e-4 
+
+      experiment.env_params.control_params.clip_actions: 1.0
 
 wandb:
   project: "UnitreeG1"
+  note: ""
 
 experiment:
   task_factory:
@@ -25,12 +48,12 @@ experiment:
       min_height: 0.77
       resample_rate: 0.002
       still_proportion: 0.2
-      gait_frequency_range: [0.5, 1.5] # Hz
+      gait_frequency_range: [1.0, 2.0] # Hz
       visualize_goal: true
       group: [prioritized, policy]
 
     
-    headless: false
+    headless: true
 
     reward_type: CrispBoosterLocomotionReward
     reward_params:
@@ -195,6 +218,7 @@ experiment:
     control_params:
       scale_action_to_jnt_limits: False
       action_scale: 1.0
+      clip_actions: 1.0
       
       p_gain:
         - 100
@@ -321,10 +345,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 200e6
+      total_timesteps: 500e6
       num_curriculum_steps: 1
       num_environments: 8192
-      num_total_timesteps: 200e6
+      num_total_timesteps: 500e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -405,7 +429,7 @@ experiment:
                     }
 
       # Pushing
-      push_robots: true
+      push_robots: false
       push_force_amplitude: 20 # Newtons
       push_torque_amplitude: 2 # Newton-meters
       push_active_duration: 1.0 # seconds
@@ -421,7 +445,7 @@ experiment:
       kick_min_vel: 0.0
       kick_max_vel: 0.6 # m/s
       kick_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 kick per second
-      kick_at_reset: true
+      kick_at_reset: false
 
   actor_obs_group: policy
   critic_obs_group: prioritized
@@ -436,7 +460,7 @@ experiment:
   len_obs_history: 1
   num_envs: 8192
   num_steps: 24
-  total_timesteps: 200e6
+  total_timesteps: 500e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995

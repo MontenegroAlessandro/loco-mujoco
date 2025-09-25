@@ -503,14 +503,14 @@ class CustomRandomizer(DomainRandomizer):
         total_len_noise_vec += len(ind_of_policy_angvel_entries)
 
 
-        print(ind_of_all_joint_pos)
-        print(ind_of_all_joint_vel)
-        print(ind_of_gravity_vec)
-        print(ind_of_lin_vel)
-        print(ind_of_ang_vel)
-        print(ind_of_policy_angvel_entries)
+        # print(ind_of_all_joint_pos)
+        # print(ind_of_all_joint_vel)
+        # print(ind_of_gravity_vec)
+        # print(ind_of_lin_vel)
+        # print(ind_of_ang_vel)
+        # print(ind_of_policy_angvel_entries)
 
-        print("ALLOED TO BE RANDOMIZED: ", self._allowed_to_be_randomized)
+        # print("ALLOED TO BE RANDOMIZED: ", self._allowed_to_be_randomized)
 
 
         # get randomization parameters

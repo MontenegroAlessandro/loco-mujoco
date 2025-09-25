@@ -129,16 +129,18 @@
                   <joint name="left_ankle_roll_joint" pos="0 0 0" axis="1 0 0" range="-0.2618 0.2618" actuatorfrcrange="-50 50" class="ankle_motor"/>
                   <geom type="mesh" contype="0" conaffinity="0" group="0" density="0" rgba="0.2 0.2 0.2 1" mesh="left_ankle_roll_link"/>
 
-                  <geom name="left_foot_1" size="0.005" pos="-0.05 0.025 -0.03" rgba="0.2 0.2 0.2 1" class="collision"/>
+                  <!-- <geom name="left_foot_1" size="0.005" pos="-0.05 0.025 -0.03" rgba="0.2 0.2 0.2 1" class="collision"/>
                   <geom name="left_foot_2" size="0.005" pos="-0.05 -0.025 -0.03" rgba="0.2 0.2 0.2 1" class="collision"/>
                   <geom name="left_foot_3" size="0.005" pos="0.12 0.03 -0.03" rgba="0.2 0.2 0.2 1" class="collision"/>
                   <geom name="left_foot_4" size="0.005" pos="0.12 -0.03 -0.03" rgba="0.2 0.2 0.2 1" class="collision"/>
-                  <geom name="left_foot_5" size="0.005" pos="0.14 0 -0.03" rgba="0.2 0.2 0.2 1" class="collision"/>
+                  <geom name="left_foot_5" size="0.005" pos="0.14 0 -0.03" rgba="0.2 0.2 0.2 1" class="collision"/> -->
 
                   <geom name="left_foot_1_col" type="box" pos="0.08 0 -0.015" size="0.04 0.035 0.02" rgba="0.9 0.2 0.2 0.3" class="collision"/>
                   <geom name="left_foot_2_col" type="box" pos="-0.031 0 -0.015" size="0.02 0.028 0.02" rgba="0.2 0.9 0.2 0.3" class="collision"/>
                   <geom name="left_foot_3_col" type="capsule" size="0.015" pos="0 0 0" fromto="-0.05 0 -0.019 0.125 0 -0.019" rgba="0.9 0.2 0.9 0.3" class="collision"/>
                   <site name="left_foot_mimic" class="mimic"  pos="0.035 0.0 -0.03"/>   
+
+                  <site name="left_foot" size="0.015" pos="0.0 0.0 -0.03"/>
 
                 </body>
               </body>
@@ -189,17 +191,19 @@
                   <joint name="right_ankle_roll_joint" pos="0 0 0" axis="1 0 0" range="-0.2618 0.2618" actuatorfrcrange="-50 50" class="ankle_motor"/>
                   <geom type="mesh" contype="0" conaffinity="0" group="0" density="0" rgba="0.2 0.2 0.2 1" mesh="right_ankle_roll_link"/>
 
-                  <geom name="right_foot_1" size="0.005" pos="-0.05 0.025 -0.03" rgba="0.2 0.2 0.2 1" class="collision"/>
+                  <!-- <geom name="right_foot_1" size="0.005" pos="-0.05 0.025 -0.03" rgba="0.2 0.2 0.2 1" class="collision"/>
                   <geom name="right_foot_2" size="0.005" pos="-0.05 -0.025 -0.03" rgba="0.2 0.2 0.2 1" class="collision"/>
                   <geom name="right_foot_3" size="0.005" pos="0.12 0.03 -0.03" rgba="0.2 0.2 0.2 1" class="collision"/>
                   <geom name="right_foot_4" size="0.005" pos="0.12 -0.03 -0.03" rgba="0.2 0.2 0.2 1" class="collision"/>
-                  <geom name="right_foot_5" size="0.005" pos="0.14 0 -0.03" rgba="0.2 0.2 0.2 1" class="collision"/>
+                  <geom name="right_foot_5" size="0.005" pos="0.14 0 -0.03" rgba="0.2 0.2 0.2 1" class="collision"/> -->
 
                   <geom name="right_foot_1_col" type="box" pos="0.08 0 -0.015" size="0.04 0.035 0.02" rgba="0.9 0.2 0.2 0.3" class="collision"/>
                   <geom name="right_foot_2_col" type="box" pos="-0.031 0 -0.015" size="0.02 0.028 0.02" rgba="0.2 0.9 0.2 0.3" class="collision"/>
                   <geom name="right_foot_3_col" type="capsule" size="0.015" pos="0 0 0" fromto="-0.05 0 -0.019 0.125 0 -0.019" rgba="0.9 0.2 0.9 0.3" class="collision"/>
 
                   <site name="right_foot_mimic" class="mimic"  pos="0.035 0.0 -0.03"/>
+
+                  <site name="right_foot" size="0.015" pos="0.0 0.0 -0.03"/>
                 </body>
               </body>
             </body>

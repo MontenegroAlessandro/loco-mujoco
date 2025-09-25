@@ -112,4 +112,17 @@ class MjxUnitreeG1(UnitreeG1):
 
         spec.add_pair(geomname1="left_knee_col", geomname2="right_knee_col")
 
+        # for computational efficiency, we will only let some geoms collide with others
+        # we are not enabling collisions for safety enforcement right now, but so that:
+        # 1. important interactions are not missed (e.g. against the floor)
+        # 2. unrealistic dynamics are not learned (e.g. legs passing through each other)
+        # --- Define specific contact pairs ---
+
+        # first with the floor
+        for g_name in left_foot_geoms + right_foot_geoms + left_leg_geoms + right_leg_geoms + torso_geoms + left_forearm_geoms + right_forearm_geoms:
+            spec.add_pair(geomname1="floor", geomname2=g_name)
+        
+
+        spec.add_pair(geomname1="left_knee_col", geomname2="right_knee_col")
+
         return spec
