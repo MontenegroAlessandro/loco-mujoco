@@ -1,34 +1,69 @@
 import os
 import sys
-import jax
-import jax.numpy as jnp
 import wandb
 from dataclasses import fields
-from loco_mujoco import TaskFactory
-from loco_mujoco.algorithms import PPOJax
-from loco_mujoco.utils.metrics import QuantityContainer
-from loco_mujoco.utils import MetricsHandler
-
 import hydra
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 import traceback
 
+import time
 
-@hydra.main(version_base=None, config_path="./", config_name="conf2")
+job_timestamp_str = time.strftime("%Y-%m-%d/%H-%M-%S", time.localtime())
+
+@hydra.main(version_base=None, config_path="./", config_name="conf_g1")
 def experiment(config: DictConfig):
     try:
+        import jax
+        import jax.numpy as jnp
+        from loco_mujoco import TaskFactory
+        from loco_mujoco.algorithms import PPOJax
+        from loco_mujoco.utils.metrics import QuantityContainer
+        from loco_mujoco.utils import MetricsHandler
+
 
         os.environ['XLA_FLAGS'] = (
-            '--xla_gpu_triton_gemm_any=True ')
+            '--xla_gpu_triton_gemm_any=True '
+            # '--xla_gpu_enable_cub_radix_sort=false '
+            # '--xla_gpu_deterministic_ops=true '
+            '--xla_gpu_autotune_level=1 '
+            '--xla_gpu_force_compilation_parallelism=1 '
+            # '--xla_gpu_disable_gpuasm_optimizations=true'
+
+            )
+        # Reduce JAX logging verbosity
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+        os.environ['JAX_LOG_LEVEL'] = 'WARNING'
 
         # Accessing the current sweep number
         result_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
 
         # setup wandb
+        # Accessing the current sweep number
+        hydra_config = hydra.core.hydra_config.HydraConfig.get()
+        result_dir = hydra_config.runtime.output_dir
+
+        # get overrides
+        overrides = hydra_config.overrides.task
+        str_overrides = []
+        if len(overrides) > 0:
+            for override in overrides:
+                value = override.split("=")[1]
+                key = override.split("=")[0].split(".")[-1]
+                str_overrides.append(f"{key}={value}")
+        
+        # setup wandb
         wandb.login()
         config_dict = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
-        run = wandb.init(project=config.wandb.project, config=config_dict)
+
+        # name the run as time stamp + overrides
+        wandb_run_name = f"{';'.join(str_overrides + [job_timestamp_str])}"
+
+        run = wandb.init(
+            entity="",
+            project=config.wandb.project,
+            name=wandb_run_name,
+            config=config_dict)
 
         # get task factory
         factory = TaskFactory.get_factory_cls(config.experiment.task_factory.name)
