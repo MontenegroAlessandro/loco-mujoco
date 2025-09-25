@@ -29,18 +29,16 @@ def experiment(config: DictConfig):
         factory = TaskFactory.get_factory_cls(config.experiment.task_factory.name)
         env = factory.make(**config.experiment.env_params, **config.experiment.task_factory.params)
 
-        # Create eval env
-        eval_env = factory.make(**config.experiment.env_params, **config.experiment.task_factory.params)
-        eval_env = LogWrapper(eval_env)
-        eval_env = VecEnv(eval_env)
-        if config.experiment.normalize_env:
-            eval_env = NormalizeVecReward(eval_env, config.experiment.gamma)
-
         # Wrap env to log episode stats
         env = LogWrapper(env)
         env = VecEnv(env)
         if config.experiment.normalize_env:
             env = NormalizeVecReward(env, config.experiment.gamma)
+
+        # Create eval env
+        eval_env = factory.make(**config.experiment.env_params, **config.experiment.task_factory.params)
+        eval_env = LogWrapper(eval_env)
+        eval_env = VecEnv(eval_env)
         
         # Get initial agent configuration
         agent_conf = TD3Jax.init_agent_conf(env, config)
