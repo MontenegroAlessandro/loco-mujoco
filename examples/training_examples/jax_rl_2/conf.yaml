@@ -3,7 +3,7 @@ defaults:
   - override hydra/launcher: basic
 
 wandb:
-  project: "loco_mujoco_td3" 
+  project: "loco_mujoco_td3_debug" 
 
 experiment:
   task_factory:
@@ -41,31 +41,31 @@ experiment:
   critic_lr: 1e-4
   
   # Replay Buffer and Batching
-  buffer_size: 4096000 
-  batch_size: 2048 
-  learning_starts: 2048 
+  buffer_size: 12800000 # 4096000 
+  batch_size: 1280 # 2048 
+  learning_starts: 12800 # 2048 
   
   # TD3 Core Parameters
   gamma: 0.99
   tau: 0.005
-  policy_noise: 0.001 # 0.001 # noise scale for the target computation
+  policy_noise: 0.1 # 0.001 # noise scale for the target computation
   noise_clip: 0.5 
-  std_min: 0.05 # 0.01 # min exploration noise with the env
-  std_max: 0.3 # 0.02 # max exploration noise with the env
-  schedule_noise: true
-  linear_schedule: true # if false exponential schedule
+  std_min: 0.2 # 0.01 # min exploration noise with the env
+  std_max: 0.2 # 0.02 # max exploration noise with the env
+  schedule_noise: false
+  linear_schedule: false # if false exponential schedule
   policy_frequency: 2
-  update_after: 1000 # number of steps have to elapse between environment interactions and learning in this case utd is updated
+  update_after: 1 # number of steps have to elapse between environment interactions and learning in this case utd is updated
   
   # General Training Config
   utd_ratio: 1
-  num_envs: 64 # 2048
-  total_timesteps: 10e7 # total interactions
+  num_envs: 128 # 2048
+  total_timesteps: 1e7 # total interactions
   n_seeds: 1
   vmap_across_seeds: true
   normalize_env: true
   debug: false
-  log_interval: 1e6 
+  log_interval: 500e3 
   validation:
     active: false
     num_steps: 1000

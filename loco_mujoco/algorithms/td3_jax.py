@@ -350,7 +350,7 @@ class TD3Jax(JaxRLAlgorithmBase):
                 
                 # say that we can log losses
                 if not learning_started:
-                    learning_started
+                    learning_started = True
 
                 for j in range(utd):
                     # sample batch
