@@ -41,12 +41,12 @@ experiment:
   critic_lr: 1e-4
   
   # Replay Buffer and Batching
-  buffer_size: 40960000 
+  buffer_size: 4096000 
   batch_size: 2048 
-  learning_starts: 204800 
+  learning_starts: 2048 
   
   # TD3 Core Parameters
-  gamma: 0.995
+  gamma: 0.99
   tau: 0.005
   policy_noise: 0.001 # 0.001 # noise scale for the target computation
   noise_clip: 0.5 
@@ -58,8 +58,8 @@ experiment:
   update_after: 1000 # number of steps have to elapse between environment interactions and learning in this case utd is updated
   
   # General Training Config
-  utd_ratio: 8
-  num_envs: 2048
+  utd_ratio: 1
+  num_envs: 64 # 2048
   total_timesteps: 10e7 # total interactions
   n_seeds: 1
   vmap_across_seeds: true

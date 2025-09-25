@@ -284,6 +284,7 @@ class TD3Jax(JaxRLAlgorithmBase):
         log_interval = log_interval if log_interval < config.num_envs else int(log_interval // config.num_envs)
         start_learning = int(config.learning_starts // config.num_envs)
         utd = int(config.utd) if config.update_after == 0 else int(config.update_after)
+        learning_started = False
 
         # if needed, initialize the exploration scheduler
         noise_scheduler = None
@@ -346,6 +347,10 @@ class TD3Jax(JaxRLAlgorithmBase):
                 # learn for utd_ratio times
                 keys = jax.random.split(rng, utd + 1)
                 rng, update_keys = keys[0], keys[1:]
+                
+                # say that we can log losses
+                if not learning_started:
+                    learning_started
 
                 for j in range(utd):
                     # sample batch
@@ -368,7 +373,7 @@ class TD3Jax(JaxRLAlgorithmBase):
                 log_data = {}
 
                 # Add learning metrics if training has started
-                if i > start_learning and (i % config.update_after == 0 or i == num_updates - 1):
+                if learning_started:
                     log_data["Loss/Critic Loss"] = jax.device_get(metrics["critic_loss"])
                     log_data["Loss/Actor Loss"] = jax.device_get(metrics["actor_loss"])
 
@@ -570,7 +575,7 @@ class TD3Jax(JaxRLAlgorithmBase):
 
         i = 0
         while i < n_steps:
-            normalized_obs = normalized_obs = agent_state.obs_normalizer_state.normalize(obs)
+            normalized_obs = agent_state.obs_normalizer_state.normalize(obs)
 
             rng, _rng = jax.random.split(rng)
             action = sample_action(agent_state.actor_train_state.params, normalized_obs)
