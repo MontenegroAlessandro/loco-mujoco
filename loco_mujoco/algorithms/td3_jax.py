@@ -150,11 +150,13 @@ class TD3Jax(JaxRLAlgorithmBase):
             apply_fn=agent_conf.actor_module.apply,
             params=actor_variables['params'],
             tx=agent_conf.actor_tx,
+            run_stats=None,
         )
         critic_train_state = TrainState.create(
             apply_fn=agent_conf.critic_module.apply,
             params=critic_variables['params'],
             tx=agent_conf.critic_tx,
+            run_stats=None
         )
         
         # Initialize target networks as copies of the main networks
@@ -281,6 +283,7 @@ class TD3Jax(JaxRLAlgorithmBase):
         log_interval = config.get("log_interval", 100)
         log_interval = log_interval if log_interval < config.num_envs else int(log_interval // config.num_envs)
         start_learning = int(config.learning_starts // config.num_envs)
+        utd = int(config.utd) if config.update_after == 0 else int(config.update_after)
 
         # if needed, initialize the exploration scheduler
         noise_scheduler = None
@@ -339,12 +342,12 @@ class TD3Jax(JaxRLAlgorithmBase):
             )
             
             # learn (just after the warm up)
-            if i > start_learning:
+            if i > start_learning and (i % config.update_after == 0 or i == num_updates - 1):
                 # learn for utd_ratio times
-                keys = jax.random.split(rng, config.utd_ratio + 1)
+                keys = jax.random.split(rng, utd + 1)
                 rng, update_keys = keys[0], keys[1:]
 
-                for j in range(config.utd_ratio):
+                for j in range(utd):
                     # sample batch
                     batch_indices = np.random.randint(0, replay_buffer.size, size=config.batch_size)
                     batch = {
@@ -365,7 +368,7 @@ class TD3Jax(JaxRLAlgorithmBase):
                 log_data = {}
 
                 # Add learning metrics if training has started
-                if i * config.num_envs > config.learning_starts:
+                if i > start_learning and (i % config.update_after == 0 or i == num_updates - 1):
                     log_data["Loss/Critic Loss"] = jax.device_get(metrics["critic_loss"])
                     log_data["Loss/Actor Loss"] = jax.device_get(metrics["actor_loss"])
 

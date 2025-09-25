@@ -96,8 +96,6 @@ class TD3Actor(nn.Module):
     @nn.compact
     def __call__(self, obs):
         x = obs
-        # x = RunningMeanStd(update_stats=True)(x)
-        x = RunningMinMax(update_stats=True)(x)
 
         action = FullyConnectedNet(
             hidden_layer_dims=self.hidden_layer_dims,
@@ -125,8 +123,6 @@ class TD3Critic(nn.Module):
     @nn.compact
     def __call__(self, obs, action):
         # concatenate observation and action
-        # obs = RunningMeanStd(update_stats=True)(obs,squeeze_output=False)
-        obs = RunningMinMax(update_stats=True)(obs,squeeze_output=False)
         x = jnp.concatenate([obs, action], axis=-1)
 
         # get first critic result
