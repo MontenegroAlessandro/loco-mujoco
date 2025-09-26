@@ -155,9 +155,8 @@ class DistributionalQNetwork(nn.Module):
     activation: str = "relu"
 
     @nn.compact
-    def __call__(self, obs, action, update_stats: bool = True):
-        obs = RunningMeanStd()(obs, squeeze_output=False)
-        x = jnp.squeeze(jnp.concatenate([obs, action], axis=-1))
+    def __call__(self, obs, action):
+        x = jnp.concatenate([obs, action], axis=-1)
 
         logits = FullyConnectedNet(
             hidden_layer_dims=self.hidden_layer_dims,
@@ -192,43 +191,51 @@ class FastTD3Critic(nn.Module):
         )
     
     def __call__(self, obs, action, update_stats: bool = True):
-        logits1 = self.qnet1(obs, action, update_stats=update_stats)
-        logits2 = self.qnet2(obs, action, update_stats=update_stats)
+        logits1 = self.qnet1(obs, action)
+        logits2 = self.qnet2(obs, action)
         return logits1, logits2
     
-    def _project_single(self, logits, rewards, bootstrap, discount):
-        """Helper function to perform projection on a single distribution."""
-        delta_z = (self.v_max - self.v_min) / (self.num_atoms - 1)
-        batch_size = rewards.shape[0]
-
-        target_z = rewards[:, None] + bootstrap[:, None] * discount * self.q_support
-        target_z = jnp.clip(target_z, self.v_min, self.v_max)
+    def get_q_values(self, obs: jnp.ndarray, action: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+        logits1, logits2 = self.__call__(obs, action)
         
-        b = (target_z - self.v_min) / delta_z
-        l = jnp.floor(b).astype(jnp.int32)
-        u = jnp.ceil(b).astype(jnp.int32)
+        probs1 = jax.nn.softmax(logits1, axis=-1)
+        probs2 = jax.nn.softmax(logits2, axis=-1)
+        
+        q1 = jnp.sum(probs1 * self.q_support, axis=-1)
+        q2 = jnp.sum(probs2 * self.q_support, axis=-1)
+        
+        return q1, q2
 
-        l = jnp.where(l == u, l - 1, l)
-        u = jnp.where(u > l, u, u + 1)
-        l = jnp.clip(l, 0, self.num_atoms - 1)
-        u = jnp.clip(u, 0, self.num_atoms - 1)
+    @staticmethod
+    def project_distribution(
+        next_dist: jnp.ndarray, rewards: jnp.ndarray, dones: jnp.ndarray,
+        discount: float, support: jnp.ndarray, v_min: float, v_max: float
+    ) -> jnp.ndarray:
+        num_atoms = support.shape[0]
+        delta_z = (v_max - v_min) / (num_atoms - 1)
+        
+        target_z = rewards[:, None] + discount * (1 - dones[:, None]) * support
+        target_z = jnp.clip(target_z, v_min, v_max)
+        
+        b = (target_z - v_min) / delta_z
+        l, u = jnp.floor(b).astype(jnp.int32), jnp.ceil(b).astype(jnp.int32)
+        
+        eq_mask = (l == u)
+        l = jnp.where(eq_mask, l - 1, l)
+        u = jnp.where(eq_mask, u + 1, u)
+        l = jnp.clip(l, 0, num_atoms - 1)
+        u = jnp.clip(u, 0, num_atoms - 1)
 
-        next_dist = nn.softmax(logits, axis=1)
         proj_dist = jnp.zeros_like(next_dist)
+        weight_l = next_dist * (u - b)
+        weight_u = next_dist * (b - l)
         
-        proj_dist = proj_dist.at[jnp.arange(batch_size)[:, None], l].add(next_dist * (u - b))
-        proj_dist = proj_dist.at[jnp.arange(batch_size)[:, None], u].add(next_dist * (b - l))
-
+        batch_indices = jnp.arange(next_dist.shape[0])
+        proj_dist = proj_dist.at[batch_indices[:, None], l].add(weight_l)
+        proj_dist = proj_dist.at[batch_indices[:, None], u].add(weight_u)
+        
         return proj_dist
 
-    def projection(self, logits1, logits2, rewards, bootstrap, discount):
-        proj1 = self._project_single(logits1, rewards, bootstrap, discount)
-        proj2 = self._project_single(logits2, rewards, bootstrap, discount)
-        return proj1, proj2
-    
-    def get_value(self, probs):
-        """Calculates the expected Q-value from a probability distribution."""
-        return jnp.sum(probs * self.q_support, axis=-1)
 
 class RunningMeanStd(nn.Module):
     """Layer that maintains running mean and variance for input normalization."""

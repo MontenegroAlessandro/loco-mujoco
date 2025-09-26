@@ -217,6 +217,7 @@ class TD3Jax(JaxRLAlgorithmBase):
             q1_next, q2_next = agent_conf.critic_module.apply(critic_vars_target, normalized_next_obs, next_actions)
             min_q_next = jnp.minimum(q1_next, q2_next)
             target_q = batch["rewards"] + (1.0 - batch["dones"]) * config.gamma * min_q_next
+            target_q = jax.lax.stop_gradient(target_q)
 
             def _critic_loss_fn(critic_params):
                 critic_vars_loss = {'params': critic_params}
