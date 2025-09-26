@@ -5,7 +5,6 @@ import sys
 import jax
 import jax.numpy as jnp
 import wandb
-import time
 from loco_mujoco import TaskFactory
 from loco_mujoco.algorithms import FastTD3Jax  
 from loco_mujoco.core.wrappers import LogWrapper, VecEnv, NormalizeVecReward 
@@ -40,8 +39,6 @@ def experiment(config: DictConfig):
         eval_env = factory.make(**config.experiment.env_params, **config.experiment.task_factory.params)
         eval_env = LogWrapper(eval_env)
         eval_env = VecEnv(eval_env)
-        if config.experiment.normalize_env:
-            eval_env = NormalizeVecReward(eval_env, config.experiment.gamma)
         
         # Get initial agent configuration
         agent_conf = FastTD3Jax.init_agent_conf(env, config)
@@ -50,17 +47,12 @@ def experiment(config: DictConfig):
         train_fn = FastTD3Jax.build_train_fn(env, agent_conf, wandb_run=run, eval_env=eval_env)
 
         # JIT and vmap training function
-        # train_fn = jax.jit(jax.vmap(train_fn)) if config.experiment.n_seeds > 1 else jax.jit(train_fn)
         train_fn = jax.vmap(train_fn) if config.experiment.n_seeds > 1 else train_fn
-
-        print("Starting training...")
 
         # Get rng keys and run training
         rngs = [jax.random.PRNGKey(i) for i in range(config.experiment.n_seeds + 1)]
         rng, _rng = rngs[0], jnp.squeeze(jnp.vstack(rngs[1:]))
-        t_start = time.time()
         out = train_fn(_rng)
-        print(f"Training completed in {time.time() - t_start:.2f} seconds.")
 
         # Save agent state
         agent_state = out["agent_state"]
@@ -68,31 +60,40 @@ def experiment(config: DictConfig):
         run.config.update({"agent_save_path": save_path})
 
         # --- METRICS LOGGING ---
-        if not config.experiment.debug:
-            metrics = out["metrics"]
+        # if not config.experiment.debug:
+            # metrics = out["metrics"]
             # To get episode returns, you must ensure your TD3 _train_fn also returns them.
             # Assuming the LogWrapper provides them in `info` and they are passed up.
-            episode_metrics = out["episode_metrics"] 
+            # episode_metrics = out["episode_metrics"] 
 
             # Calculate mean across seeds
-            metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), metrics)
-            episode_metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), episode_metrics)
+            # metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), metrics)
+            # episode_metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), episode_metrics)
             
             # Log metrics
-            for i in range(len(metrics.critic_loss)):
-                step = int(i * config.experiment.num_envs)
-                log_data = {
-                    "Loss/Critic Loss": metrics.critic_loss[i],
-                    "Loss/Actor Loss": metrics.actor_loss[i],
-                    "Episode/Mean Return": jnp.mean(episode_metrics.returned_episode_returns[i]),
-                    "Episode/Mean Length": jnp.mean(episode_metrics.returned_episode_lengths[i])
-                }
-                run.log(log_data, step=step)
+            # for i in range(len(metrics["critic_loss"])):
+            #     step = int(i * config.experiment.num_envs * config.experiment.utd_ratio)
+            #     log_data = {
+            #         "Loss/Critic Loss": metrics.critic_loss[i],
+            #         "Loss/Actor Loss": metrics.actor_loss[i],
+            #         # "Episode/Mean Return": jnp.mean(episode_metrics.returned_episode_returns[i]),
+            #         # "Episode/Mean Length": jnp.mean(episode_metrics.returned_episode_lengths[i])
+            #     }
+            #     run.log(log_data, step=step)
 
         # Run the environment with the trained agent to record video
-        FastTD3Jax.play_policy(env, agent_conf, agent_state, n_envs=1, n_steps=1000, record=True, deterministic=True)
-        video_file = env.video_file_path
-        run.log({"Agent Video": wandb.Video(video_file)})
+        FastTD3Jax.play_policy(eval_env, agent_conf, agent_state, n_envs=20, n_steps=1000, record=True, deterministic=True)
+
+        # Get the video path from the environment that did the recording
+        video_file = eval_env.video_file_path
+
+        # Check if the file exists before logging
+        if video_file and os.path.exists(video_file):
+            run.log({"Agent Video": wandb.Video(video_file)})
+        else:
+            print(f"Video file not found at path: {video_file}")
+
+        wandb.finish()
 
         wandb.finish()
 

@@ -91,9 +91,9 @@ class EvalState:
     dones: jnp.ndarray 
     discounts: jnp.ndarray
 
-class TD3Jax(JaxRLAlgorithmBase):
+class FastTD3Jax(JaxRLAlgorithmBase):
     """
-    [AM] TD3 algorithm implementation in JAX.
+    [AM] Fast TD3 algorithm implementation in JAX.
     """
     _agent_conf: FastTD3AgentConf
     _agent_state: FastTD3AgentState
@@ -404,15 +404,13 @@ class TD3Jax(JaxRLAlgorithmBase):
                     log_data["Loss/Actor Loss"] = jax.device_get(metrics["actor_loss"])
 
                 rng, eval_rng = jax.random.split(rng)
-                eval_return, eval_cum_rew, eval_length, mean_init_q1, mean_init_q2 = cls.run_episodic_evaluation(agent_conf, agent_state, eval_env, eval_rng)
+                eval_return, eval_cum_rew, eval_length = cls.run_episodic_evaluation(agent_conf, agent_state, eval_env, eval_rng)
 
                 # Add evaluation metrics to the log data
                 if not np.isnan(eval_return):
                     log_data["Evaluation/Mean Return (Discounted)"] = eval_return
                     log_data["Evaluation/Mean Return (UNDiscounted)"] = eval_cum_rew
                     log_data["Evaluation/Mean Length"] = eval_length
-                    log_data["Evaluation/Mean Initial Q1"] = mean_init_q1
-                    log_data["Evaluation/Mean Initial Q2"] = mean_init_q2
 
                 if log_data:
                     wandb_run.log(log_data, step=i * config.num_envs)
@@ -516,7 +514,6 @@ class TD3Jax(JaxRLAlgorithmBase):
         critic_vars = {
             'params': agent_state.critic_train_state.params,
         }
-        q1, q2 = agent_state.critic_train_state.apply_fn(critic_vars, obsv, actions)
 
         def cond_fun(state: EvalState):
             """Loop continues as long as any environment is not done."""
@@ -571,15 +568,13 @@ class TD3Jax(JaxRLAlgorithmBase):
         mean_return = jnp.mean(final_state.episode_returns)
         mean_length = jnp.mean(final_state.episode_lengths)
         mean_cum_reward = jnp.mean(final_state.episode_cumulative_rewards)
-        mean_initial_q1 = jnp.mean(q1)
-        mean_initial_q2 = jnp.mean(q2)
         print(f"{33 * '='}")
         print(f"Ret (disc) = {mean_return}")
         print(f"Ret (undisc) = {mean_cum_reward}")
         print(f"Len = {mean_length}")
         print(f"{33 * '='}")
 
-        return mean_return, mean_cum_reward, mean_length, mean_initial_q1, mean_initial_q2
+        return mean_return, mean_cum_reward, mean_length
 
     @classmethod
     def play_policy(cls, env, agent_conf: FastTD3AgentConf, agent_state: FastTD3AgentState, n_envs: int, 

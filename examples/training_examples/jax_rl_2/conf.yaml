@@ -31,6 +31,7 @@ experiment:
       action_rate_coeff: 0.1
       symmetry_air_coeff: 0.005
       energy_coeff: 5.0e-05
+      
   # Network Arch
   actor_hidden_dims: [512, 256]
   critic_hidden_dims: [512, 256]
