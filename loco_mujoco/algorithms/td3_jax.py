@@ -283,8 +283,9 @@ class TD3Jax(JaxRLAlgorithmBase):
         log_interval = config.get("log_interval", 100)
         log_interval = log_interval if log_interval < config.num_envs else int(log_interval // config.num_envs)
         start_learning = int(config.learning_starts // config.num_envs)
-        utd = int(config.utd) if config.update_after == 0 else int(config.update_after)
+        # utd = int(config.utd_ratio) if config.update_after == 0 else int(config.update_after)
         learning_started = False
+        utd = int(config.utd_ratio)
 
         # if needed, initialize the exploration scheduler
         noise_scheduler = None
@@ -547,8 +548,12 @@ class TD3Jax(JaxRLAlgorithmBase):
         mean_cum_reward = jnp.mean(final_state.episode_cumulative_rewards)
         mean_initial_q1 = jnp.mean(q1)
         mean_initial_q2 = jnp.mean(q2)
-        print(f"Ret (disc) = {mean_return}, Ret (undisc) = {mean_cum_reward}, Len = {mean_length}, Init Q1 = {mean_initial_q1}, Init Q2 = {mean_initial_q2}")
-        
+        print(f"{33 * '='}")
+        print(f"Ret (disc) = {mean_return}")
+        print(f"Ret (undisc) = {mean_cum_reward}")
+        print(f"Len = {mean_length}")
+        print(f"{33 * '='}")
+
         return mean_return, mean_cum_reward, mean_length, mean_initial_q1, mean_initial_q2
 
     @classmethod
