@@ -4,7 +4,10 @@ import optax
 import flax
 import numpy as np
 from dataclasses import dataclass
-from loco_mujoco.algorithms import AgentConfBase, AgentStateBase, TD3Actor, FastTD3Critic, JaxRLAlgorithmBase, ReplayBuffer, TrainState, PhasedExplorationSchedule, RunningMeanStdState
+from loco_mujoco.algorithms import (
+    AgentConfBase, AgentStateBase, TD3Actor, FastTD3Critic, JaxRLAlgorithmBase, 
+    DecoupledReplayBuffer, TrainState, PhasedExplorationSchedule, RunningMeanStdState
+)
 from omegaconf import DictConfig, OmegaConf
 from typing import Any
 from flax import struct
@@ -169,7 +172,7 @@ class FastTD3Jax(JaxRLAlgorithmBase):
         # Noise scales 
         noise_scales = jax.random.uniform(
             noise_key, shape=(config.num_envs, 1),
-            minval=config.std_min, maxval=config.std_max
+            minval=config.policy_exploration.min_exploration, maxval=config.policy_exploration.min_exploration
         )
 
         # initialize the normalizer
@@ -211,7 +214,7 @@ class FastTD3Jax(JaxRLAlgorithmBase):
             # actions computation
             actor_vars_target = {'params': agent_state.target_actor_params}
             next_pi = agent_state.actor_train_state.apply_fn(actor_vars_target, normalized_next_obs)
-            noise = jnp.clip(jax.random.normal(noise_rng, next_pi.shape) * config.policy_noise, -config.noise_clip, config.noise_clip)
+            noise = jnp.clip(jax.random.normal(noise_rng, next_pi.shape) * config.target_noise, -config.target_noise_clip, config.target_noise_clip)
             next_actions = jnp.clip(next_pi + noise, -action_limit, action_limit)
 
             # critic values
@@ -287,13 +290,11 @@ class FastTD3Jax(JaxRLAlgorithmBase):
 
         # [2] initialize the agent state and the replay buffer
         agent_state = cls._create_initial_agent_state(rng, env, agent_conf)
-        replay_buffer = ReplayBuffer(
-            obs=np.zeros((int(config.buffer_size), *env.info.observation_space.shape), dtype=np.float32),
-            actions=np.zeros((int(config.buffer_size), *env.info.action_space.shape), dtype=np.float32),
-            rewards=np.zeros(int(config.buffer_size), dtype=np.float32),
-            next_obs=np.zeros((int(config.buffer_size), *env.info.observation_space.shape), dtype=np.float32),
-            dones=np.zeros(int(config.buffer_size), dtype=np.float32),
-            ptr=0, size=0
+        replay_buffer = DecoupledReplayBuffer(
+            total_capacity=int(config.buffer_size),
+            num_envs=config.num_envs,
+            obs_shape=env.info.observation_space.shape,
+            action_shape=env.info.action_space.shape
         )
         
         reset_rng = jax.random.split(rng, config.num_envs)
@@ -314,9 +315,10 @@ class FastTD3Jax(JaxRLAlgorithmBase):
 
         # if needed, initialize the exploration scheduler
         noise_scheduler = None
-        if config.schedule_noise and config.std_max > config.std_min:
+        if config.policy_exploration.active_schedule and config.policy_exploration.max_exploration > config.policy_exploration.min_exploration:
+            lin_schedule = (config.policy_exploration.schedule_type == "linear")
             noise_scheduler = PhasedExplorationSchedule.create(
-                phases=num_updates, noise_max=config.std_max, noise_min=config.std_min, linear=config.linear_schedule
+                phases=num_updates, noise_max=config.policy_exploration.max_exploration, noise_min=config.policy_exploration.min_exploration, linear=lin_schedule
             )
         
         print(f"Action Limits ({-action_limit},{action_limit})")
@@ -345,26 +347,24 @@ class FastTD3Jax(JaxRLAlgorithmBase):
             next_obsv, reward, absorbing, done, info, env_state = cls._wrap_step(env, env_state, clipped_action)
 
             # update the noise for the next interaction 
-            if noise_scheduler is None:
-                new_scales = jax.random.uniform(noise_resample_rng, shape=(config.num_envs, 1), minval=config.std_min, maxval=config.std_max)
-                updated_noise_scales = jnp.where(done[:, None], new_scales, agent_state.noise_scales)
-            else:
-                updated_noise_scales = agent_state.noise_scales
+            # if noise_scheduler is None:
+            #     new_scales = jax.random.uniform(noise_resample_rng, shape=(config.num_envs, 1), minval=config.std_min, maxval=config.std_max)
+            #     updated_noise_scales = jnp.where(done[:, None], new_scales, agent_state.noise_scales)
+            # else:
+            #     updated_noise_scales = agent_state.noise_scales
             
             # replay buffer update (circular array)
-            ptr = replay_buffer.ptr
-            indices = (ptr + np.arange(config.num_envs)) % config.buffer_size
-            replay_buffer.obs[indices] = np.asarray(obsv)
-            replay_buffer.actions[indices] = np.asarray(noised_action) # save the original action, paper says clipped_action
-            replay_buffer.rewards[indices] = np.asarray(reward)
-            replay_buffer.next_obs[indices] = np.asarray(next_obsv)
-            replay_buffer.dones[indices] = np.asarray(done)
-            replay_buffer.ptr = (ptr + config.num_envs) % config.buffer_size
-            replay_buffer.size = min(replay_buffer.size + config.num_envs, config.buffer_size)
+            replay_buffer.add(
+                obs=np.asarray(obsv), 
+                action=np.asarray(noised_action), 
+                reward=np.asarray(reward), 
+                next_obs=np.asarray(next_obsv), 
+                done=np.asarray(done)
+            )
             
             obsv = next_obsv
             agent_state = agent_state.replace(
-                noise_scales=updated_noise_scales,
+                # noise_scales=updated_noise_scales,
                 obs_normalizer_state=new_obs_normalizer_state 
             )
             
@@ -380,14 +380,7 @@ class FastTD3Jax(JaxRLAlgorithmBase):
 
                 for j in range(utd):
                     # sample batch
-                    batch_indices = np.random.randint(0, replay_buffer.size, size=config.batch_size)
-                    batch = {
-                        "obs": replay_buffer.obs[batch_indices],
-                        "actions": replay_buffer.actions[batch_indices],
-                        "rewards": replay_buffer.rewards[batch_indices],
-                        "next_obs": replay_buffer.next_obs[batch_indices],
-                        "dones": replay_buffer.dones[batch_indices],
-                    }
+                    batch = replay_buffer.sample(config.batch_size)
                     # learn step
                     agent_state, metrics = _learning_step(agent_state, batch, update_keys[j])
                     # metrics update

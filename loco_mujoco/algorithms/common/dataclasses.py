@@ -1,15 +1,12 @@
-from typing import NamedTuple
-from typing import Any, Optional
-
 import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import struct
 from flax.training import train_state
-
+from typing import Any, Optional, Tuple, NamedTuple, Dict
 from loco_mujoco.environments.base import TrajState
 from loco_mujoco.core.wrappers.mjx import Metrics
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 class Transition(NamedTuple):
@@ -130,6 +127,84 @@ class PhasedExplorationSchedule:
         else:
             new_sigma = self.noise_max * jnp.power(current_phase, -self.smooth)
         return new_sigma
+    
+@dataclass
+class DecoupledReplayBuffer:
+    """
+    [AM] Replay buffer for Fast TD3 agent, modified to handle parallel environments separately.
+    Data is stored in numpy for efficiency.
+    """
+    total_capacity: int
+    num_envs: int
+    obs_shape: Tuple[int, ...]
+    action_shape: Tuple[int, ...]
+    
+    # Internal buffers will be initialized in __post_init__
+    obs: np.ndarray = field(init=False)
+    actions: np.ndarray = field(init=False)
+    rewards: np.ndarray = field(init=False)
+    next_obs: np.ndarray = field(init=False)
+    dones: np.ndarray = field(init=False)
+    
+    # Pointers and sizes for each environment's buffer
+    ptrs: np.ndarray = field(init=False)
+    sizes: np.ndarray = field(init=False)
+    
+    per_env_capacity: int = field(init=False)
+
+    def __post_init__(self):
+        """Initializes the buffer arrays and tracking variables."""
+        if self.total_capacity % self.num_envs != 0:
+            raise ValueError("total_capacity must be divisible by num_envs")
+            
+        self.per_env_capacity = self.total_capacity // self.num_envs
+        
+        # Create buffers with a leading dimension for the number of environments
+        self.obs = np.zeros((self.num_envs, self.per_env_capacity, *self.obs_shape), dtype=np.float32)
+        self.actions = np.zeros((self.num_envs, self.per_env_capacity, *self.action_shape), dtype=np.float32)
+        self.rewards = np.zeros((self.num_envs, self.per_env_capacity), dtype=np.float32)
+        self.next_obs = np.zeros((self.num_envs, self.per_env_capacity, *self.obs_shape), dtype=np.float32)
+        self.dones = np.zeros((self.num_envs, self.per_env_capacity), dtype=np.float32)
+        
+        self.ptrs = np.zeros(self.num_envs, dtype=np.int32)
+        self.sizes = np.zeros(self.num_envs, dtype=np.int32)
+
+    def add(self, obs: np.ndarray, action: np.ndarray, reward: np.ndarray, next_obs: np.ndarray, done: np.ndarray):
+        """Adds a batch of transitions from parallel environments to their respective buffers."""
+        # The input arrays have shape (num_envs, ...), so we can directly assign them.
+        indices = self.ptrs
+        
+        self.obs[np.arange(self.num_envs), indices] = obs
+        self.actions[np.arange(self.num_envs), indices] = action
+        self.rewards[np.arange(self.num_envs), indices] = reward
+        self.next_obs[np.arange(self.num_envs), indices] = next_obs
+        self.dones[np.arange(self.num_envs), indices] = done
+        
+        # Update pointers and sizes for each environment
+        self.ptrs = (self.ptrs + 1) % self.per_env_capacity
+        self.sizes = np.minimum(self.sizes + 1, self.per_env_capacity)
+
+    def sample(self, batch_size: int) -> Dict[str, np.ndarray]:
+        """Samples a batch of transitions uniformly from all available data."""
+        # Choose which environments to sample from, proportionally to their size
+        total_transitions = np.sum(self.sizes)
+        if total_transitions == 0:
+            return {} # Return empty dict if buffer is empty
+            
+        env_probs = self.sizes / total_transitions
+        env_indices = np.random.choice(self.num_envs, size=batch_size, p=env_probs)
+        
+        # For each chosen environment, pick a random transition
+        transition_indices = (np.random.rand(batch_size) * self.sizes[env_indices]).astype(int)
+        
+        batch = {
+            "obs": self.obs[env_indices, transition_indices],
+            "actions": self.actions[env_indices, transition_indices],
+            "rewards": self.rewards[env_indices, transition_indices],
+            "next_obs": self.next_obs[env_indices, transition_indices],
+            "dones": self.dones[env_indices, transition_indices],
+        }
+        return batch
 
 @struct.dataclass
 class RunningMeanStdState:
