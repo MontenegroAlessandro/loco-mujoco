@@ -221,9 +221,12 @@ class FastTD3Critic(nn.Module):
         b = (target_z - v_min) / delta_z
         l, u = jnp.floor(b).astype(jnp.int32), jnp.ceil(b).astype(jnp.int32)
         
-        eq_mask = (l == u)
-        l = jnp.where(eq_mask, l - 1, l)
-        u = jnp.where(eq_mask, u + 1, u)
+        # edge case
+        num_atoms = support.shape[0]
+        l_mask = jnp.logical_and((u > 0), (l == u))
+        u_mask = jnp.logical_and((l < (num_atoms - 1)), (l == u))
+        l = jnp.where(l_mask, l - 1, l)
+        u = jnp.where(u_mask, u + 1, u)
         l = jnp.clip(l, 0, num_atoms - 1)
         u = jnp.clip(u, 0, num_atoms - 1)
 

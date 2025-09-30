@@ -209,20 +209,20 @@ class DecoupledReplayBuffer:
 class DecoupledReplayBufferN:
     """
     Replay buffer with parallel envs, n-step, and bootstrap support.
+    Versione finale e corretta che gestisce sia dones che truncations.
     """
     total_capacity: int
     num_envs: int
     obs_shape: Tuple[int, ...]
     action_shape: Tuple[int, ...]
-    n_step: int = 1  
+    n_step: int
+    gamma: float 
 
     obs: np.ndarray = field(init=False)
     actions: np.ndarray = field(init=False)
     rewards: np.ndarray = field(init=False)
-    next_obs: np.ndarray = field(init=False)
     dones: np.ndarray = field(init=False)
-    truncs: np.ndarray = field(init=False)       
-    n_steps_arr: np.ndarray = field(init=False)  
+    truncs: np.ndarray = field(init=False)
 
     ptrs: np.ndarray = field(init=False)
     sizes: np.ndarray = field(init=False)
@@ -230,17 +230,15 @@ class DecoupledReplayBufferN:
 
     def __post_init__(self):
         if self.total_capacity % self.num_envs != 0:
-            raise ValueError("total_capacity must be divisibile per num_envs")
+            raise ValueError("total_capacity must be divisible by num_envs")
         self.per_env_capacity = self.total_capacity // self.num_envs
 
-        self.obs = np.zeros((self.num_envs, self.per_env_capacity, *self.obs_shape), np.float32)
-        self.actions = np.zeros((self.num_envs, self.per_env_capacity, *self.action_shape), np.float32)
-        self.rewards = np.zeros((self.num_envs, self.per_env_capacity), np.float32)
-        self.next_obs = np.zeros((self.num_envs, self.per_env_capacity, *self.obs_shape), np.float32)
-        self.dones = np.zeros((self.num_envs, self.per_env_capacity), np.float32)
-        self.truncs = np.zeros((self.num_envs, self.per_env_capacity), np.float32)
-        self.n_steps_arr = np.ones((self.num_envs, self.per_env_capacity), np.int32)
-
+        self.obs = np.zeros((self.num_envs, self.per_env_capacity, *self.obs_shape), dtype=np.float32)
+        self.actions = np.zeros((self.num_envs, self.per_env_capacity, *self.action_shape), dtype=np.float32)
+        self.rewards = np.zeros((self.num_envs, self.per_env_capacity), dtype=np.float32)
+        self.dones = np.zeros((self.num_envs, self.per_env_capacity), dtype=np.float32)
+        self.truncs = np.zeros((self.num_envs, self.per_env_capacity), dtype=np.float32)
+        
         self.ptrs = np.zeros(self.num_envs, dtype=np.int32)
         self.sizes = np.zeros(self.num_envs, dtype=np.int32)
 
@@ -249,46 +247,69 @@ class DecoupledReplayBufferN:
         obs: np.ndarray,
         action: np.ndarray,
         reward: np.ndarray,
-        next_obs: np.ndarray,
         done: np.ndarray,
-        trunc: np.ndarray = None,
-        n_steps: np.ndarray = None,
+        trunc: np.ndarray,
     ):
-        if trunc is None:
-            trunc = np.zeros(self.num_envs, dtype=np.float32)
-        if n_steps is None:
-            n_steps = np.ones(self.num_envs, dtype=np.int32)
-
         idx = self.ptrs
+        env_indices = np.arange(self.num_envs)
 
-        self.obs[np.arange(self.num_envs), idx] = obs
-        self.actions[np.arange(self.num_envs), idx] = action
-        self.rewards[np.arange(self.num_envs), idx] = reward
-        self.next_obs[np.arange(self.num_envs), idx] = next_obs
-        self.dones[np.arange(self.num_envs), idx] = done
-        self.truncs[np.arange(self.num_envs), idx] = trunc
-        self.n_steps_arr[np.arange(self.num_envs), idx] = n_steps
+        self.obs[env_indices, idx] = obs
+        self.actions[env_indices, idx] = action
+        self.rewards[env_indices, idx] = reward
+        self.dones[env_indices, idx] = done
+        self.truncs[env_indices, idx] = trunc
 
         self.ptrs = (self.ptrs + 1) % self.per_env_capacity
         self.sizes = np.minimum(self.sizes + 1, self.per_env_capacity)
 
     def sample(self, batch_size: int) -> Dict[str, np.ndarray]:
-        total = np.sum(self.sizes)
-        if total == 0:
+        total_transitions = np.sum(self.sizes)
+        if total_transitions < batch_size:
             return {}
 
-        env_probs = self.sizes / total
-        env_idx = np.random.choice(self.num_envs, size=batch_size, p=env_probs)
-        trans_idx = (np.random.rand(batch_size) * self.sizes[env_idx]).astype(int)
+        # staring indices
+        env_probs = self.sizes / total_transitions
+        env_indices = np.random.choice(self.num_envs, size=batch_size, p=env_probs)
+        max_start_indices = self.sizes[env_indices] - self.n_step
+        valid_mask = max_start_indices >= 0
+        if not np.all(valid_mask):
+            env_indices = env_indices[valid_mask]
+            max_start_indices = max_start_indices[valid_mask]
+            if len(env_indices) == 0: return {}
+            current_batch_size = len(env_indices)
+        else:
+            current_batch_size = batch_size
+        start_indices = (np.random.rand(current_batch_size) * (max_start_indices + 1)).astype(int)
+
+        # sequences
+        step_range = np.arange(self.n_step)
+        seq_indices = (start_indices[:, np.newaxis] + step_range) % self.per_env_capacity
+        batch_rewards = self.rewards[env_indices[:, np.newaxis], seq_indices]
+        batch_dones = self.dones[env_indices[:, np.newaxis], seq_indices]
+        batch_truncs = self.truncs[env_indices[:, np.newaxis], seq_indices]
+        
+        # mask
+        terminations = np.logical_or(batch_dones, batch_truncs)
+        first_term_idx = np.argmax(terminations, axis=1)
+        no_term_mask = np.all(terminations == 0, axis=1)
+        effective_n_steps = np.where(no_term_mask, self.n_step, first_term_idx + 1).astype(np.int32)
+        done_mask = np.arange(self.n_step) < effective_n_steps[:, np.newaxis]
+
+        # return
+        discounts = np.power(self.gamma, step_range)
+        n_step_rewards = np.sum(batch_rewards * discounts * done_mask, axis=1)
+        
+        # final state
+        final_step_indices = (start_indices + effective_n_steps) % self.per_env_capacity
 
         return {
-            "obs": self.obs[env_idx, trans_idx],
-            "actions": self.actions[env_idx, trans_idx],
-            "rewards": self.rewards[env_idx, trans_idx],
-            "next_obs": self.next_obs[env_idx, trans_idx],
-            "dones": self.dones[env_idx, trans_idx],
-            "truncs": self.truncs[env_idx, trans_idx],
-            "n_steps": self.n_steps_arr[env_idx, trans_idx],
+            "obs": self.obs[env_indices, start_indices],
+            "actions": self.actions[env_indices, start_indices],
+            "rewards": n_step_rewards,
+            "next_obs": self.obs[env_indices, final_step_indices],
+            "dones": self.dones[env_indices, final_step_indices],
+            "truncs": self.truncs[env_indices, final_step_indices],
+            "n_steps": effective_n_steps,
         }
 
 

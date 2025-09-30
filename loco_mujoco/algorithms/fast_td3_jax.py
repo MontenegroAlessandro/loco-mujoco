@@ -316,7 +316,8 @@ class FastTD3Jax(JaxRLAlgorithmBase):
             num_envs=config.num_envs,
             obs_shape=env.info.observation_space.shape,
             action_shape=env.info.action_space.shape,
-            n_step=config.n_step
+            n_step=config.n_step,
+            gamma=config.gamma
         )
         
         reset_rng = jax.random.split(rng, config.num_envs)
@@ -384,10 +385,8 @@ class FastTD3Jax(JaxRLAlgorithmBase):
                 obs=np.asarray(obsv), 
                 action=np.asarray(noised_action), 
                 reward=np.asarray(reward), 
-                next_obs=np.asarray(next_obsv), 
                 done=np.asarray(done),
-                trunc=np.asarray(absorbing),
-                n_steps=np.ones(config.num_envs, int)
+                trunc=np.asarray(absorbing)
             )
             
             obsv = next_obsv
