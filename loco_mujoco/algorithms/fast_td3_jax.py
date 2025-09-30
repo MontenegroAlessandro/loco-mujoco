@@ -212,8 +212,8 @@ class FastTD3Jax(JaxRLAlgorithmBase):
             normalized_next_obs = agent_state.obs_normalizer_state.normalize(batch["next_obs"])
 
             # actions computation
-            # actor_vars_target = {'params': agent_state.target_actor_params}
-            actor_vars_target = {'params': agent_state.actor_train_state.params} # FIXME
+            actor_vars_target = {'params': agent_state.target_actor_params}
+            # actor_vars_target = {'params': agent_state.actor_train_state.params} # FIXME
             next_pi = agent_state.actor_train_state.apply_fn(actor_vars_target, normalized_next_obs)
             noise = jnp.clip(jax.random.normal(noise_rng, next_pi.shape) * config.target_noise, -config.target_noise_clip, config.target_noise_clip)
             next_actions = jnp.clip(next_pi + noise, -action_limit, action_limit)
@@ -234,8 +234,8 @@ class FastTD3Jax(JaxRLAlgorithmBase):
             # take data handling the n-step bootstrap
             rewards = batch["rewards"]
             dones = batch["dones"].astype(bool)
-            truncs = batch.get("truncs", np.zeros_like(dones)).astype(bool)
-            n_steps = batch.get("n_steps", np.ones_like(dones, dtype=np.int32))
+            truncs = batch.get("truncs", jnp.zeros_like(dones)).astype(bool)
+            n_steps = batch.get("n_steps", jnp.ones_like(dones, dtype=np.int32))
 
             bootstrap = jnp.logical_or(truncs, ~dones).astype(jnp.float32)
             gamma_n = config.gamma ** n_steps

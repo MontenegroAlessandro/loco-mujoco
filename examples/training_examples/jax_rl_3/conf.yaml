@@ -47,23 +47,23 @@ experiment:
   learning_starts: 204800 # 204800 # 10
   
   # Fast TD3 Core Parameters
-  gamma: 0.995
+  gamma: 0.99
   tau: 0.05
   target_noise: 0.1
-  target_noise_clip: 0.25
+  target_noise_clip: 0.5
   policy_frequency: 2
   policy_exploration:
     active_schedule: false
     schedule_type: "linear" # choices among linear and exponential
-    min_exploration: 0.1
+    min_exploration: 0.01
     max_exploration: 0.5
-  update_after: 3
-  n_step: 3 # bootstrapping
+  update_after: 1
+  n_step: 1 # bootstrapping
   
   # Distributional Critic Parameters
   num_atoms: 51
   v_min: 0
-  v_max: 100
+  v_max: 100 # try 30 or 50
   
   # General Training Config
   utd_ratio: 8
