@@ -46,7 +46,7 @@ experiment:
   batch_size: 20480 # 20480 # 32768
   learning_starts: 204800 # 204800 # 10
   
-  # TD3 Core Parameters
+  # Fast TD3 Core Parameters
   gamma: 0.995
   tau: 0.05
   target_noise: 0.1
@@ -58,6 +58,7 @@ experiment:
     min_exploration: 0.1
     max_exploration: 0.5
   update_after: 3
+  n_step: 3 # bootstrapping
   
   # Distributional Critic Parameters
   num_atoms: 51

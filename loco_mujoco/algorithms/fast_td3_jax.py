@@ -6,7 +6,7 @@ import numpy as np
 from dataclasses import dataclass
 from loco_mujoco.algorithms import (
     AgentConfBase, AgentStateBase, TD3Actor, FastTD3Critic, JaxRLAlgorithmBase, 
-    DecoupledReplayBuffer, TrainState, PhasedExplorationSchedule, RunningMeanStdState
+    DecoupledReplayBufferN, TrainState, PhasedExplorationSchedule, RunningMeanStdState
 )
 from omegaconf import DictConfig, OmegaConf
 from typing import Any
@@ -212,7 +212,8 @@ class FastTD3Jax(JaxRLAlgorithmBase):
             normalized_next_obs = agent_state.obs_normalizer_state.normalize(batch["next_obs"])
 
             # actions computation
-            actor_vars_target = {'params': agent_state.target_actor_params}
+            # actor_vars_target = {'params': agent_state.target_actor_params}
+            actor_vars_target = {'params': agent_state.actor_train_state.params} # FIXME
             next_pi = agent_state.actor_train_state.apply_fn(actor_vars_target, normalized_next_obs)
             noise = jnp.clip(jax.random.normal(noise_rng, next_pi.shape) * config.target_noise, -config.target_noise_clip, config.target_noise_clip)
             next_actions = jnp.clip(next_pi + noise, -action_limit, action_limit)
@@ -230,9 +231,27 @@ class FastTD3Jax(JaxRLAlgorithmBase):
             use_dist1 = (next_q1 < next_q2)[:, None]
             next_dist = jnp.where(use_dist1, next_dist1, next_dist2)
 
+            # take data handling the n-step bootstrap
+            rewards = batch["rewards"]
+            dones = batch["dones"].astype(bool)
+            truncs = batch.get("truncs", np.zeros_like(dones)).astype(bool)
+            n_steps = batch.get("n_steps", np.ones_like(dones, dtype=np.int32))
+
+            bootstrap = jnp.logical_or(truncs, ~dones).astype(jnp.float32)
+            gamma_n = config.gamma ** n_steps
+
+            # target_dist = FastTD3Critic.project_distribution(
+            #     next_dist, batch["rewards"], batch["dones"], config.gamma,
+            #     support, config.v_min, config.v_max
+            # )
             target_dist = FastTD3Critic.project_distribution(
-                next_dist, batch["rewards"], batch["dones"], config.gamma,
-                support, config.v_min, config.v_max
+                next_dist,
+                rewards=rewards,
+                bootstrap=bootstrap,
+                gamma_n=gamma_n,
+                support=support,
+                v_min=config.v_min,
+                v_max=config.v_max
             )
             target_dist = jax.lax.stop_gradient(target_dist)
 
@@ -258,12 +277,14 @@ class FastTD3Jax(JaxRLAlgorithmBase):
                     actor_vars_loss = {'params': actor_params}
                     actions = agent_conf.actor_module.apply(actor_vars_loss, normalized_obs)
                     
-                    # L'actor loss massimizza il Q-value atteso dal primo critic
+                    # FIXME: cdq
                     critic_vars_loss_actor = {'params': critic_ts.params}
-                    logits1, _ = agent_conf.critic_module.apply(critic_vars_loss_actor, normalized_obs, actions)
+                    logits1, logits2 = agent_conf.critic_module.apply(critic_vars_loss_actor, normalized_obs, actions)
                     q1_val = jnp.sum(jax.nn.softmax(logits1) * support, axis=-1)
+                    q2_val = jnp.sum(jax.nn.softmax(logits2) * support, axis=-1)
+                    q_val = jnp.minimum(q1_val, q2_val)
                     
-                    return -jnp.mean(q1_val)
+                    return -jnp.mean(q_val)
                 
                 actor_loss, actor_grads = jax.value_and_grad(_actor_loss_fn)(actor_ts.params)
                 new_actor_ts = actor_ts.apply_gradients(grads=actor_grads)
@@ -290,11 +311,12 @@ class FastTD3Jax(JaxRLAlgorithmBase):
 
         # [2] initialize the agent state and the replay buffer
         agent_state = cls._create_initial_agent_state(rng, env, agent_conf)
-        replay_buffer = DecoupledReplayBuffer(
+        replay_buffer = DecoupledReplayBufferN(
             total_capacity=int(config.buffer_size),
             num_envs=config.num_envs,
             obs_shape=env.info.observation_space.shape,
-            action_shape=env.info.action_space.shape
+            action_shape=env.info.action_space.shape,
+            n_step=config.n_step
         )
         
         reset_rng = jax.random.split(rng, config.num_envs)
@@ -347,11 +369,15 @@ class FastTD3Jax(JaxRLAlgorithmBase):
             next_obsv, reward, absorbing, done, info, env_state = cls._wrap_step(env, env_state, clipped_action)
 
             # update the noise for the next interaction 
-            # if noise_scheduler is None:
-            #     new_scales = jax.random.uniform(noise_resample_rng, shape=(config.num_envs, 1), minval=config.std_min, maxval=config.std_max)
-            #     updated_noise_scales = jnp.where(done[:, None], new_scales, agent_state.noise_scales)
-            # else:
-            #     updated_noise_scales = agent_state.noise_scales
+            if noise_scheduler is None:
+                new_scales = jax.random.uniform(
+                    noise_resample_rng, shape=(config.num_envs, 1), 
+                    minval=config.policy_exploration.min_exploration, 
+                    maxval=config.policy_exploration.max_exploration
+                )
+                updated_noise_scales = jnp.where(done[:, None], new_scales, agent_state.noise_scales)
+            else:
+                updated_noise_scales = agent_state.noise_scales
             
             # replay buffer update (circular array)
             replay_buffer.add(
@@ -359,12 +385,14 @@ class FastTD3Jax(JaxRLAlgorithmBase):
                 action=np.asarray(noised_action), 
                 reward=np.asarray(reward), 
                 next_obs=np.asarray(next_obsv), 
-                done=np.asarray(done)
+                done=np.asarray(done),
+                trunc=np.asarray(absorbing),
+                n_steps=np.ones(config.num_envs, int)
             )
             
             obsv = next_obsv
             agent_state = agent_state.replace(
-                # noise_scales=updated_noise_scales,
+                noise_scales=updated_noise_scales,
                 obs_normalizer_state=new_obs_normalizer_state 
             )
             

@@ -15,7 +15,6 @@ def get_activation_fn(name: str):
     except AttributeError:
         raise ValueError(f"Activation function '{name}' not found. Name must be the same as in flax.linen!")
 
-
 class FullyConnectedNet(nn.Module):
 
     hidden_layer_dims: Sequence[int]
@@ -206,15 +205,17 @@ class FastTD3Critic(nn.Module):
         
         return q1, q2
 
+    # def project_distribution(
+    #     next_dist: jnp.ndarray, rewards: jnp.ndarray, dones: jnp.ndarray,
+    #     discount: float, support: jnp.ndarray, v_min: float, v_max: float
+    # ) -> jnp.ndarray:
     @staticmethod
-    def project_distribution(
-        next_dist: jnp.ndarray, rewards: jnp.ndarray, dones: jnp.ndarray,
-        discount: float, support: jnp.ndarray, v_min: float, v_max: float
-    ) -> jnp.ndarray:
+    def project_distribution(next_dist, rewards, bootstrap, gamma_n, support, v_min, v_max):
         num_atoms = support.shape[0]
         delta_z = (v_max - v_min) / (num_atoms - 1)
         
-        target_z = rewards[:, None] + discount * (1 - dones[:, None]) * support
+        # target_z = rewards[:, None] + discount * (1 - dones[:, None]) * support
+        target_z = rewards[:,None] + gamma_n[:,None] * bootstrap[:,None] * support[None,:]
         target_z = jnp.clip(target_z, v_min, v_max)
         
         b = (target_z - v_min) / delta_z
@@ -235,7 +236,6 @@ class FastTD3Critic(nn.Module):
         proj_dist = proj_dist.at[batch_indices[:, None], u].add(weight_u)
         
         return proj_dist
-
 
 class RunningMeanStd(nn.Module):
     """Layer that maintains running mean and variance for input normalization."""
