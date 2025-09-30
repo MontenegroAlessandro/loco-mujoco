@@ -172,7 +172,7 @@ class FastTD3Jax(JaxRLAlgorithmBase):
         # Noise scales 
         noise_scales = jax.random.uniform(
             noise_key, shape=(config.num_envs, 1),
-            minval=config.policy_exploration.min_exploration, maxval=config.policy_exploration.min_exploration
+            minval=config.policy_exploration.min_exploration, maxval=config.policy_exploration.max_exploration
         )
 
         # initialize the normalizer
