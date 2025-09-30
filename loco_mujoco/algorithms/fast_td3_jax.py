@@ -6,7 +6,7 @@ import numpy as np
 from dataclasses import dataclass
 from loco_mujoco.algorithms import (
     AgentConfBase, AgentStateBase, TD3Actor, FastTD3Critic, JaxRLAlgorithmBase, 
-    DecoupledReplayBuffer, TrainState, PhasedExplorationSchedule, RunningMeanStdState
+    SuperReplayBuffer, TrainState, PhasedExplorationSchedule, RunningMeanStdState
 )
 from omegaconf import DictConfig, OmegaConf
 from typing import Any
@@ -232,27 +232,27 @@ class FastTD3Jax(JaxRLAlgorithmBase):
             next_dist = jnp.where(use_dist1, next_dist1, next_dist2)
 
             # take data handling the n-step bootstrap
-            # rewards = batch["rewards"]
-            # dones = batch["dones"].astype(bool)
-            # truncs = batch.get("truncs", jnp.zeros_like(dones)).astype(bool)
-            # n_steps = batch.get("n_steps", jnp.ones_like(dones, dtype=np.int32))
+            rewards = batch["rewards"]
+            dones = batch["dones"].astype(bool)
+            truncs = batch.get("truncs", jnp.zeros_like(dones)).astype(bool)
+            n_steps = batch.get("n_steps", jnp.ones_like(dones, dtype=np.int32))
 
-            # bootstrap = jnp.logical_or(truncs, ~dones).astype(jnp.float32)
-            # gamma_n = config.gamma ** n_steps
+            bootstrap = jnp.logical_or(truncs, ~dones).astype(jnp.float32)
+            gamma_n = config.gamma ** n_steps
 
-            target_dist = FastTD3Critic.project_distribution(
-                next_dist, batch["rewards"], batch["dones"], config.gamma,
-                support, config.v_min, config.v_max
-            )
             # target_dist = FastTD3Critic.project_distribution(
-            #     next_dist,
-            #     rewards=rewards,
-            #     bootstrap=bootstrap,
-            #     gamma_n=gamma_n,
-            #     support=support,
-            #     v_min=config.v_min,
-            #     v_max=config.v_max
+            #     next_dist, batch["rewards"], batch["dones"], config.gamma,
+            #     support, config.v_min, config.v_max
             # )
+            target_dist = FastTD3Critic.project_distribution(
+                next_dist,
+                rewards=rewards,
+                bootstrap=bootstrap,
+                gamma_n=gamma_n,
+                support=support,
+                v_min=config.v_min,
+                v_max=config.v_max
+            )
             target_dist = jax.lax.stop_gradient(target_dist)
 
             def _critic_loss_fn(critic_params):
@@ -311,13 +311,13 @@ class FastTD3Jax(JaxRLAlgorithmBase):
 
         # [2] initialize the agent state and the replay buffer
         agent_state = cls._create_initial_agent_state(rng, env, agent_conf)
-        replay_buffer = DecoupledReplayBuffer(
-            total_capacity=int(config.buffer_size),
+        replay_buffer = SuperReplayBuffer(
+            total_capacity=int(config.buffer_size // config.num_envs), # FIXME
             num_envs=config.num_envs,
             obs_shape=env.info.observation_space.shape,
             action_shape=env.info.action_space.shape,
-            # n_step=config.n_step,
-            # gamma=config.gamma
+            n_step=config.n_step,
+            gamma=config.gamma
         )
         
         reset_rng = jax.random.split(rng, config.num_envs)
@@ -386,8 +386,8 @@ class FastTD3Jax(JaxRLAlgorithmBase):
                 action=np.asarray(noised_action), 
                 reward=np.asarray(reward), 
                 done=np.asarray(done),
-                next_obs=np.asarray(next_obsv)
-                # trunc=np.asarray(absorbing)
+                next_obs=np.asarray(next_obsv),
+                trunc=np.asarray(absorbing)
             )
             
             obsv = next_obsv

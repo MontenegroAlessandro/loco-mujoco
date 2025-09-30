@@ -206,110 +206,139 @@ class DecoupledReplayBuffer:
         return batch
 
 @dataclass
-class DecoupledReplayBufferN:
+class SuperReplayBuffer:
     """
-    Replay buffer with parallel envs, n-step, and bootstrap support.
-    Versione finale e corretta che gestisce sia dones che truncations.
+    Decoupled replay buffer allowing for managing n_step returns.
     """
-    total_capacity: int
-    num_envs: int
-    obs_shape: Tuple[int, ...]
-    action_shape: Tuple[int, ...]
-    n_step: int
-    gamma: float 
-
-    obs: np.ndarray = field(init=False)
-    actions: np.ndarray = field(init=False)
-    rewards: np.ndarray = field(init=False)
-    dones: np.ndarray = field(init=False)
-    truncs: np.ndarray = field(init=False)
-
-    ptrs: np.ndarray = field(init=False)
-    sizes: np.ndarray = field(init=False)
-    per_env_capacity: int = field(init=False)
-
-    def __post_init__(self):
-        if self.total_capacity % self.num_envs != 0:
-            raise ValueError("total_capacity must be divisible by num_envs")
-        self.per_env_capacity = self.total_capacity // self.num_envs
-
-        self.obs = np.zeros((self.num_envs, self.per_env_capacity, *self.obs_shape), dtype=np.float32)
-        self.actions = np.zeros((self.num_envs, self.per_env_capacity, *self.action_shape), dtype=np.float32)
-        self.rewards = np.zeros((self.num_envs, self.per_env_capacity), dtype=np.float32)
-        self.dones = np.zeros((self.num_envs, self.per_env_capacity), dtype=np.float32)
-        self.truncs = np.zeros((self.num_envs, self.per_env_capacity), dtype=np.float32)
-        
-        self.ptrs = np.zeros(self.num_envs, dtype=np.int32)
-        self.sizes = np.zeros(self.num_envs, dtype=np.int32)
-
-    def add(
+    def __init__(
         self,
-        obs: np.ndarray,
-        action: np.ndarray,
-        reward: np.ndarray,
-        done: np.ndarray,
-        trunc: np.ndarray,
+        n_env: int,
+        buffer_size: int,
+        obs_shape: Tuple[int, ...],
+        action_shape: Tuple[int, ...],
+        n_steps: int = 1,
+        gamma: float = 0.99,
     ):
-        idx = self.ptrs
-        env_indices = np.arange(self.num_envs)
+        self.n_env = n_env
+        self.buffer_size = buffer_size
+        self.obs_shape = obs_shape
+        self.action_shape = action_shape
+        self.n_steps = n_steps
+        self.gamma = gamma
 
-        self.obs[env_indices, idx] = obs
-        self.actions[env_indices, idx] = action
-        self.rewards[env_indices, idx] = reward
-        self.dones[env_indices, idx] = done
-        self.truncs[env_indices, idx] = trunc
+        # data
+        self.observations = np.zeros((n_env, buffer_size, *obs_shape), dtype=np.float32)
+        self.actions = np.zeros((n_env, buffer_size, *action_shape), dtype=np.float32)
+        self.rewards = np.zeros((n_env, buffer_size), dtype=np.float32)
+        self.dones = np.zeros((n_env, buffer_size), dtype=np.int64)
+        self.truncations = np.zeros((n_env, buffer_size), dtype=np.int64)
+        self.next_observations = np.zeros((n_env, buffer_size, *obs_shape), dtype=np.float32)
 
-        self.ptrs = (self.ptrs + 1) % self.per_env_capacity
-        self.sizes = np.minimum(self.sizes + 1, self.per_env_capacity)
+        self.ptr = 0
+        self.size = 0 
+
+    def add(self, obs, action, reward, next_obs, done, truncation):
+        """Add a batch of transitions to the buffer."""
+        ptr = self.ptr % self.buffer_size
+
+        self.observations[:, ptr] = obs
+        self.actions[:, ptr] = action
+        self.rewards[:, ptr] = reward
+        self.next_observations[:, ptr] = next_obs
+        self.dones[:, ptr] = done
+        self.truncations[:, ptr] = truncation
+
+        self.ptr += 1
+        self.size = min(self.buffer_size * self.n_env, self.size + self.n_env)
 
     def sample(self, batch_size: int) -> Dict[str, np.ndarray]:
-        total_transitions = np.sum(self.sizes)
-        if total_transitions < batch_size:
-            return {}
-
-        # staring indices
-        env_probs = self.sizes / total_transitions
-        env_indices = np.random.choice(self.num_envs, size=batch_size, p=env_probs)
-        max_start_indices = self.sizes[env_indices] - self.n_step
-        valid_mask = max_start_indices >= 0
-        if not np.all(valid_mask):
-            env_indices = env_indices[valid_mask]
-            max_start_indices = max_start_indices[valid_mask]
-            if len(env_indices) == 0: return {}
-            current_batch_size = len(env_indices)
+        """Sample batch size transitions, coming from the n_envs tapes."""
+        if self.n_steps == 1:
+            return self._sample_one_step(batch_size)
         else:
-            current_batch_size = batch_size
-        start_indices = (np.random.rand(current_batch_size) * (max_start_indices + 1)).astype(int)
+            return self._sample_n_steps(batch_size)
 
-        # sequences
-        step_range = np.arange(self.n_step)
-        seq_indices = (start_indices[:, np.newaxis] + step_range) % self.per_env_capacity
-        batch_rewards = self.rewards[env_indices[:, np.newaxis], seq_indices]
-        batch_dones = self.dones[env_indices[:, np.newaxis], seq_indices]
-        batch_truncs = self.truncs[env_indices[:, np.newaxis], seq_indices]
-        
-        # mask
-        terminations = np.logical_or(batch_dones, batch_truncs)
-        first_term_idx = np.argmax(terminations, axis=1)
-        no_term_mask = np.all(terminations == 0, axis=1)
-        effective_n_steps = np.where(no_term_mask, self.n_step, first_term_idx + 1).astype(np.int32)
-        done_mask = np.arange(self.n_step) < effective_n_steps[:, np.newaxis]
+    def _sample_one_step(self, batch_size: int) -> Dict[str, np.ndarray]:
+        """Sample just one step"""
+        num_total_transitions = min(self.buffer_size, self.ptr)
+        per_env_batch_size = max(1, batch_size // self.n_env)
 
-        # return
-        discounts = np.power(self.gamma, step_range)
-        n_step_rewards = np.sum(batch_rewards * discounts * done_mask, axis=1)
-        
-        # final state
-        final_step_indices = (start_indices + effective_n_steps) % self.per_env_capacity
+        env_indices = np.arange(self.n_env)[:, np.newaxis]
+        indices = np.random.randint(0, num_total_transitions, size=(self.n_env, per_env_batch_size))
+
+        obs = self.observations[env_indices, indices].reshape(-1, *self.obs_shape)
+        actions = self.actions[env_indices, indices].reshape(-1, *self.action_shape)
+        rewards = self.rewards[env_indices, indices].reshape(-1)
+        next_obs = self.next_observations[env_indices, indices].reshape(-1, *self.obs_shape)
+        dones = self.dones[env_indices, indices].reshape(-1)
+        truncations = self.truncations[env_indices, indices].reshape(-1)
 
         return {
-            "obs": self.obs[env_indices, start_indices],
-            "actions": self.actions[env_indices, start_indices],
-            "rewards": n_step_rewards,
-            "next_obs": self.obs[env_indices, final_step_indices],
-            "dones": self.dones[env_indices, final_step_indices],
-            "truncs": self.truncs[env_indices, final_step_indices],
-            "n_steps": effective_n_steps,
+            "obs": obs,
+            "actions": actions,
+            "rewards": rewards,
+            "next_obs": next_obs,
+            "dones": dones.astype(bool),
+            "truncs": truncations.astype(bool),
+            "n_steps": np.ones_like(dones),
+        }
+
+    def _sample_n_steps(self, batch_size: int) -> Dict[str, np.ndarray]:
+        """Sample transitions and compute n_steps returns."""
+        per_env_batch_size = max(1, batch_size // self.n_env)
+        
+        # staring indices
+        if self.ptr >= self.buffer_size: 
+            max_start_idx = self.buffer_size
+            indices = np.random.randint(0, max_start_idx, size=(self.n_env, per_env_batch_size))
+        else: 
+            max_start_idx = max(1, self.ptr - self.n_steps + 1)
+            indices = np.random.randint(0, max_start_idx, size=(self.n_env, per_env_batch_size))
+
+        # starting transitions
+        env_indices = np.arange(self.n_env)[:, np.newaxis]
+        obs = self.observations[env_indices, indices].reshape(-1, *self.obs_shape)
+        actions = self.actions[env_indices, indices].reshape(-1, *self.action_shape)
+
+        # sequences
+        seq_offsets = np.arange(self.n_steps)
+        all_indices = (indices[..., np.newaxis] + seq_offsets) % self.buffer_size
+
+        all_rewards = self.rewards[env_indices[..., np.newaxis], all_indices]
+        all_dones = self.dones[env_indices[..., np.newaxis], all_indices]
+        all_truncations = self.truncations[env_indices[..., np.newaxis], all_indices]
+
+        # mask and n-steps return
+        zeros_shape = (self.n_env, per_env_batch_size, 1)
+        all_dones_shifted = np.concatenate([np.zeros(zeros_shape), all_dones[..., :-1]], axis=-1)
+        done_masks = np.cumprod(1.0 - all_dones_shifted, axis=-1)
+        
+        discounts = np.power(self.gamma, np.arange(self.n_steps))
+        n_step_rewards = np.sum(all_rewards * done_masks * discounts, axis=-1)
+
+        # select the final state (done or truncation)
+        terminations = np.logical_or(all_dones, all_truncations)
+        first_term_idx = np.argmax(terminations, axis=-1)
+        no_term_mask = np.all(terminations == 0, axis=-1)
+        final_indices_offset = np.where(no_term_mask, self.n_steps - 1, np.minimum(first_term_idx, self.n_steps - 1))
+        
+        final_seq_indices = (indices + final_indices_offset) % self.buffer_size
+        final_next_obs = self.next_observations[env_indices, final_seq_indices]
+        final_dones = self.dones[env_indices, final_seq_indices]
+        final_truncations = self.truncations[env_indices, final_seq_indices]
+        
+        # effective steps
+        term_masks = np.cumprod(1.0 - np.concatenate([np.zeros(zeros_shape), terminations[..., :-1]], axis=-1), axis=-1)
+        effective_n_steps = np.sum(term_masks, axis=-1)
+
+        return {
+            "obs": obs,
+            "actions": actions,
+            "rewards": n_step_rewards.reshape(-1),
+            "next_obs": final_next_obs.reshape(-1, *self.obs_shape),
+            "dones": final_dones.reshape(-1).astype(bool),
+            "truncs": final_truncations.reshape(-1).astype(bool),
+            "n_steps": effective_n_steps.reshape(-1).astype(np.int32),
         }
 
 
