@@ -205,17 +205,17 @@ class FastTD3Critic(nn.Module):
         
         return q1, q2
 
-    # def project_distribution(
-    #     next_dist: jnp.ndarray, rewards: jnp.ndarray, dones: jnp.ndarray,
-    #     discount: float, support: jnp.ndarray, v_min: float, v_max: float
-    # ) -> jnp.ndarray:
     @staticmethod
-    def project_distribution(next_dist, rewards, bootstrap, gamma_n, support, v_min, v_max):
+    def project_distribution(
+        next_dist: jnp.ndarray, rewards: jnp.ndarray, dones: jnp.ndarray,
+        discount: float, support: jnp.ndarray, v_min: float, v_max: float
+    ) -> jnp.ndarray:
+    # def project_distribution(next_dist, rewards, bootstrap, gamma_n, support, v_min, v_max):
         num_atoms = support.shape[0]
         delta_z = (v_max - v_min) / (num_atoms - 1)
         
-        # target_z = rewards[:, None] + discount * (1 - dones[:, None]) * support
-        target_z = rewards[:,None] + gamma_n[:,None] * bootstrap[:,None] * support[None,:]
+        target_z = rewards[:, None] + discount * (1 - dones[:, None]) * support
+        # target_z = rewards[:,None] + gamma_n[:,None] * bootstrap[:,None] * support[None,:]
         target_z = jnp.clip(target_z, v_min, v_max)
         
         b = (target_z - v_min) / delta_z

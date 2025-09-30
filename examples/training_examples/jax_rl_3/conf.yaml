@@ -63,7 +63,7 @@ experiment:
   # Distributional Critic Parameters
   num_atoms: 51
   v_min: 0
-  v_max: 100 # try 30 or 50
+  v_max: 30 # try 30 or 50
   
   # General Training Config
   utd_ratio: 8
