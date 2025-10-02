@@ -213,26 +213,26 @@ class SuperReplayBuffer:
     def __init__(
         self,
         n_env: int,
-        buffer_size: int,
+        total_capacity: int,
         obs_shape: Tuple[int, ...],
         action_shape: Tuple[int, ...],
         n_steps: int = 1,
         gamma: float = 0.99,
     ):
         self.n_env = n_env
-        self.buffer_size = buffer_size
+        self.buffer_size = int(total_capacity // n_env)
         self.obs_shape = obs_shape
         self.action_shape = action_shape
         self.n_steps = n_steps
         self.gamma = gamma
 
         # data
-        self.observations = np.zeros((n_env, buffer_size, *obs_shape), dtype=np.float32)
-        self.actions = np.zeros((n_env, buffer_size, *action_shape), dtype=np.float32)
-        self.rewards = np.zeros((n_env, buffer_size), dtype=np.float32)
-        self.dones = np.zeros((n_env, buffer_size), dtype=np.int64)
-        self.truncations = np.zeros((n_env, buffer_size), dtype=np.int64)
-        self.next_observations = np.zeros((n_env, buffer_size, *obs_shape), dtype=np.float32)
+        self.observations = np.zeros((n_env, self.buffer_size, *obs_shape), dtype=np.float32)
+        self.actions = np.zeros((n_env, self.buffer_size, *action_shape), dtype=np.float32)
+        self.rewards = np.zeros((n_env, self.buffer_size), dtype=np.float32)
+        self.dones = np.zeros((n_env, self.buffer_size), dtype=np.int64)
+        self.truncations = np.zeros((n_env, self.buffer_size), dtype=np.int64)
+        self.next_observations = np.zeros((n_env, self.buffer_size, *obs_shape), dtype=np.float32)
 
         self.ptr = 0
         self.size = 0 

@@ -3,7 +3,7 @@ defaults:
   - override hydra/launcher: basic
 
 wandb:
-  project: "Fast TD3 - Debug"
+  project: "Fast TD3 - Debug 2"
 
 experiment:
   task_factory:
@@ -38,13 +38,13 @@ experiment:
   activation: relu
   
   # Optimizers
-  actor_lr: 1e-4
-  critic_lr: 1e-4
+  actor_lr: 1e-3
+  critic_lr: 1e-3
   
   # Replay Buffer and Batching
-  buffer_size: 204800000 # 20480000 # 100000 # 51200
-  batch_size: 20480 # 20480 # 32768
-  learning_starts: 204800 # 204800 # 10
+  buffer_size: 1024000 # 204800000 
+  batch_size: 512 # 1024 # 2048 
+  learning_starts: 512 # 1024 # 20480
   
   # Fast TD3 Core Parameters
   gamma: 0.99
@@ -61,14 +61,14 @@ experiment:
   n_step: 1 # bootstrapping
   
   # Distributional Critic Parameters
-  num_atoms: 51
+  num_atoms: 125
   v_min: 0
-  v_max: 30 # try 30 or 50
+  v_max: 250 # this is the maximum discounted normalized return
   
   # General Training Config
-  utd_ratio: 8
-  num_envs: 2048
-  total_timesteps: 100e6
+  utd_ratio: 2 # 8
+  num_envs: 512 #1024 # 2048
+  total_timesteps: 100e6 # 100e6
   log_interval: 1e6
   normalize_env: true
   debug: false
