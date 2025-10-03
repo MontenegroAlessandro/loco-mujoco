@@ -12,8 +12,10 @@ from flax import struct
 import flax
 import optax
 
-from loco_mujoco.algorithms import (JaxRLAlgorithmBase, AgentConfBase, AgentStateBase, ActorCritic,
-                                    Transition, TrainState, TrainStateBuffer, MetricHandlerTransition)
+from loco_mujoco.algorithms import (
+    JaxRLAlgorithmBase, AgentConfBase, AgentStateBase, ActorCritic, Transition, TrainState, TrainStateBuffer, 
+    MetricHandlerTransition, renyiDivergenceMultivariateGaussians
+)
 from loco_mujoco.core.wrappers import LogWrapper, NStepWrapper, LogEnvState, VecEnv, NormalizeVecReward, SummaryMetrics
 from loco_mujoco.utils import MetricsHandler, ValidationSummary
 
@@ -273,9 +275,25 @@ class PPOJax(JaxRLAlgorithmBase):
 
                         # CALCULATE PPO ACTOR LOSS
                         ratio = jnp.exp(log_prob - traj_batch.log_prob)
+                        
                         # power mean correction when asked
                         if config.power_mean.use_pm:
-                            ratio = ratio / (1 - config.power_mean.pm_lambda + config.power_mean.pm_lambda * ratio)
+                            # compute the divergence
+                            z, _ = network.apply(
+                                {'params': train_state.params, 'run_stats': train_state.run_stats},
+                                traj_batch.obs, 
+                                mutable=["run_stats"]
+                            )
+                            old_pi, _ = z
+
+                            pm_divergence = jnp.exp(renyiDivergenceMultivariateGaussians(pi, old_pi))
+
+                            # comnpute lambda
+                            pm_lambda = jnp.sqrt(4 * jnp.log(1 / config.power_mean.confidence) / (3 * config.minibatch_size * pm_divergence * (train_state.step + 1)))
+
+                            # correct the ratio
+                            ratio = ratio / (1 - pm_lambda + pm_lambda * ratio)
+
                         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
                         loss_actor1 = ratio * gae
                         loss_actor2 = (

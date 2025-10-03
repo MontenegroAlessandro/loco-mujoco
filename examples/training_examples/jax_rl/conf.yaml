@@ -61,4 +61,4 @@ experiment:
   power_mean:
     use_pm: true
     clip: true
-    pm_lambda: 0.05
+    confidence: 0.2
