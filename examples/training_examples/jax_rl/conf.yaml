@@ -60,5 +60,5 @@ experiment:
     num: 10 # set to 0 to disable validation
   power_mean:
     use_pm: true
-    clip: false
-    pm_lambda: 0.2
+    clip: true
+    pm_lambda: 0.05
