@@ -289,7 +289,13 @@ class PPOJax(JaxRLAlgorithmBase):
                             pm_divergence = jnp.exp(renyiDivergenceMultivariateGaussians(pi, old_pi))
 
                             # comnpute lambda
-                            pm_lambda = jnp.sqrt(4 * jnp.log(1 / config.power_mean.confidence) / (3 * config.minibatch_size * pm_divergence * (train_state.step + 1)))
+                            pm_lambda = config.power_mean.confidence / pm_divergence
+                            # jax.debug.print("div: {}", pm_divergence)
+                            # jax.debug.print("lambda: {}", pm_lambda)
+                            # jax.debug.print(f"MEANS: {pi.loc} - {old_pi.loc}")
+                            # jax.debug.print(f"vars: {pi.scale_diag} - {old_pi.scale_diag}")
+                            # jax.debug.print(f"d {train_state.params.shape}")
+                            pm_lambda = jnp.clip(pm_lambda, 0, 1)
 
                             # correct the ratio
                             ratio = ratio / (1 - pm_lambda + pm_lambda * ratio)

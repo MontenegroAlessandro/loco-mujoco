@@ -62,3 +62,4 @@ experiment:
     use_pm: true
     clip: true
     confidence: 0.2
+    window: 1
