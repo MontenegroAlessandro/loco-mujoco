@@ -35,16 +35,16 @@ experiment:
   # Network Arch
   actor_hidden_dims: [512, 256]
   critic_hidden_dims: [512, 256]
-  activation: relu
+  activation: tanh
   
   # Optimizers
   actor_lr: 1e-3
   critic_lr: 1e-3
   
   # Replay Buffer and Batching
-  buffer_size: 1024000 # 204800000 
-  batch_size: 512 # 1024 # 2048 
-  learning_starts: 512 # 1024 # 20480
+  buffer_size: 10240000
+  batch_size: 10240 
+  learning_starts: 10240 
   
   # Fast TD3 Core Parameters
   gamma: 0.99
@@ -61,13 +61,13 @@ experiment:
   n_step: 1 # bootstrapping
   
   # Distributional Critic Parameters
-  num_atoms: 125
+  num_atoms: 400
   v_min: 0
-  v_max: 250 # this is the maximum discounted normalized return
+  v_max: 200 # this is the maximum discounted normalized return
   
   # General Training Config
-  utd_ratio: 2 # 8
-  num_envs: 512 #1024 # 2048
+  utd_ratio: 4
+  num_envs: 1024 # 2048
   total_timesteps: 100e6 # 100e6
   log_interval: 1e6
   normalize_env: true
