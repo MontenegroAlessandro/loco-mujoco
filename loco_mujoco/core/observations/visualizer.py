@@ -210,3 +210,95 @@ class RootVelocityArrowVisualizer:
         carry = carry.replace(user_scene=new_user_scene)
 
         return carry
+
+
+class FootPlacementVisualizer:
+    """
+    A class to visualize a foot placement goal (position and orientation)
+    as a semi-transparent box in the simulation.
+    """
+
+    def __init__(self,
+                 box_size: Tuple[float, float, float] = (0.1, 0.04, 0.01),
+                 left_foot_color: Tuple[float, float, float, float] = (0.0, 0.5, 1.0, 0.5),
+                 right_foot_color: Tuple[float, float, float, float] = (1.0, 0.5, 0.0, 0.5)):
+        
+        self._n_visual_geoms = 1
+        self._box_size = np.array(box_size)
+        self._box_type = int(mujoco.mjtGeom.mjGEOM_BOX)
+        self._colors = np.array([left_foot_color, right_foot_color])
+
+    def set_visuals(self,
+                    goal: Union[np.ndarray, jnp.ndarray],
+                    env: Any,
+                    model: Union[MjModel, Model],
+                    data: Union[MjData, Data],
+                    carry: Any,
+                    visual_geoms_idx: List[int],
+                    backend: ModuleType) -> Any:
+        """
+        Sets the visuals for the foot placement goal in the carry object.
+
+        Args:
+            goal (Union[np.ndarray, jnp.ndarray]): The goal observation vector, containing
+                target_pos (3), target_orn (4), and swing_foot_one_hot (2).
+            env (Any): The environment instance.
+            model (Union[MjModel, Model]): The simulation model.
+            data (Union[Model, Data]): The simulation data.
+            carry (Any): The stateful carry object for rendering.
+            visual_geoms_idx (List[int]): Index of the visual geometry to modify.
+            backend (ModuleType): Backend module (`np` or `jnp`).
+
+        Returns:
+            Any: Updated carry with the new visualization set.
+        """
+        if backend == np:
+            R = np_R
+        else:
+            R = jnp_R
+
+        user_scene = carry.user_scene
+        geoms = user_scene.geoms
+        geom_idx = visual_geoms_idx[0]
+
+        # Extract information from the goal vector
+        target_pos = goal[:3]
+        target_orn_quat = goal[3:7]  # This is (w, x, y, z)
+        swing_foot_one_hot = goal[7:9]
+
+        # Calculate properties for the visual geometry
+        # The position is directly from the goal
+        viz_pos = target_pos
+
+        # The orientation matrix is derived from the goal quaternion
+        viz_mat = R.from_quat(target_orn_quat).as_matrix().reshape(-1)
+
+        # The color depends on which foot is swinging
+        swing_foot_idx = backend.argmax(swing_foot_one_hot)
+        viz_color = self._colors[swing_foot_idx]
+        
+        # Update the user_scene geoms in a backend-compatible way
+        if backend == jnp:
+            geom_pos = geoms.pos.at[geom_idx].set(viz_pos)
+            geom_mat = geoms.mat.at[geom_idx].set(viz_mat)
+            geom_type = geoms.type.at[geom_idx].set(self._box_type)
+            geom_size = geoms.size.at[geom_idx].set(self._box_size)
+            geom_rgba = geoms.rgba.at[geom_idx].set(viz_color)
+        else: # numpy backend
+            geoms.pos[geom_idx] = viz_pos
+            geoms.mat[geom_idx] = viz_mat
+            geoms.type[geom_idx] = self._box_type
+            geoms.size[geom_idx] = self._box_size
+            geoms.rgba[geom_idx] = viz_color
+            geom_pos = geoms.pos
+            geom_mat = geoms.mat
+            geom_type = geoms.type
+            geom_size = geoms.size
+            geom_rgba = geoms.rgba
+        
+        # Update and return the carry object
+        new_user_scene = user_scene.replace(geoms=geoms.replace(
+            pos=geom_pos, mat=geom_mat, size=geom_size, type=geom_type, rgba=geom_rgba))
+        carry = carry.replace(user_scene=new_user_scene)
+
+        return carry

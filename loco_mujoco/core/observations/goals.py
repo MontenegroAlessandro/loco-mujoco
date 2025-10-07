@@ -1131,6 +1131,7 @@ class GoalRandomRootVelocityAndFrequencyState:
     goal_height: float
     gait_frequency: float
 
+
 class GoalChangingRandomRootVelocity(Goal, RootVelocityArrowVisualizer):
     """
     A class representing a random root velocity goal that changes over time.
@@ -1357,3 +1358,130 @@ class GoalChangingRandomRootVelocity(Goal, RootVelocityArrowVisualizer):
     def dim(self) -> int:
         """Get the dimension of the goal."""
         return 6
+    
+@struct.dataclass
+class GoalRandomFootPlacementState:
+    """State for the goal of a random foot placement position."""
+    target_pos: jax.Array     # 3D (x,y,z) world position
+    target_orn: jax.Array     # 4D (w,x,y,z) world orientation quaternion
+    swing_foot_idx: int         # 0 for left, 1 for right
+
+class GoalRandomFootPlacement(Goal):
+    """
+    Goal for tracking a random target (x,y,z) position, (w,x,y,z) orientation and swing foot.
+    Target is relative to the stance foot.
+    """
+    def __init__(
+            self,
+            info_props: Dict,
+            left_foot_site_name: str,
+            right_foot_site_name: str,
+            xy_distance_range: List[float] = [0.2, 0.4],
+            z_height_range: List[float] = [0.05, 0.15],
+            angle_range_deg: List[float] = [-180.0, 180.0],
+            yaw_range_deg: List[float] = [-15.0, 15.0],
+            **kwargs
+        ):
+        
+        self.foot_site_names = [left_foot_site_name, right_foot_site_name]
+        self.xy_distance_range = xy_distance_range
+        self.z_height_range = z_height_range
+        self.angle_range_rad = [np.deg2rad(angle_range_deg[0]), np.deg2rad(angle_range_deg[1])]
+        self.yaw_range_rad = [np.deg2rad(yaw_range_deg[0]), np.deg2rad(yaw_range_deg[1])]
+        
+        self._foot_site_ids = [-1, -1]
+        self._root_joint_name = info_props["root_free_joint_xml_name"]
+        self._root_qpos_ids = []
+
+        super().__init__(info_props, **kwargs)
+
+    def _init_from_mj(self, env, model, data, current_obs_size):
+        """Initialize IDs from the MuJoCo model."""
+        self.obs_ind = np.arange(current_obs_size, current_obs_size + self.dim)
+        self._foot_site_ids[0] = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[0])
+        self._foot_site_ids[1] = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[1])
+        self._root_qpos_ids = mj_jntname2qposid(self._root_joint_name, model)
+
+        self.min = [-np.inf] * self.dim
+        self.max = [np.inf] * self.dim
+
+        assert self._foot_site_ids[0] != -1, f"Site '{self.foot_site_names[0]}' not found."
+        assert self._foot_site_ids[1] != -1, f"Site '{self.foot_site_names[1]}' not found."
+        self._initialized_from_mj = True
+
+    def init_state(self, env, key, model, data, backend) -> GoalRandomFootPlacementState:
+        """Initializes the state with a zero target."""
+        return GoalRandomFootPlacementState(
+            target_pos=backend.zeros(3), target_orn=backend.array([1.0, 0.0, 0.0, 0.0]), swing_foot_idx=0
+        )
+
+    def reset_state(self, env, model, data, carry, backend):
+        """Sample a new random foot placement goal for a random foot in any direction."""
+        R = jnp_R if backend == jnp else np_R
+        key = carry.key
+        
+        # Select swing foot (0=left, 1=right)
+        key, subkey = jax.random.split(key)
+        swing_foot_idx = jax.random.randint(subkey, shape=(), minval=0, maxval=2)
+        stance_foot_idx = 1 - swing_foot_idx
+
+        stance_foot_site_id = self._foot_site_ids[stance_foot_idx]
+        
+        # Current state of stance foot and root
+        stance_foot_pos = data.site_xpos[stance_foot_site_id]       # world position of stance foot
+        root_quat_mj = data.qpos[self._root_qpos_ids[3:7]]          # body orientation
+        root_quat_scipy = quat_scalarlast2scalarfirst(root_quat_mj) # ensures (w, x, y, z)
+        
+        # Generate Position Target
+        key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
+        # how far to step
+        distance = jax.random.uniform(subkey1, minval=self.xy_distance_range[0], maxval=self.xy_distance_range[1])
+        # step direction
+        angle = jax.random.uniform(subkey2, minval=self.angle_range_rad[0], maxval=self.angle_range_rad[1])
+        # target height 
+        target_z_offset = jax.random.uniform(subkey3, minval=self.z_height_range[0], maxval=self.z_height_range[1])
+
+        # Create step vector in local root frame and rotate to world
+        step_vec_local = backend.array([distance * backend.cos(angle), 
+                                        distance * backend.sin(angle), 
+                                        0.0])
+        root_rot = R.from_quat(root_quat_scipy)
+        step_vec_world = root_rot.apply(step_vec_local) # this is the delta in the world
+        
+        target_pos = stance_foot_pos + step_vec_world
+        target_pos = target_pos.at[2].set(target_z_offset)  # in world coordinates
+
+        # Generate Orientation Target
+        key, subkey4 = jax.random.split(key)
+        rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1])
+        target_orn_rot = R.from_quat(root_quat_scipy) * R.from_euler('z', rand_yaw)
+        target_orn = target_orn_rot.as_quat()
+
+        # Update the carry object
+        goal_state = GoalRandomFootPlacementState(target_pos=target_pos, 
+                                                target_orn=target_orn,
+                                                swing_foot_idx=swing_foot_idx)
+        observation_states = carry.observation_states.replace(**{self.name: goal_state})
+        return data, carry.replace(key=key, observation_states=observation_states)
+    
+    def get_obs_and_update_state(self, env, model, data, carry, backend):
+        """Return the target position as the observation."""
+        state = getattr(carry.observation_states, self.name)
+        swing_foot_one_hot = jax.nn.one_hot(state.swing_foot_idx, 2)
+        observation = backend.concatenate([state.target_pos, state.target_orn, swing_foot_one_hot])
+        return observation, carry
+
+    @property
+    def dim(self) -> int:
+        """
+        The goal is 9D.
+        target position (x, y, z)
+        target orientation (w, x, y, z)
+        target foot to move (one hot encoding)
+        """
+        return 9
+
+    @property
+    def has_visual(self) -> bool:
+        """Visualization could be added later (e.g., a sphere at the target)."""
+        return True

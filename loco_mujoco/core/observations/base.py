@@ -289,8 +289,12 @@ class Observation:
         # store the indices in the ObservationIndexContainer
         data_ind_cont_attr = getattr(data_ind_cont, obs_type_name)
         obs_ind_cont_attr = getattr(obs_ind_cont, obs_type_name)
-        data_ind_cont_attr.extend(deepcopy(self.data_type_ind.tolist()))
+        # data_ind_cont_attr.extend(deepcopy(self.data_type_ind.tolist()))
         obs_ind_cont_attr.extend(deepcopy(self.obs_ind.tolist()))
+        if obs_type_name == "RelativeSitePositions":
+            data_ind_cont_attr.append(deepcopy(self.data_type_ind.tolist()))
+        else:
+            data_ind_cont_attr.extend(deepcopy(self.data_type_ind.tolist()))
 
     @classmethod
     def get_all_obs_of_type(cls, env, model, data, data_ind_cont, backend):
@@ -1089,6 +1093,91 @@ class RelativeSiteQuantaties(StatefulObservation):
 
         return backend.ravel(site_obs), carry
 
+
+class CoMPos(Observation):
+    """
+    Observation for the 2D Center of Mass position, calculated from the root body's subtree.
+    This is more accurate than using the free joint position.
+    """
+    dim = 2
+
+    def _init_from_mj(self, env, model, data, current_obs_size):
+        self.min, self.max = [-np.inf] * self.dim, [np.inf] * self.dim
+        self.obs_ind = np.arange(current_obs_size, current_obs_size + self.dim)
+        self.data_type_ind = np.array([])  # Computed value, no direct index
+        self._initialized_from_mj = True
+
+    @classmethod
+    def get_all_obs_of_type(cls, env, model, data, data_ind_cont, backend):
+        """Custom getter that computes the CoM position from the simulation state."""
+        # data.subtree_com[0] is the world, data.subtree_com[1] is the robot's root body
+        return data.subtree_com[1][:2]
+
+class CoMVel(Observation):
+    """
+    Observation for the 2D Center of Mass linear velocity.
+    """
+    dim = 2
+
+    def _init_from_mj(self, env, model, data, current_obs_size):
+        self.min, self.max = [-np.inf] * self.dim, [np.inf] * self.dim
+        self.obs_ind = np.arange(current_obs_size, current_obs_size + self.dim)
+        self.data_type_ind = np.array([])
+        self._initialized_from_mj = True
+
+    @classmethod
+    def get_all_obs_of_type(cls, env, model, data, data_ind_cont, backend):
+        """Custom getter that computes the CoM velocity from the simulation state."""
+        return data.subtree_linvel[1][:2]
+    
+
+class RelativeSitePositions(StatefulObservation):
+    """
+    Observation for 3D positions of specified sites relative to a specified body's CoM.
+    This is a StatefulObservation because it needs instance-specific configuration
+    (body and site names) to perform its calculation.
+    """
+    def __init__(self, obs_name: str, site_names: list[str], relative_to_body: str, **kwargs):
+        super().__init__(obs_name, **kwargs)
+        self._site_names = site_names
+        self._relative_to_body = relative_to_body
+        self.dim = len(site_names) * 3
+        self._site_ids = None
+        self._body_id = None
+
+    def _init_from_mj(self, env, model, data, current_obs_size):
+        self.min, self.max = [-np.inf] * self.dim, [np.inf] * self.dim
+        self.obs_ind = np.arange(current_obs_size, current_obs_size + self.dim)
+        
+        # Get and store object IDs from names for later use by the instance
+        self._site_ids = [data.site(name).id for name in self._site_names]
+        self._body_id = data.body(self._relative_to_body).id
+        
+        # This observation will compute its value without needing the container.
+        self.data_type_ind = np.array([])
+        self._initialized_from_mj = True
+
+    def init_state(self, env, key, model, data, backend):
+        """Required by StatefulObject. This observation has no evolving state."""
+        return {} # Return an empty state or placeholder
+
+    def get_obs_and_update_state(self, env, model, data, carry, backend):
+        """
+        Computes the observation using instance attributes. This is called by the
+        environment for stateful observations.
+        """
+        # Get CoM of the specified body (e.g., "Trunk") using the stored ID
+        body_com = data.subtree_com[self._body_id]
+        
+        # Get world positions of all sites using the stored IDs
+        site_positions = data.site_xpos[self._site_ids]
+        
+        # Compute the relative positions
+        relative_positions = site_positions - body_com
+        
+        # The carry is returned unchanged as this observation has no evolving state
+        return backend.ravel(relative_positions), carry
+
 class ObservationType:
     """
     Namespace for all observation types for easy access.
@@ -1112,6 +1201,10 @@ class ObservationType:
     LastAction = LastAction
     ModelInfo = ModelInfo
     RelativeSiteQuantaties = RelativeSiteQuantaties
+    # ---
+    CoMPos = CoMPos
+    CoMVel = CoMVel
+    RelativeSitePositions = RelativeSitePositions
 
     @classmethod
     def get(cls, obs_name):
