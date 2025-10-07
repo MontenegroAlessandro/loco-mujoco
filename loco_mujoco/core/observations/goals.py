@@ -1393,17 +1393,16 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         self._root_joint_name = info_props["root_free_joint_xml_name"]
         self._root_qpos_ids = []
 
-        FootPlacementVisualizer.__init__(self, info_props)
+        FootPlacementVisualizer.__init__(self)
+        n_visual_geoms = self._n_visual_geoms if kwargs.get("visualize_goal") else 0
 
-        super().__init__(info_props, **kwargs)
+        super().__init__(info_props, n_visual_geoms=n_visual_geoms, **kwargs)
 
     def _init_from_mj(self, env, model, data, current_obs_size):
         """Initialize IDs from the MuJoCo model."""
         self.obs_ind = np.arange(current_obs_size, current_obs_size + self.dim)
-        # self._foot_site_ids[0] = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[0])
         self._foot_site_id_left = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[0])
         
-        # self._foot_site_ids[1] = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[1])
         self._foot_site_id_right = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[1])
 
         self._root_qpos_ids = jnp.array(mj_jntname2qposid(self._root_joint_name, model))
@@ -1411,8 +1410,6 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         self.min = [-np.inf] * self.dim
         self.max = [np.inf] * self.dim
 
-        # assert self._foot_site_ids[0] != -1, f"Site '{self.foot_site_names[0]}' not found."
-        # assert self._foot_site_ids[1] != -1, f"Site '{self.foot_site_names[1]}' not found."
         assert self._foot_site_id_left != -1, f"Site '{self.foot_site_names[0]}' not found."
         assert self._foot_site_id_right != -1, f"Site '{self.foot_site_names[1]}' not found."
         self._initialized_from_mj = True
@@ -1433,7 +1430,6 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         swing_foot_idx = jax.random.randint(subkey, shape=(), minval=0, maxval=2)
         stance_foot_idx = 1 - swing_foot_idx
 
-        # stance_foot_site_id = self._foot_site_ids[stance_foot_idx]
         stance_foot_site_id = jax.lax.select(
             stance_foot_idx,
             self._foot_site_id_right,
@@ -1482,6 +1478,10 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         state = getattr(carry.observation_states, self.name)
         swing_foot_one_hot = jax.nn.one_hot(state.swing_foot_idx, 2)
         observation = backend.concatenate([state.target_pos, state.target_orn, swing_foot_one_hot])
+
+        if self.visualize_goal:
+            carry = self.set_visuals(observation, env, model, data, carry, self.visual_geoms_idx, backend)
+            
         return observation, carry
 
     @property
