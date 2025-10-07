@@ -1404,7 +1404,7 @@ class GoalRandomFootPlacement(Goal):
         # self._foot_site_ids[1] = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[1])
         self._foot_site_id_right = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[1])
 
-        self._root_qpos_ids = mj_jntname2qposid(self._root_joint_name, model).flatten()
+        self._root_qpos_ids = jnp.array(mj_jntname2qposid(self._root_joint_name, model))
 
         self.min = [-np.inf] * self.dim
         self.max = [np.inf] * self.dim
@@ -1440,7 +1440,7 @@ class GoalRandomFootPlacement(Goal):
 
         # Current state of stance foot and root
         stance_foot_pos = data.site_xpos[stance_foot_site_id]       # world position of stance foot
-        root_quat_mj = data.qpos[self._root_qpos_ids[3:7]]          # body orientation
+        root_quat_mj = jnp.array(data.qpos)[self._root_qpos_ids[3:7]]          # body orientation
         root_quat_scipy = quat_scalarlast2scalarfirst(root_quat_mj) # ensures (w, x, y, z)
         
         # Generate Position Target

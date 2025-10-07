@@ -561,13 +561,17 @@ class FootPlacementReward(Reward):
 
         # 2. Get MuJoCo IDs for both feet
         foot_site_names = [left_foot_site_name, right_foot_site_name]
-        self._foot_site_ids = [mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, name) for name in foot_site_names]
+        # self._foot_site_ids = [mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, name) for name in foot_site_names]
+        self._foot_site_id_left = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, foot_site_names[0])
+        self._foot_site_id_right = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, foot_site_names[1])
         
         # 3. Get the root body name directly from the environment info properties
         self._torso_body_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_BODY, env.root_body_name)
 
         # Assert that all required components were found
-        assert -1 not in self._foot_site_ids, f"One of the foot sites {foot_site_names} not found."
+        # assert -1 not in self._foot_site_ids, f"One of the foot sites {foot_site_names} not found."
+        assert -1 != self._foot_site_id_left, f"One of the foot sites {foot_site_names[0]} not found."
+        assert -1 != self._foot_site_id_right, f"One of the foot sites {foot_site_names[1]} not found."
         assert self._torso_body_id != -1, f"Body '{env.root_body_name}' not found."
 
     def init_state(self, env: Any,
@@ -604,7 +608,12 @@ class FootPlacementReward(Reward):
         target_orn_quat = goal_state.target_orn
         swing_foot_idx = goal_state.swing_foot_idx
 
-        swing_foot_id = self._foot_site_ids[swing_foot_idx]
+        # swing_foot_id = self._foot_site_ids[swing_foot_idx]
+        swing_foot_id = jax.lax.select(
+            swing_foot_idx,
+            self._foot_site_id_right,
+            self._foot_site_id_left
+        )
         current_foot_pos = data.site_xpos[swing_foot_id]
         current_foot_mat = data.site_xmat[swing_foot_id]
 

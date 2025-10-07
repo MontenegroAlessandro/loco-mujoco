@@ -40,7 +40,7 @@ experiment:
       # Relative importance of maintaining a stable, upright posture
       stability_weight: 5.0
       # Penalty for jerky, high-frequency actions to encourage smoothness
-      action_rate_weight: 0.01
+      action_rate_weight: 10
       # Controls how quickly the position reward falls off with distance
       pos_error_sharpness: 10.0
       # Controls how quickly the orientation reward falls off with angular error
