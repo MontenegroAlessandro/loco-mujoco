@@ -226,7 +226,7 @@ class FootPlacementVisualizer:
         
         self._n_visual_geoms = 1
         self._box_size = np.array(box_size)
-        self._box_type = int(mujoco.mjtGeom.mjGEom.mjGEOM_BOX)
+        self._box_type = int(mujoco.mjtGeom.mjGEOM_BOX)
         self._colors = np.array([left_foot_color, right_foot_color])
 
     def set_visuals(self,

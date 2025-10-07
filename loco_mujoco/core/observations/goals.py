@@ -12,7 +12,7 @@ from scipy.spatial.transform import Rotation as np_R
 from flax import struct
 
 from loco_mujoco.core.observations.base import StatefulObservation, Observation
-from loco_mujoco.core.observations.visualizer import RootVelocityArrowVisualizer
+from loco_mujoco.core.observations.visualizer import RootVelocityArrowVisualizer, FootPlacementVisualizer
 from loco_mujoco.core.stateful_object import StatefulObject
 from loco_mujoco.core.utils.math import (
     calculate_relative_site_quatities,
@@ -1366,7 +1366,7 @@ class GoalRandomFootPlacementState:
     target_orn: jax.Array       # 4D (w,x,y,z) world orientation quaternion
     swing_foot_idx: int         # 0 for left, 1 for right
 
-class GoalRandomFootPlacement(Goal):
+class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
     """
     Goal for tracking a random target (x,y,z) position, (w,x,y,z) orientation and swing foot.
     Target is relative to the stance foot.
@@ -1392,6 +1392,8 @@ class GoalRandomFootPlacement(Goal):
         self._foot_site_ids = [-1, -1]
         self._root_joint_name = info_props["root_free_joint_xml_name"]
         self._root_qpos_ids = []
+
+        FootPlacementVisualizer.__init__(self, info_props)
 
         super().__init__(info_props, **kwargs)
 
