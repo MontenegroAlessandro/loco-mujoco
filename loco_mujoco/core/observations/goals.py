@@ -1404,7 +1404,7 @@ class GoalRandomFootPlacement(Goal):
         # self._foot_site_ids[1] = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[1])
         self._foot_site_id_right = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[1])
 
-        self._root_qpos_ids = mj_jntname2qposid(self._root_joint_name, model)
+        self._root_qpos_ids = mj_jntname2qposid(self._root_joint_name, model).flatten()
 
         self.min = [-np.inf] * self.dim
         self.max = [np.inf] * self.dim
