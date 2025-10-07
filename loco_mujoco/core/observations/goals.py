@@ -1362,8 +1362,8 @@ class GoalChangingRandomRootVelocity(Goal, RootVelocityArrowVisualizer):
 @struct.dataclass
 class GoalRandomFootPlacementState:
     """State for the goal of a random foot placement position."""
-    target_pos: jax.Array     # 3D (x,y,z) world position
-    target_orn: jax.Array     # 4D (w,x,y,z) world orientation quaternion
+    target_pos: jax.Array       # 3D (x,y,z) world position
+    target_orn: jax.Array       # 4D (w,x,y,z) world orientation quaternion
     swing_foot_idx: int         # 0 for left, 1 for right
 
 class GoalRandomFootPlacement(Goal):
@@ -1398,15 +1398,21 @@ class GoalRandomFootPlacement(Goal):
     def _init_from_mj(self, env, model, data, current_obs_size):
         """Initialize IDs from the MuJoCo model."""
         self.obs_ind = np.arange(current_obs_size, current_obs_size + self.dim)
-        self._foot_site_ids[0] = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[0])
-        self._foot_site_ids[1] = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[1])
+        # self._foot_site_ids[0] = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[0])
+        self._foot_site_id_left = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[0])
+        
+        # self._foot_site_ids[1] = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[1])
+        self._foot_site_id_right = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[1])
+
         self._root_qpos_ids = mj_jntname2qposid(self._root_joint_name, model)
 
         self.min = [-np.inf] * self.dim
         self.max = [np.inf] * self.dim
 
-        assert self._foot_site_ids[0] != -1, f"Site '{self.foot_site_names[0]}' not found."
-        assert self._foot_site_ids[1] != -1, f"Site '{self.foot_site_names[1]}' not found."
+        # assert self._foot_site_ids[0] != -1, f"Site '{self.foot_site_names[0]}' not found."
+        # assert self._foot_site_ids[1] != -1, f"Site '{self.foot_site_names[1]}' not found."
+        assert self._foot_site_id_left != -1, f"Site '{self.foot_site_names[0]}' not found."
+        assert self._foot_site_id_right != -1, f"Site '{self.foot_site_names[1]}' not found."
         self._initialized_from_mj = True
 
     def init_state(self, env, key, model, data, backend) -> GoalRandomFootPlacementState:
@@ -1425,8 +1431,13 @@ class GoalRandomFootPlacement(Goal):
         swing_foot_idx = jax.random.randint(subkey, shape=(), minval=0, maxval=2)
         stance_foot_idx = 1 - swing_foot_idx
 
-        stance_foot_site_id = self._foot_site_ids[stance_foot_idx]
-        
+        # stance_foot_site_id = self._foot_site_ids[stance_foot_idx]
+        stance_foot_site_id = jax.lax.select(
+            stance_foot_idx,
+            self._foot_site_id_right,
+            self._foot_site_id_left
+        )
+
         # Current state of stance foot and root
         stance_foot_pos = data.site_xpos[stance_foot_site_id]       # world position of stance foot
         root_quat_mj = data.qpos[self._root_qpos_ids[3:7]]          # body orientation
