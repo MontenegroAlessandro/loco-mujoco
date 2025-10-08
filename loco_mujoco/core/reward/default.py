@@ -513,8 +513,6 @@ class LocomotionReward(TargetVelocityGoalReward):
         return total_reward, carry
 
 
-# In default.py
-
 @struct.dataclass
 class FootPlacementRewardState:
     """State for the FootPlacementReward function."""
@@ -552,8 +550,6 @@ class FootPlacementReward(Reward):
         self._pos_error_sharpness = pos_error_sharpness
         self._orn_error_sharpness = orn_error_sharpness
         self._height_error_sharpness = height_error_sharpness
-
-        # --- Derive parameters from the environment ---
         
         # 1. Derive the target height from the robot's healthy range
         min_h, max_h = env.root_height_healthy_range
@@ -561,7 +557,6 @@ class FootPlacementReward(Reward):
 
         # 2. Get MuJoCo IDs for both feet
         foot_site_names = [left_foot_site_name, right_foot_site_name]
-        # self._foot_site_ids = [mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, name) for name in foot_site_names]
         self._foot_site_id_left = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, foot_site_names[0])
         self._foot_site_id_right = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, foot_site_names[1])
         
@@ -569,7 +564,6 @@ class FootPlacementReward(Reward):
         self._torso_body_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_BODY, env.root_body_name)
 
         # Assert that all required components were found
-        # assert -1 not in self._foot_site_ids, f"One of the foot sites {foot_site_names} not found."
         assert -1 != self._foot_site_id_left, f"One of the foot sites {foot_site_names[0]} not found."
         assert -1 != self._foot_site_id_right, f"One of the foot sites {foot_site_names[1]} not found."
         assert self._torso_body_id != -1, f"Body '{env.root_body_name}' not found."
@@ -610,7 +604,7 @@ class FootPlacementReward(Reward):
 
         # swing_foot_id = self._foot_site_ids[swing_foot_idx]
         swing_foot_id = jax.lax.select(
-            swing_foot_idx,
+            (swing_foot_idx == 1),
             self._foot_site_id_right,
             self._foot_site_id_left
         )
@@ -622,7 +616,7 @@ class FootPlacementReward(Reward):
         pos_tracking_reward = self._pos_tracking_weight * backend.exp(-self._pos_error_sharpness * pos_error_sq)
 
         # --- 3. Orientation Tracking Reward ---
-        current_foot_quat = R.from_matrix(current_foot_mat.reshape(3, 3)).as_quat()
+        current_foot_quat = R.from_matrix(current_foot_mat.reshape(3, 3)).as_quat(scalar_first=True)
         dot_product = backend.sum(target_orn_quat * current_foot_quat)
         orn_error_sq = 1.0 - backend.square(dot_product)
         orn_tracking_reward = self._orn_tracking_weight * backend.exp(-self._orn_error_sharpness * orn_error_sq)

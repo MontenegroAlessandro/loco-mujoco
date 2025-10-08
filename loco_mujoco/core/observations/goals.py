@@ -1429,9 +1429,10 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         key, subkey = jax.random.split(key)
         swing_foot_idx = jax.random.randint(subkey, shape=(), minval=0, maxval=2)
         stance_foot_idx = 1 - swing_foot_idx
+        stance_is_right = (stance_foot_idx == 1)
 
         stance_foot_site_id = jax.lax.select(
-            stance_foot_idx,
+            stance_is_right,
             self._foot_site_id_right,
             self._foot_site_id_left
         )
@@ -1439,32 +1440,35 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         # Current state of stance foot and root
         stance_foot_pos = data.site_xpos[stance_foot_site_id]       # world position of stance foot
         root_quat_mj = jnp.array(data.qpos)[self._root_qpos_ids[3:7]]          # body orientation
-        root_quat_scipy = quat_scalarlast2scalarfirst(root_quat_mj) # ensures (w, x, y, z)
-        
+        # root_quat_scipy = quat_scalarlast2scalarfirst(root_quat_mj) # ensures (w, x, y, z)
+        root_quat_scipy = quat_scalarfirst2scalarlast(root_quat_mj)
+
         # Generate Position Target
         key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
         # how far to step
         distance = jax.random.uniform(subkey1, minval=self.xy_distance_range[0], maxval=self.xy_distance_range[1])
         # step direction
         angle = jax.random.uniform(subkey2, minval=self.angle_range_rad[0], maxval=self.angle_range_rad[1])
+        lateral_sign = jnp.where(swing_foot_idx == 0, +1, -1)
         # target height 
         target_z_offset = jax.random.uniform(subkey3, minval=self.z_height_range[0], maxval=self.z_height_range[1])
 
         # Create step vector in local root frame and rotate to world
         step_vec_local = backend.array([distance * backend.cos(angle), 
-                                        distance * backend.sin(angle), 
+                                        distance * backend.sin(angle) * lateral_sign, 
                                         0.0])
         root_rot = R.from_quat(root_quat_scipy)
         step_vec_world = root_rot.apply(step_vec_local) # this is the delta in the world
         
         target_pos = stance_foot_pos + step_vec_world
-        target_pos = target_pos.at[2].set(target_z_offset)  # in world coordinates
+        # target_pos = target_pos.at[2].set(target_z_offset)  # in world coordinates
+        target_pos = target_pos.at[2].set(stance_foot_pos[2] + target_z_offset)
 
         # Generate Orientation Target
         key, subkey4 = jax.random.split(key)
-        rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1])
+        rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1]) * lateral_sign
         target_orn_rot = R.from_quat(root_quat_scipy) * R.from_euler('z', rand_yaw)
-        target_orn = target_orn_rot.as_quat()
+        target_orn = target_orn_rot.as_quat(scalar_first=True)
 
         # Update the carry object
         goal_state = GoalRandomFootPlacementState(target_pos=target_pos, 

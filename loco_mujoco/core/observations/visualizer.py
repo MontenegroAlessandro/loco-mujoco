@@ -222,8 +222,8 @@ class FootPlacementVisualizer:
 
     def __init__(self,
                  box_size: Tuple[float, float, float] = (0.1, 0.04, 0.01),
-                 left_foot_color: Tuple[float, float, float, float] = (0.2, 0.6, 1.0, 0.7),
-                 right_foot_color: Tuple[float, float, float, float] = (1.0, 0.6, 0.2, 0.7)):
+                 left_foot_color: Tuple[float, float, float, float] = (0.2, 0.6, 1.0, 0.7),     # BLUE
+                 right_foot_color: Tuple[float, float, float, float] = (1.0, 0.6, 0.2, 0.7)):   # ORANGE
         
         self._n_visual_geoms = 1
         self._box_size = np.array(box_size)
