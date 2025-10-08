@@ -2,6 +2,7 @@ from typing import Any, Union, List, Tuple
 from types import ModuleType
 import numpy as np
 import jax.numpy as jnp
+import jax
 from jax.scipy.spatial.transform import Rotation as jnp_R
 from scipy.spatial.transform import Rotation as np_R
 import mujoco
@@ -247,18 +248,18 @@ class FootPlacementVisualizer:
         geoms = user_scene.geoms
         geom_idx = visual_geoms_idx[0]
 
-        # 1. Extract info from the goal vector
+        # Extract info from the goal vector
         target_pos = goal[:3]
         target_orn_quat = goal[3:7]
         swing_foot_one_hot = goal[7:9]
 
-        # 2. Calculate properties for the visual geometry
         viz_pos = target_pos
         viz_mat = R.from_quat(target_orn_quat).as_matrix().reshape(-1)
-        swing_foot_idx = backend.argmax(swing_foot_one_hot)
-        viz_color = self._colors[swing_foot_idx]
+        viz_color = backend.sum(
+            swing_foot_one_hot[:, None] * backend.array(self._colors), axis=0
+        )
         
-        # 3. Update the user_scene geoms
+        # Update the user_scene geoms
         if backend == jnp:
             # JAX backend: requires creating new arrays for updates
             new_pos = geoms.pos.at[geom_idx].set(viz_pos)
@@ -267,7 +268,7 @@ class FootPlacementVisualizer:
             new_size = geoms.size.at[geom_idx].set(self._box_size)
             new_rgba = geoms.rgba.at[geom_idx].set(viz_color)
 
-        else: # numpy backend
+        else: 
             # NumPy backend: make copies to safely create a new state object
             new_pos = geoms.pos.copy()
             new_mat = geoms.mat.copy()
@@ -282,9 +283,8 @@ class FootPlacementVisualizer:
             new_size[geom_idx] = self._box_size
             new_rgba[geom_idx] = viz_color
         
-        # 4. Create new state objects and return the updated carry
+        # Create new state objects and return the updated carry
         new_geoms = geoms.replace(pos=new_pos, mat=new_mat, size=new_size, type=new_type, rgba=new_rgba)
         new_user_scene = user_scene.replace(geoms=new_geoms)
         
         return carry.replace(user_scene=new_user_scene)
-        return carry
