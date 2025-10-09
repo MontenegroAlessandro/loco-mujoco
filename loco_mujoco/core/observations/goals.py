@@ -1362,9 +1362,11 @@ class GoalChangingRandomRootVelocity(Goal, RootVelocityArrowVisualizer):
 @struct.dataclass
 class GoalRandomFootPlacementState:
     """State for the goal of a random foot placement position."""
-    target_pos: jax.Array       # 3D (x,y,z) world position
-    target_orn: jax.Array       # 4D (w,x,y,z) world orientation quaternion
-    swing_foot_idx: int         # 0 for left, 1 for right
+    swing_target_pos: jax.Array         # 3D (x,y,z) desired WORLD position of the swing foot
+    swing_target_orn: jax.Array         # 4D (w,x,y,z) desired WORLD world orientation quaternion of the swing foot
+    stance_target_pos: jax.Array        # 3D (x,y,z) desired WORLD position of the stance foot
+    stance_target_orn: jax.Array        # 4D (w,x,y,z) desired WORLD world orientation quaternion of the stance foot
+    swing_foot_idx: int                 # 0 for left, 1 for right
 
 class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
     """
@@ -1420,12 +1422,73 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
             target_pos=backend.zeros(3), target_orn=backend.array([1.0, 0.0, 0.0, 0.0]), swing_foot_idx=0
         )
 
-    def reset_state(self, env, model, data, carry, backend):
+    def old_reset_state(self, env, model, data, carry, backend):
         """Sample a new random foot placement goal for a random foot in any direction."""
         R = jnp_R if backend == jnp else np_R
         key = carry.key
         
-        # Select swing foot (0=left, 1=right)
+        # [1.1] Select swing foot (0=left, 1=right)
+        key, subkey = jax.random.split(key)
+        # sample the swing foot idx
+        swing_foot_idx = jax.random.randint(subkey, shape=(), minval=0, maxval=2) 
+        # compute the stance foot idx
+        stance_foot_idx = 1 - swing_foot_idx 
+        # retrieve the stance foot id to access data
+        stance_is_right = (stance_foot_idx == 1)
+        stance_foot_site_id = jax.lax.select(
+            stance_is_right,
+            self._foot_site_id_right,
+            self._foot_site_id_left
+        )
+
+        # [1.2] Current state of stance foot and root
+        # stance foot posiiton in the WORLD
+        stance_foot_pos = data.site_xpos[stance_foot_site_id]
+        # orientation of the body in the WORLD (needed to compute the right angles), to be converted into (x,y,z,w)
+        root_quat_mj = jnp.array(data.qpos)[self._root_qpos_ids[3:7]]
+        root_quat_scipy = quat_scalarfirst2scalarlast(root_quat_mj)
+
+        # [2] Generate Position Target
+        key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
+        # how far to step
+        distance = jax.random.uniform(subkey1, minval=self.xy_distance_range[0], maxval=self.xy_distance_range[1])
+        # step direction
+        angle = jax.random.uniform(subkey2, minval=self.angle_range_rad[0], maxval=self.angle_range_rad[1])
+        lateral_sign = jnp.where(stance_is_right, -1, 1)
+        # target height 
+        target_z_offset = jax.random.uniform(subkey3, minval=self.z_height_range[0], maxval=self.z_height_range[1])
+        # step vector to be added to the stance foot coordinates
+        step_vec_local = backend.array(
+            [distance * backend.cos(angle), distance * backend.sin(angle) * lateral_sign, 0.0]
+        )
+        # compute the WORLD coordinates of the displacement
+        root_rot = R.from_quat(root_quat_scipy)
+        step_vec_world = root_rot.apply(step_vec_local)
+        # compute the target position for the foot in WORLD coordinates, applying the displacement to WORLD stance foot
+        target_pos = stance_foot_pos + step_vec_world
+        target_pos = target_pos.at[2].set(stance_foot_pos[2] + target_z_offset)
+
+        # [3] Generate Orientation Target
+        key, subkey4 = jax.random.split(key)
+        # sample the yaw relative to the current stance foot yaw
+        rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1]) * lateral_sign
+        # target_orn_rot = R.from_quat(root_quat_scipy) * R.from_euler('z', rand_yaw)
+        # target orientation in WORLD coordinates via a displacement w.r.t. the current yaw of the stance foot
+        target_orn_rot = R.from_euler('z', rand_yaw) * R.from_quat(root_quat_scipy)
+        target_orn = target_orn_rot.as_quat(scalar_first=True)
+
+        # [4] Update the carry object
+        goal_state = GoalRandomFootPlacementState(target_pos=target_pos, 
+                                                target_orn=target_orn,
+                                                swing_foot_idx=swing_foot_idx)
+        observation_states = carry.observation_states.replace(**{self.name: goal_state})
+        return data, carry.replace(key=key, observation_states=observation_states)
+    
+    def reset_state(self, env, model, data, carry, backend):
+        R = jnp_R if backend == jnp else np_R
+        key = carry.key
+
+        # [1] Choose swing/stance
         key, subkey = jax.random.split(key)
         swing_foot_idx = jax.random.randint(subkey, shape=(), minval=0, maxval=2)
         stance_foot_idx = 1 - swing_foot_idx
@@ -1437,49 +1500,49 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
             self._foot_site_id_left
         )
 
-        # Current state of stance foot and root
-        stance_foot_pos = data.site_xpos[stance_foot_site_id]       # world position of stance foot
-        root_quat_mj = jnp.array(data.qpos)[self._root_qpos_ids[3:7]]          # body orientation
-        # root_quat_scipy = quat_scalarlast2scalarfirst(root_quat_mj) # ensures (w, x, y, z)
+        # [2] Get stance foot pose
+        stance_pos = data.site_xpos[stance_foot_site_id]
+        stance_mat = data.site_xmat[stance_foot_site_id].reshape(3, 3)
+        stance_orn = R.from_matrix(stance_mat).as_quat(scalar_first=True)
+
+        # [3] Root orientation for local to world
+        root_quat_mj = jnp.array(data.qpos)[self._root_qpos_ids[3:7]]
         root_quat_scipy = quat_scalarfirst2scalarlast(root_quat_mj)
-
-        # Generate Position Target
-        key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
-        # how far to step
-        distance = jax.random.uniform(subkey1, minval=self.xy_distance_range[0], maxval=self.xy_distance_range[1])
-        # step direction
-        angle = jax.random.uniform(subkey2, minval=self.angle_range_rad[0], maxval=self.angle_range_rad[1])
-        lateral_sign = jnp.where(swing_foot_idx == 0, +1, -1)
-        # target height 
-        target_z_offset = jax.random.uniform(subkey3, minval=self.z_height_range[0], maxval=self.z_height_range[1])
-
-        # Create step vector in local root frame and rotate to world
-        step_vec_local = backend.array([distance * backend.cos(angle), 
-                                        distance * backend.sin(angle) * lateral_sign, 
-                                        0.0])
         root_rot = R.from_quat(root_quat_scipy)
-        step_vec_world = root_rot.apply(step_vec_local) # this is the delta in the world
-        # FIXME no rotation
-        
-        target_pos = stance_foot_pos + step_vec_world
-        # target_pos = target_pos.at[2].set(target_z_offset)  # in world coordinates
-        target_pos = target_pos.at[2].set(stance_foot_pos[2] + target_z_offset)
 
-        # Generate Orientation Target
+        # [4] Sample step geometry
+        key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
+        distance = jax.random.uniform(subkey1, minval=self.xy_distance_range[0], maxval=self.xy_distance_range[1])
+        angle = jax.random.uniform(subkey2, minval=self.angle_range_rad[0], maxval=self.angle_range_rad[1])
+        lateral_sign = jnp.where(stance_is_right, -1, 1)
+        z_offset = jax.random.uniform(subkey3, minval=self.z_height_range[0], maxval=self.z_height_range[1])
+
+        step_vec_local = backend.array([distance * backend.cos(angle),
+                                        distance * backend.sin(angle) * lateral_sign,
+                                        0.0])
+        step_vec_world = root_rot.apply(step_vec_local)
+        swing_target_pos = stance_pos + step_vec_world
+        swing_target_pos = swing_target_pos.at[2].set(stance_pos[2] + z_offset)
+
+        # [5] Sample yaw offset (relative to root)
         key, subkey4 = jax.random.split(key)
-        rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1]) * lateral_sign
-        target_orn_rot = R.from_quat(root_quat_scipy) * R.from_euler('z', rand_yaw)
-        target_orn = target_orn_rot.as_quat(scalar_first=True)
-        # FIXME relative to other yaw angle
+        rand_yaw = jax.random.uniform(subkey4,
+                                    minval=self.yaw_range_rad[0],
+                                    maxval=self.yaw_range_rad[1]) * lateral_sign
+        swing_target_orn = (R.from_euler('z', rand_yaw) * root_rot).as_quat(scalar_first=True)
 
-        # Update the carry object
-        goal_state = GoalRandomFootPlacementState(target_pos=target_pos, 
-                                                target_orn=target_orn,
-                                                swing_foot_idx=swing_foot_idx)
+        # [6] Save to carry
+        goal_state = GoalRandomFootPlacementState(
+            swing_target_pos=swing_target_pos,
+            swing_target_orn=swing_target_orn,
+            stance_target_pos=stance_pos,
+            stance_target_orn=stance_orn,
+            swing_foot_idx=swing_foot_idx
+        )
         observation_states = carry.observation_states.replace(**{self.name: goal_state})
         return data, carry.replace(key=key, observation_states=observation_states)
-    
-    def get_obs_and_update_state(self, env, model, data, carry, backend):
+
+    def old_get_obs_and_update_state(self, env, model, data, carry, backend):
         """Return the target position as the observation."""
         state = getattr(carry.observation_states, self.name)
         swing_foot_one_hot = jax.nn.one_hot(state.swing_foot_idx, 2)
@@ -1489,16 +1552,30 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
             carry = self.set_visuals(observation, env, model, data, carry, self.visual_geoms_idx, backend)
             
         return observation, carry
+    
+    def get_obs_and_update_state(self, env, model, data, carry, backend):
+        state = getattr(carry.observation_states, self.name)
+        swing_onehot = jax.nn.one_hot(state.swing_foot_idx, 2)
+        observation = backend.concatenate([
+            state.swing_target_pos, state.swing_target_orn,
+            state.stance_pos, state.stance_orn,
+            swing_onehot
+        ])
+        if self.visualize_goal:
+            carry = self.set_visuals(observation, env, model, data, carry, self.visual_geoms_idx, backend)
+        return observation, carry
 
     @property
     def dim(self) -> int:
         """
-        The goal is 9D.
-        target position (x, y, z)
-        target orientation (w, x, y, z)
-        target foot to move (one hot encoding)
+        The goal is 16D.
+        swing target position (x, y, z) -> 3
+        swing target orientation (w, x, y, z) -> 4
+        stance target position (x, y, z) -> 3
+        stance target orientation (w, x, y, z) -> 4
+        target foot to move (one hot encoding) -> 2
         """
-        return 9
+        return 16
 
     @property
     def has_visual(self) -> bool:

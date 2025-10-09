@@ -215,9 +215,9 @@ class RootVelocityArrowVisualizer:
 
 class FootPlacementVisualizer:
     """
-    A class to visualize a foot placement goal (position and orientation)
-    as a semi-transparent box in the simulation. This version contains
-    robust logic for both JAX and NumPy backends.
+    Visualizes both stance and swing foot placement targets as semi-transparent boxes.
+    - Left foot target shown in BLUE
+    - Right foot target shown in ORANGE
     """
 
     def __init__(self,
@@ -225,7 +225,8 @@ class FootPlacementVisualizer:
                  left_foot_color: Tuple[float, float, float, float] = (0.2, 0.6, 1.0, 0.7),     # BLUE
                  right_foot_color: Tuple[float, float, float, float] = (1.0, 0.6, 0.2, 0.7)):   # ORANGE
         
-        self._n_visual_geoms = 1
+        # Two geoms: one for stance, one for swing
+        self._n_visual_geoms = 2
         self._box_size = np.array(box_size)
         self._box_type = int(mujoco.mjtGeom.mjGEOM_BOX)
         self._colors = np.array([left_foot_color, right_foot_color])
@@ -238,53 +239,84 @@ class FootPlacementVisualizer:
                     carry: Any,
                     visual_geoms_idx: List[int],
                     backend: ModuleType) -> Any:
-        
-        if backend == np:
-            R = np_R
-        else:
-            R = jnp_R
+        """
+        Draws both the swing and stance target boxes.
 
+        Goal vector layout:
+            [0:3]  swing_target_pos
+            [3:7]  swing_target_orn
+            [7:10] stance_target_pos
+            [10:14] stance_target_orn
+            [14:16] swing_foot_one_hot
+        """
+
+        R = np_R if backend == np else jnp_R
         user_scene = carry.user_scene
         geoms = user_scene.geoms
-        geom_idx = visual_geoms_idx[0]
 
-        # Extract info from the goal vector
-        target_pos = goal[:3]
-        target_orn_quat = goal[3:7]
-        swing_foot_one_hot = goal[7:9]
+        # --- Parse goal vector ---
+        swing_pos = goal[0:3]
+        swing_orn = goal[3:7]
+        stance_pos = goal[7:10]
+        stance_orn = goal[10:14]
+        swing_one_hot = goal[14:16]
 
-        viz_pos = target_pos
-        viz_mat = R.from_quat(quat_scalarfirst2scalarlast(target_orn_quat)).as_matrix().reshape(-1)
-        viz_color = backend.sum(
-            swing_foot_one_hot[:, None] * backend.array(self._colors), axis=0
-        )
-        
-        # Update the user_scene geoms
+        # --- Determine which foot is swing / stance ---
+        swing_color = backend.sum(swing_one_hot[:, None] * backend.array(self._colors), axis=0)
+        stance_color = backend.sum((1 - swing_one_hot)[:, None] * backend.array(self._colors), axis=0)
+
+        # Convert quaternions to rotation matrices
+        swing_mat = R.from_quat(quat_scalarfirst2scalarlast(swing_orn)).as_matrix().reshape(-1)
+        stance_mat = R.from_quat(quat_scalarfirst2scalarlast(stance_orn)).as_matrix().reshape(-1)
+
+        # --- Update both geoms ---
         if backend == jnp:
-            # JAX backend: requires creating new arrays for updates
-            new_pos = geoms.pos.at[geom_idx].set(viz_pos)
-            new_mat = geoms.mat.at[geom_idx].set(viz_mat)
-            new_type = geoms.type.at[geom_idx].set(self._box_type)
-            new_size = geoms.size.at[geom_idx].set(self._box_size)
-            new_rgba = geoms.rgba.at[geom_idx].set(viz_color)
+            # JAX backend (immutable)
+            geom_pos = geoms.pos
+            geom_mat = geoms.mat
+            geom_type = geoms.type
+            geom_size = geoms.size
+            geom_rgba = geoms.rgba
 
-        else: 
-            # NumPy backend: make copies to safely create a new state object
-            new_pos = geoms.pos.copy()
-            new_mat = geoms.mat.copy()
-            new_type = geoms.type.copy()
-            new_size = geoms.size.copy()
-            new_rgba = geoms.rgba.copy()
-            
-            # Modify the copies
-            new_pos[geom_idx] = viz_pos
-            new_mat[geom_idx] = viz_mat
-            new_type[geom_idx] = self._box_type
-            new_size[geom_idx] = self._box_size
-            new_rgba[geom_idx] = viz_color
-        
-        # Create new state objects and return the updated carry
-        new_geoms = geoms.replace(pos=new_pos, mat=new_mat, size=new_size, type=new_type, rgba=new_rgba)
+            # Swing target
+            geom_pos = geom_pos.at[visual_geoms_idx[0]].set(swing_pos)
+            geom_mat = geom_mat.at[visual_geoms_idx[0]].set(swing_mat)
+            geom_type = geom_type.at[visual_geoms_idx[0]].set(self._box_type)
+            geom_size = geom_size.at[visual_geoms_idx[0]].set(self._box_size)
+            geom_rgba = geom_rgba.at[visual_geoms_idx[0]].set(swing_color)
+
+            # Stance target
+            geom_pos = geom_pos.at[visual_geoms_idx[1]].set(stance_pos)
+            geom_mat = geom_mat.at[visual_geoms_idx[1]].set(stance_mat)
+            geom_type = geom_type.at[visual_geoms_idx[1]].set(self._box_type)
+            geom_size = geom_size.at[visual_geoms_idx[1]].set(self._box_size)
+            geom_rgba = geom_rgba.at[visual_geoms_idx[1]].set(stance_color)
+
+        else:
+            # NumPy backend (mutable)
+            geom_pos = geoms.pos.copy()
+            geom_mat = geoms.mat.copy()
+            geom_type = geoms.type.copy()
+            geom_size = geoms.size.copy()
+            geom_rgba = geoms.rgba.copy()
+
+            # Swing target
+            geom_pos[visual_geoms_idx[0]] = swing_pos
+            geom_mat[visual_geoms_idx[0]] = swing_mat
+            geom_type[visual_geoms_idx[0]] = self._box_type
+            geom_size[visual_geoms_idx[0]] = self._box_size
+            geom_rgba[visual_geoms_idx[0]] = np.array(swing_color)
+
+            # Stance target
+            geom_pos[visual_geoms_idx[1]] = stance_pos
+            geom_mat[visual_geoms_idx[1]] = stance_mat
+            geom_type[visual_geoms_idx[1]] = self._box_type
+            geom_size[visual_geoms_idx[1]] = self._box_size
+            geom_rgba[visual_geoms_idx[1]] = np.array(stance_color)
+
+        # Create new geoms and update carry
+        new_geoms = geoms.replace(
+            pos=geom_pos, mat=geom_mat, size=geom_size, type=geom_type, rgba=geom_rgba
+        )
         new_user_scene = user_scene.replace(geoms=new_geoms)
-        
         return carry.replace(user_scene=new_user_scene)
