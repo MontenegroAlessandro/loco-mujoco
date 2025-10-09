@@ -3,7 +3,7 @@ defaults:
   - override hydra/launcher: basic
 
 wandb:
-  project: "Humanoid Foot Placement - LL Controller"
+  project: "Humanoid Foot Placement"
 
 experiment:
   task_factory:
@@ -20,13 +20,13 @@ experiment:
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.2, 0.5]
+      xy_distance_range: [0.4, 0.5]
       # Range for the target foot height [min, max] from the ground
       z_height_range: [0.0, 0.0]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [10, 60] # x in front, y left (then mirrored for the right foot)
+      angle_range_deg: [30, 90] # x in front, y left (then mirrored for the right foot)
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-5.0, 5.0]
+      yaw_range_deg: [0, 20]
     headless: true
     reward_type: FootPlacementReward
     reward_params:
@@ -34,23 +34,23 @@ experiment:
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       # Relative importance of achieving the target position
-      swing_pos_w: 5
+      swing_pos_w: 10
       stance_stability_pos_w: 5
       # Relative importance of achieving the target orientation
-      swing_orn_w: 0
-      stance_stability_orn_w: 0
+      swing_orn_w: 5
+      stance_stability_orn_w: 3
       # Relative importance of maintaining a stable, upright posture
       torso_height_w: 5
       # Penalty for jerky, high-frequency actions to encourage smoothness
       action_rate_w: 0.01
       # Controls how quickly the position reward falls off with distance
-      sharp_pos: 20
+      sharp_pos: 10
       sharp_stance_pos: 8
       # Controls how quickly the orientation reward falls off with angular error
-      sharp_orn: 0
-      sharp_stance_orn: 0
+      sharp_orn: 15
+      sharp_stance_orn: 10
       # Controls how quickly the stability reward falls off with height error
-      sharp_height: 10
+      sharp_height: 15
     actuation_spec:
       - AAHead_yaw
       - Head_pitch

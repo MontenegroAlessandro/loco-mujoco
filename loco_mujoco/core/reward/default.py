@@ -705,8 +705,8 @@ class FootPlacementReward(Reward):
         # --- Goal info ---
         swing_target_pos = goal_state.swing_target_pos
         swing_target_orn = goal_state.swing_target_orn
-        stance_ref_pos = goal_state.stance_pos
-        stance_ref_orn = goal_state.stance_orn
+        stance_ref_pos = goal_state.stance_target_pos
+        stance_ref_orn = goal_state.stance_target_orn
         swing_foot_idx = goal_state.swing_foot_idx
 
         # --- Foot IDs ---

@@ -263,7 +263,8 @@ class FootPlacementVisualizer:
 
         # --- Determine which foot is swing / stance ---
         swing_color = backend.sum(swing_one_hot[:, None] * backend.array(self._colors), axis=0)
-        stance_color = backend.sum((1 - swing_one_hot)[:, None] * backend.array(self._colors), axis=0)
+        # stance_color = backend.sum((1 - swing_one_hot)[:, None] * backend.array(self._colors), axis=0)
+        stance_color = (0.3, 0.3, 0.3, 0.7) # stance color always gray
 
         # Convert quaternions to rotation matrices
         swing_mat = R.from_quat(quat_scalarfirst2scalarlast(swing_orn)).as_matrix().reshape(-1)
