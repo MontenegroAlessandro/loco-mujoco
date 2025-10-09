@@ -30,6 +30,8 @@ experiment:
     headless: true
     reward_type: FootPlacementReward
     reward_params:
+      left_foot_site_name: left_foot
+      right_foot_site_name: right_foot
       swing_pos_w: 4
       swing_orn_w: 2
       stance_stability_pos_w: 2
@@ -334,7 +336,7 @@ experiment:
   lr: 1e-4
   num_envs: 2048
   num_steps: 50
-  total_timesteps: 200e6
+  total_timesteps: 100e6
   update_epochs: 4
   num_minibatches: 32
   gamma: 0.99

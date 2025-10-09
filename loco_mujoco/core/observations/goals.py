@@ -1647,23 +1647,33 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         # --- Root rotation (world -> root local) ---
         root_quat_mj = jnp.array(data.qpos)[self._root_qpos_ids[3:7]]
         root_rot = R.from_quat(quat_scalarfirst2scalarlast(root_quat_mj))
-        R_root = root_rot.as_matrix()
-        R_wr = R_root.T  # world->root
+        R_wr = root_rot.as_matrix().T # world->root
 
         # --- Current poses of both feet (world) ---
         left_pos_w  = data.site_xpos[self._foot_site_id_left]
         left_mat_w  = data.site_xmat[self._foot_site_id_left].reshape(3, 3)
-        left_rot_w  = R.from_matrix(left_mat_w)
-        left_quat_w = left_rot_w.as_quat(scalar_first=True)  # (w,x,y,z)
+        left_quat_w = R.from_matrix(left_mat_w).as_quat(scalar_first=True)  # (w,x,y,z)
 
         right_pos_w  = data.site_xpos[self._foot_site_id_right]
         right_mat_w  = data.site_xmat[self._foot_site_id_right].reshape(3, 3)
-        right_rot_w  = R.from_matrix(right_mat_w)
-        right_quat_w = right_rot_w.as_quat(scalar_first=True)
+        right_quat_w = R.from_matrix(right_mat_w).as_quat(scalar_first=True)
 
-        # --- Target for swing foot (world) from state ---
-        swing_target_pos_w  = state.swing_target_pos
-        swing_target_quat_w = state.swing_target_orn  # scalar-first (w,x,y,z)
+        # --- Assign correctly the targets basing on who is the swing foot ---
+        def assign_left_swing(_):
+            return (state.swing_target_pos, state.swing_target_orn, state.stance_target_pos, state.stance_target_orn)
+        
+        def assign_right_swing(_):
+            return (state.stance_target_pos, state.stance_target_orn, state.swing_target_pos, state.swing_target_orn)
+        
+        if backend == jnp:
+            left_tpos_w, left_tquat_w, right_tpos_w, right_tquat_w = jax.lax.cond(
+                state.swing_foot_idx == 0, assign_left_swing, assign_left_swing, operand=None
+            )
+        else:
+            if int(state.swing_foot_idx) == 0:
+                left_tpos_w, left_tquat_w, right_tpos_w, right_tquat_w = assign_left_swing(None)
+            else:
+                left_tpos_w, left_tquat_w, right_tpos_w, right_tquat_w = assign_right_swing(None)
 
         # --- Helper: relative quaternion q_rel = q_t ⊗ q_c^{-1}  (scalar-first I/O) ---
         def quat_rel_sf(q_t_sf, q_c_sf):
@@ -1680,35 +1690,19 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
             return q_rel_sf
 
         # --- Offsets in root-local frame ---
-        dL_local = R_wr @ (swing_target_pos_w - left_pos_w)
-        dR_local = R_wr @ (swing_target_pos_w - right_pos_w)
-        qL_rel   = quat_rel_sf(swing_target_quat_w, left_quat_w)
-        qR_rel   = quat_rel_sf(swing_target_quat_w, right_quat_w)
+        dL_local = R_wr @ (left_tpos_w - left_pos_w)
+        dR_local = R_wr @ (right_tpos_w - right_pos_w)
+        qL_rel   = quat_rel_sf(left_tquat_w, left_quat_w)
+        qR_rel   = quat_rel_sf(right_tquat_w, right_quat_w)
 
-        zero_pos  = backend.zeros(3)
-        ident_quat = backend.array([1.0, 0.0, 0.0, 0.0])
+        # --- Compute the one hot of the foot to move ---
+        swing_one_hot = jax.nn.one_hot(state.swing_foot_idx, 2)
 
-        # JAX-safe selection: left swings if swing_foot_idx == 0
-        def left_swing_fn(_):
-            return dL_local, qL_rel, zero_pos, ident_quat
-
-        def right_swing_fn(_):
-            return zero_pos, ident_quat, dR_local, qR_rel
-
-        if backend == jnp:
-            left_offset_pos, left_offset_orn, right_offset_pos, right_offset_orn = jax.lax.cond(
-                state.swing_foot_idx == 0, left_swing_fn, right_swing_fn, operand=None
-            )
-        else:
-            # Numpy fallback
-            if int(state.swing_foot_idx) == 0:
-                left_offset_pos, left_offset_orn, right_offset_pos, right_offset_orn = left_swing_fn(None)
-            else:
-                left_offset_pos, left_offset_orn, right_offset_pos, right_offset_orn = right_swing_fn(None)
-
+        # --- Concatenate the observation ---
         observation = backend.concatenate([
-            left_offset_pos,  left_offset_orn,
-            right_offset_pos, right_offset_orn,
+            dL_local,  qL_rel,
+            dR_local, qR_rel,
+            swing_one_hot
         ])
 
         if self.visualize_goal:
@@ -1718,7 +1712,7 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
 
     @property
     def dim(self) -> int:
-        return 14
+        return 16
 
     @property
     def has_visual(self) -> bool:

@@ -255,11 +255,12 @@ class FootPlacementVisualizer:
         geoms = user_scene.geoms
 
         # --- Parse goal vector ---
-        swing_pos = goal[0:3]
-        swing_orn = goal[3:7]
-        stance_pos = goal[7:10]
-        stance_orn = goal[10:14]
-        swing_one_hot = goal[14:16]
+        goal_state = getattr(carry.observation_states, self.name)
+        swing_pos = goal_state.swing_target_pos # goal[0:3]
+        swing_orn = goal_state.swing_target_orn # goal[3:7]
+        stance_pos = goal_state.stance_target_pos # goal[7:10]
+        stance_orn = goal_state.stance_target_orn # goal[10:14]
+        swing_one_hot = jax.nn.one_hot(goal_state.swing_foot_idx, 2) # goal[14:16]
 
         # --- Determine which foot is swing / stance ---
         swing_color = backend.sum(swing_one_hot[:, None] * backend.array(self._colors), axis=0)
