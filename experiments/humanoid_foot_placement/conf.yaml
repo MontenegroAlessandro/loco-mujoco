@@ -24,7 +24,7 @@ experiment:
       # Range for the target foot height [min, max] from the ground
       z_height_range: [0.0, 0.0]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [0.0, 90.0]
+      angle_range_deg: [10, 60] # x in front, y left (then mirrored for the right foot)
       # Range for randomizing the target foot yaw relative to the body
       yaw_range_deg: [-5.0, 5.0]
     headless: true
@@ -34,19 +34,19 @@ experiment:
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       # Relative importance of achieving the target position
-      pos_tracking_weight: 10.0
+      pos_tracking_weight: 5
       # Relative importance of achieving the target orientation
-      orn_tracking_weight: 1
+      orn_tracking_weight: 0
       # Relative importance of maintaining a stable, upright posture
-      stability_weight: 5.0
+      stability_weight: 5
       # Penalty for jerky, high-frequency actions to encourage smoothness
-      action_rate_weight: 1
+      action_rate_weight: 0.01
       # Controls how quickly the position reward falls off with distance
-      pos_error_sharpness: 1
+      pos_error_sharpness: 20
       # Controls how quickly the orientation reward falls off with angular error
-      orn_error_sharpness: 1
+      orn_error_sharpness: 0
       # Controls how quickly the stability reward falls off with height error
-      height_error_sharpness: 1
+      height_error_sharpness: 10
     actuation_spec:
       - AAHead_yaw
       - Head_pitch
@@ -300,7 +300,7 @@ experiment:
   # PPO params
   actor_obs_group: policy
   critic_obs_group: prioritized
-  # hidden_layers: [512, 256]
+  # hidden_layers: [512, 256, 128]
   # lr: 1e-5
   # adaptive_lr: true       # The main flag to enable/disable the feature
   # lr_min: 1.0e-6          # Minimum learning rate
@@ -310,8 +310,8 @@ experiment:
   # kl_lr_scale: 1.5        # How much to scale LR by (multiply or divide)
   # len_obs_history: 1
   # num_envs: 8192
-  # num_steps: 24
-  # total_timesteps: 100e6
+  # num_steps: 50
+  # total_timesteps: 200e6
   # update_epochs: 20
   # num_minibatches: 1
   # gamma: 0.995
@@ -319,7 +319,7 @@ experiment:
   # clip_eps: 0.2
   # init_std: 0.135
   # learnable_std: True
-  # ent_coef: 0.005
+  # ent_coef: 0.01
   # vf_coef: 0.5
   # max_grad_norm: 1.0
   # activation: elu
@@ -336,16 +336,11 @@ experiment:
   #   num_steps: 100
   #   num_envs: 100
   #   num: 10 # set to 0 to disable validation
-  # power_mean:
-  #   use_pm: false
-  #   clip: true
-  #   confidence: 0.2
-  #   window: 1
-  hidden_layers: [512, 256]
+  hidden_layers: [512, 256, 128]
   lr: 1e-4
   num_envs: 2048
   num_steps: 50
-  total_timesteps: 100e6
+  total_timesteps: 200e6
   update_epochs: 4
   num_minibatches: 32
   gamma: 0.99
@@ -369,7 +364,7 @@ experiment:
     num_envs: 100
     num: 10 # set to 0 to disable validation
   power_mean:
-    use_pm: true
+    use_pm: false
     clip: true
     confidence: 0.2
     window: 1

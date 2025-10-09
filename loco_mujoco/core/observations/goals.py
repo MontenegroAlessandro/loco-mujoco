@@ -1459,6 +1459,7 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
                                         0.0])
         root_rot = R.from_quat(root_quat_scipy)
         step_vec_world = root_rot.apply(step_vec_local) # this is the delta in the world
+        # FIXME no rotation
         
         target_pos = stance_foot_pos + step_vec_world
         # target_pos = target_pos.at[2].set(target_z_offset)  # in world coordinates
@@ -1469,6 +1470,7 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1]) * lateral_sign
         target_orn_rot = R.from_quat(root_quat_scipy) * R.from_euler('z', rand_yaw)
         target_orn = target_orn_rot.as_quat(scalar_first=True)
+        # FIXME relative to other yaw angle
 
         # Update the carry object
         goal_state = GoalRandomFootPlacementState(target_pos=target_pos, 

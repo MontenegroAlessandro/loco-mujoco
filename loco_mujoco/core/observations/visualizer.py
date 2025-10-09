@@ -254,7 +254,7 @@ class FootPlacementVisualizer:
         swing_foot_one_hot = goal[7:9]
 
         viz_pos = target_pos
-        viz_mat = R.from_quat(target_orn_quat).as_matrix().reshape(-1)
+        viz_mat = R.from_quat(quat_scalarfirst2scalarlast(target_orn_quat)).as_matrix().reshape(-1)
         viz_color = backend.sum(
             swing_foot_one_hot[:, None] * backend.array(self._colors), axis=0
         )
