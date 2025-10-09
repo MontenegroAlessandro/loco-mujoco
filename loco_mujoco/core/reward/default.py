@@ -651,17 +651,17 @@ class FootPlacementReward(Reward):
     def __init__(self, env,
                  left_foot_site_name: str,
                  right_foot_site_name: str,
-                 swing_pos_w=10.0,
-                 swing_orn_w=5.0,
-                 stance_stability_pos_w=5.0,
-                 stance_stability_orn_w=3.0,
-                 torso_height_w=5.0,
-                 action_rate_w=0.01,
-                 sharp_pos=10.0,
-                 sharp_orn=15.0,
-                 sharp_stance_pos=8.0,
-                 sharp_stance_orn=10.0,
-                 sharp_height=15.0,
+                 swing_pos_w=4,
+                 swing_orn_w=2,
+                 stance_stability_pos_w=2,
+                 stance_stability_orn_w=1,
+                 torso_height_w=5,
+                 action_rate_w=1e-2,
+                 sharp_pos=100.0,
+                 sharp_orn=1200.0,
+                 sharp_stance_pos=2000.0,
+                 sharp_stance_orn=1.0e5,
+                 sharp_height=50,
                  **kwargs):
         super().__init__(env, **kwargs)
         self.goal_name = "GoalRandomFootPlacement"
@@ -721,19 +721,23 @@ class FootPlacementReward(Reward):
 
         # --- 1. Swing tracking ---
         pos_err_sq = backend.sum(backend.square(swing_pos - swing_target_pos))
+
         swing_pos_reward = self._swing_pos_w * backend.exp(-self._sharp_pos * pos_err_sq)
 
         dot_q = backend.sum(swing_target_orn * swing_orn)
-        orn_err_sq = 1.0 - backend.square(dot_q)
-        swing_orn_reward = self._swing_orn_w * backend.exp(-self._sharp_orn * orn_err_sq)
+        # numeric safety
+        dot_q = backend.clip(dot_q, -1.0, 1.0)
+        orn_err = 1.0 - backend.square(dot_q)         # in [0, 1]
+        swing_orn_reward = self._swing_orn_w * backend.exp(-self._sharp_orn * orn_err)
 
-        # --- 2. Stance stability ---
+        # --- 2. Stance stability (as positive rewards that peak at zero error) ---
         stance_pos_err_sq = backend.sum(backend.square(stance_pos - stance_ref_pos))
-        stance_stability_pos_penalty = -self._stance_stability_pos_w * backend.exp(self._sharp_stance_pos * stance_pos_err_sq)
+        stance_pos_reward = self._stance_stability_pos_w * backend.exp(-self._sharp_stance_pos * stance_pos_err_sq)
 
         stance_dot = backend.sum(stance_orn * stance_ref_orn)
-        stance_orn_err_sq = 1.0 - backend.square(stance_dot)
-        stance_stability_orn_penalty = -self._stance_stability_orn_w * backend.exp(self._sharp_stance_orn * stance_orn_err_sq)
+        stance_dot = backend.clip(stance_dot, -1.0, 1.0)
+        stance_orn_err = 1.0 - backend.square(stance_dot)
+        stance_orn_reward = self._stance_stability_orn_w * backend.exp(-self._sharp_stance_orn * stance_orn_err)
 
         # --- 3. Torso height stability ---
         torso_z = data.xpos[self._torso_body_id][2]
@@ -747,9 +751,9 @@ class FootPlacementReward(Reward):
         total_reward = (
             swing_pos_reward
             + swing_orn_reward
+            + stance_pos_reward
+            + stance_orn_reward
             + torso_height_reward
-            + stance_stability_pos_penalty
-            + stance_stability_orn_penalty
             - action_rate_penalty
         )
 
