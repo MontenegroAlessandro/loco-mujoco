@@ -517,130 +517,6 @@ class LocomotionReward(TargetVelocityGoalReward):
 class FootPlacementRewardState:
     """State for the FootPlacementReward function."""
     last_action: Union[np.ndarray, jax.Array]
-
-class OLDFootPlacementReward(Reward):
-    """
-    Rewards the agent for moving a randomly selected foot to a target position and 
-    orientation, while maintaining stability and action smoothness. This reward is
-    principled, deriving its parameters from the environment where possible.
-    """
-
-    def __init__(self, env,
-                 left_foot_site_name: str,
-                 right_foot_site_name: str,
-                 pos_tracking_weight: float = 10.0,
-                 orn_tracking_weight: float = 5.0,
-                 stability_weight: float = 5.0,
-                 action_rate_weight: float = 0.01,
-                 pos_error_sharpness: float = 10.0,
-                 orn_error_sharpness: float = 20.0,
-                 height_error_sharpness: float = 15.0,
-                 **kwargs):
-        super().__init__(env, **kwargs)
-
-        self.goal_name = "GoalRandomFootPlacement"
-        assert self.goal_name in env.obs_container, \
-            f"{self.goal_name} is required for this reward function."
-
-        # Store weights and sharpness parameters
-        self._pos_tracking_weight = pos_tracking_weight
-        self._orn_tracking_weight = orn_tracking_weight
-        self._stability_weight = stability_weight
-        self._action_rate_weight = action_rate_weight
-        self._pos_error_sharpness = pos_error_sharpness
-        self._orn_error_sharpness = orn_error_sharpness
-        self._height_error_sharpness = height_error_sharpness
-        
-        # 1. Derive the target height from the robot's healthy range
-        min_h, max_h = env.root_height_healthy_range
-        self._target_height = (min_h + max_h) / 2.0  # Aim for the middle of the healthy range
-
-        # 2. Get MuJoCo IDs for both feet
-        foot_site_names = [left_foot_site_name, right_foot_site_name]
-        self._foot_site_id_left = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, foot_site_names[0])
-        self._foot_site_id_right = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, foot_site_names[1])
-        
-        # 3. Get the root body name directly from the environment info properties
-        self._torso_body_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_BODY, env.root_body_name)
-
-        # Assert that all required components were found
-        assert -1 != self._foot_site_id_left, f"One of the foot sites {foot_site_names[0]} not found."
-        assert -1 != self._foot_site_id_right, f"One of the foot sites {foot_site_names[1]} not found."
-        assert self._torso_body_id != -1, f"Body '{env.root_body_name}' not found."
-
-    def init_state(self, env: Any,
-                   key: Any,
-                   model: Union[MjModel, Model],
-                   data: Union[MjData, Data],
-                   backend: ModuleType) -> FootPlacementRewardState:
-        """Initializes the reward state."""
-        return FootPlacementRewardState(last_action=backend.zeros(env.info.action_space.shape[0]))
-
-    def reset(self,
-              env: Any,
-              model: Union[MjModel, Model],
-              data: Union[MjData, Data],
-              carry: Any,
-              backend: ModuleType) -> Tuple[Union[MjData, Data], Any]:
-        """Resets the reward state at the beginning of an episode."""
-        reward_state = self.init_state(env, None, model, data, backend)
-        carry = carry.replace(reward_state=reward_state)
-        return data, carry
-
-    def __call__(self, state, action, next_state, absorbing, info, env, model, data, carry, backend):
-        
-        if backend == np:
-            R = np_R
-        else:
-            R = jnp_R
-            
-        reward_state = carry.reward_state
-        
-        # --- 1. Get Goal and Current Foot State ---
-        goal_state = getattr(carry.observation_states, self.goal_name)
-        target_pos = goal_state.target_pos
-        target_orn_quat = goal_state.target_orn
-        swing_foot_idx = goal_state.swing_foot_idx
-
-        # swing_foot_id = self._foot_site_ids[swing_foot_idx]
-        swing_foot_id = jax.lax.select(
-            (swing_foot_idx == 1),
-            self._foot_site_id_right,
-            self._foot_site_id_left
-        )
-        current_foot_pos = data.site_xpos[swing_foot_id]
-        current_foot_mat = data.site_xmat[swing_foot_id]
-
-        # --- 2. Position Tracking Reward ---
-        pos_error_sq = backend.sum(backend.square(current_foot_pos - target_pos))
-        pos_tracking_reward = self._pos_tracking_weight * backend.exp(-self._pos_error_sharpness * pos_error_sq)
-
-        # --- 3. Orientation Tracking Reward ---
-        current_foot_quat = R.from_matrix(current_foot_mat.reshape(3, 3)).as_quat(scalar_first=True)
-        dot_product = backend.sum(target_orn_quat * current_foot_quat)
-        orn_error_sq = 1.0 - backend.square(dot_product)
-        orn_tracking_reward = self._orn_tracking_weight * backend.exp(-self._orn_error_sharpness * orn_error_sq)
-
-        # --- 4. Stability and Regularization Rewards ---
-        # Stability: maintain derived target torso height
-        torso_z_height = data.xpos[self._torso_body_id][2]
-        height_error_sq = backend.square(torso_z_height - self._target_height)
-        stability_reward = self._stability_weight * backend.exp(-self._height_error_sharpness * height_error_sq)
-        
-        # Regularization: penalize jerky actions for smoothness
-        action_rate_penalty = self._action_rate_weight * backend.sum(backend.square(action - reward_state.last_action))
-
-        # --- 5. Total Reward ---
-        total_reward = (pos_tracking_reward + 
-                        orn_tracking_reward + 
-                        stability_reward - 
-                        action_rate_penalty)
-        
-        # --- 6. Update Reward State ---
-        reward_state = reward_state.replace(last_action=action)
-        carry = carry.replace(reward_state=reward_state)
-        
-        return total_reward, carry
     
 class FootPlacementReward(Reward):
     """
@@ -648,37 +524,39 @@ class FootPlacementReward(Reward):
     while maintaining an upright torso height and smooth control.
     """
 
-    def __init__(self, env,
-                 left_foot_site_name: str,
-                 right_foot_site_name: str,
-                 swing_pos_w=4,
-                 swing_orn_w=2,
-                 stance_stability_pos_w=2,
-                 stance_stability_orn_w=1,
-                 torso_height_w=5,
-                 action_rate_w=1e-2,
-                 sharp_pos=100.0,
-                 sharp_orn=1200.0,
-                 sharp_stance_pos=2000.0,
-                 sharp_stance_orn=1.0e5,
-                 sharp_height=50,
-                 **kwargs):
+    def __init__(
+            self, env,
+            left_foot_site_name: str,
+            right_foot_site_name: str,
+            swing_pos_w=4,
+            swing_orn_w=2,
+            #  stance_stability_pos_w=2,
+            #  stance_stability_orn_w=1,
+            torso_height_w=5,
+            action_rate_w=1e-2,
+            sharp_pos=100.0,
+            sharp_orn=1200.0,
+            # sharp_stance_pos=2000.0,
+            # sharp_stance_orn=1.0e5,
+            sharp_height=50,
+            **kwargs
+        ):
         super().__init__(env, **kwargs)
         self.goal_name = "GoalRandomFootPlacement"
 
         # Weights
         self._swing_pos_w = swing_pos_w
         self._swing_orn_w = swing_orn_w
-        self._stance_stability_pos_w = stance_stability_pos_w
-        self._stance_stability_orn_w = stance_stability_orn_w
+        # self._stance_stability_pos_w = stance_stability_pos_w
+        # self._stance_stability_orn_w = stance_stability_orn_w
         self._torso_height_w = torso_height_w
         self._action_rate_w = action_rate_w
 
         # Sharpness
         self._sharp_pos = sharp_pos
         self._sharp_orn = sharp_orn
-        self._sharp_stance_pos = sharp_stance_pos
-        self._sharp_stance_orn = sharp_stance_orn
+        # self._sharp_stance_pos = sharp_stance_pos
+        # self._sharp_stance_orn = sharp_stance_orn
         self._sharp_height = sharp_height
 
         # Get target torso height from environment
@@ -711,13 +589,13 @@ class FootPlacementReward(Reward):
 
         # --- Foot IDs ---
         swing_id = jax.lax.select((swing_foot_idx == 1), self._foot_site_id_right, self._foot_site_id_left)
-        stance_id = jax.lax.select((swing_foot_idx == 1), self._foot_site_id_left, self._foot_site_id_right)
+        # stance_id = jax.lax.select((swing_foot_idx == 1), self._foot_site_id_left, self._foot_site_id_right)
 
         # --- Current poses ---
         swing_pos = data.site_xpos[swing_id]
         swing_orn = R.from_matrix(data.site_xmat[swing_id].reshape(3, 3)).as_quat(scalar_first=True)
-        stance_pos = data.site_xpos[stance_id]
-        stance_orn = R.from_matrix(data.site_xmat[stance_id].reshape(3, 3)).as_quat(scalar_first=True)
+        # stance_pos = data.site_xpos[stance_id]
+        # stance_orn = R.from_matrix(data.site_xmat[stance_id].reshape(3, 3)).as_quat(scalar_first=True)
 
         # --- 1. Swing tracking ---
         pos_err_sq = backend.sum(backend.square(swing_pos - swing_target_pos))
@@ -731,13 +609,13 @@ class FootPlacementReward(Reward):
         swing_orn_reward = self._swing_orn_w * backend.exp(-self._sharp_orn * orn_err)
 
         # --- 2. Stance stability (as positive rewards that peak at zero error) ---
-        stance_pos_err_sq = backend.sum(backend.square(stance_pos - stance_ref_pos))
-        stance_pos_reward = self._stance_stability_pos_w * backend.exp(-self._sharp_stance_pos * stance_pos_err_sq)
+        # stance_pos_err_sq = backend.sum(backend.square(stance_pos - stance_ref_pos))
+        # stance_pos_reward = self._stance_stability_pos_w * backend.exp(-self._sharp_stance_pos * stance_pos_err_sq)
 
-        stance_dot = backend.sum(stance_orn * stance_ref_orn)
-        stance_dot = backend.clip(stance_dot, -1.0, 1.0)
-        stance_orn_err = 1.0 - backend.square(stance_dot)
-        stance_orn_reward = self._stance_stability_orn_w * backend.exp(-self._sharp_stance_orn * stance_orn_err)
+        # stance_dot = backend.sum(stance_orn * stance_ref_orn)
+        # stance_dot = backend.clip(stance_dot, -1.0, 1.0)
+        # stance_orn_err = 1.0 - backend.square(stance_dot)
+        # stance_orn_reward = self._stance_stability_orn_w * backend.exp(-self._sharp_stance_orn * stance_orn_err)
 
         # --- 3. Torso height stability ---
         torso_z = data.xpos[self._torso_body_id][2]
@@ -751,8 +629,8 @@ class FootPlacementReward(Reward):
         total_reward = (
             swing_pos_reward
             + swing_orn_reward
-            + stance_pos_reward
-            + stance_orn_reward
+            # + stance_pos_reward
+            # + stance_orn_reward
             + torso_height_reward
             - action_rate_penalty
         )

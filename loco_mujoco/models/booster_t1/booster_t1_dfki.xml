@@ -66,7 +66,7 @@
       <geom class="visual" material="light_gray" mesh="Trunk"/>
       <geom class="collision" size="0.075 0.1 0.15" pos="0.06 0 0.12" type="box"/>
 
-      <geom name="torso_col" type="box" pos="0.06 0 0.12" size="0.075 0.1 0.15" rgba="0. 0.9 0.9 0.3" class="collision"/>
+      <geom name="torso_col" type="box" pos="0.06 0 0.12" size="0.075 0.1 0.15" rgba="0. 0.9 0.9 0.0" class="collision"/>
 
       <body name="H1" pos="0.0625 0 0.243">
         <inertial pos="-0.000508 -0.001403 0.057432" quat="0.763881 -0.0132172 0.00173419 0.645219" mass="0.44391"
@@ -81,7 +81,7 @@
           <geom class="visual" mesh="H2"/>
           <geom class="collision" size="0.08" pos="0.01 0 0.11"/>
           
-          <geom name="head_col" type="sphere" size="0.09" pos="0.01 0 0.11" rgba="0.9 0.2 0.2 0.3" class="collision"/>
+          <geom name="head_col" type="sphere" size="0.09" pos="0.01 0 0.11" rgba="0.9 0.2 0.2 0.0" class="collision"/>
         </body>
       </body>
       <body name="AL1" pos="0.0575 0.1063 0.219" quat="1 0 0.000440565 0">
@@ -109,7 +109,7 @@
               <joint name="Left_Elbow_Yaw" axis="0 0 1" range="-2.44 0" actuatorfrcrange="-18 18"/>
               <geom class="visual" mesh="left_hand_link"/>
               <geom class="collision" size="0.03 0.0875" pos="0 0.13 0" quat="0.707105 0.707108 0 0" type="cylinder"/>
-              <geom name="left_forearm_col" type="capsule" size="0.031" pos="0 0 0" fromto="0 0.22 0 0 -0.002 0" rgba="0.2 0.2 0.9 0.3" class="collision"/>
+              <geom name="left_forearm_col" type="capsule" size="0.031" pos="0 0 0" fromto="0 0.22 0 0 -0.002 0" rgba="0.2 0.2 0.9 0.0" class="collision"/>
             </body>
           </body>
         </body>
@@ -139,7 +139,7 @@
               <joint name="Right_Elbow_Yaw" axis="0 0 1" range="0 2.44" actuatorfrcrange="-18 18"/>
               <geom class="visual" mesh="right_hand_link"/>
               <geom class="collision" size="0.03 0.0875" pos="0 -0.13 0" quat="0.707105 0.707108 0 0" type="cylinder"/>
-              <geom name="right_forearm_col" type="capsule" size="0.031" pos="0 0 0" fromto="0 -0.22 0 0 0.002 0" rgba="0.2 0.2 0.9 0.3" class="collision"/>
+              <geom name="right_forearm_col" type="capsule" size="0.031" pos="0 0 0" fromto="0 -0.22 0 0 0.002 0" rgba="0.2 0.2 0.9 0.0" class="collision"/>
             </body>
           </body>
         </body>
@@ -150,7 +150,7 @@
           diaginertia="0.00536742 0.005299 0.00474258"/>
         <joint name="Waist" axis="0 0 1" range="-1.57 1.57" actuatorfrcrange="-30 30"/>
         <geom class="visual" mesh="Waist"/>
-        <geom name="waist_col" type="sphere" size="0.072" pos="0 0 0.008" rgba="0.9 0.2 0.2 0.3" class="collision"/>
+        <geom name="waist_col" type="sphere" size="0.072" pos="0 0 0.008" rgba="0.9 0.2 0.2 0.0" class="collision"/>
 
         <body name="Hip_Pitch_Left" pos="0 0.106 0">
           <inertial pos="0.000534 -0.007296 -0.018083" quat="0.975141 0.2211 0.0145808 0.0017406" mass="1.021"
@@ -164,7 +164,7 @@
             <joint name="Left_Hip_Roll" axis="1 0 0" range="-0.2 1.57" actuatorfrcrange="-30 30"/>
             <geom class="visual" mesh="Hip_Roll_Left"/>
 
-            <geom name="left_hip_col" type="capsule" size="0.052" pos="0 0 0" fromto="0.0 0 -0.12 0.0 0 0." rgba="0.9 0.9 0.2 0.3" class="collision"/>
+            <geom name="left_hip_col" type="capsule" size="0.052" pos="0 0 0" fromto="0.0 0 -0.12 0.0 0 0." rgba="0.9 0.9 0.2 0.0" class="collision"/>
 
             <body name="Hip_Yaw_Left" pos="0 0 -0.081854">
               <inertial pos="-0.007233 0.000206 -0.089184" quat="0.696808 -0.033953 -0.0315708 0.715758" mass="2.166"
@@ -180,7 +180,7 @@
                 <geom class="visual" mesh="Shank_Left"/>
                 <geom class="collision" size="0.05 0.075" pos="0 0 -0.12" type="cylinder"/>
                 
-                <geom name="left_knee_col" type="capsule" size="0.052" pos="0 0 0" fromto="0.0 0 -0.18 0.0 0 0.01" rgba="0.2 0.2 0.9 0.3" class="collision"/>
+                <geom name="left_knee_col" type="capsule" size="0.052" pos="0 0 0" fromto="0.0 0 -0.18 0.0 0 0.01" rgba="0.2 0.2 0.9 0.0" class="collision"/>
 
                 <body name="Ankle_Cross_Left" pos="0 0 -0.28">
                   <inertial pos="-0.003722 0 -0.007981" quat="0.443136 0.551027 0.551027 0.443136" mass="0.073"
@@ -219,7 +219,7 @@
             <joint name="Right_Hip_Roll" axis="1 0 0" range="-1.57 0.2" actuatorfrcrange="-30 30"/>
             <geom class="visual" mesh="Hip_Roll_Right"/>
 
-            <geom name="right_hip_col" type="capsule" size="0.052" pos="0 0 0" fromto="0.0 0 -0.12 0.0 0 0." rgba="0.9 0.9 0.2 0.3" class="collision"/>
+            <geom name="right_hip_col" type="capsule" size="0.052" pos="0 0 0" fromto="0.0 0 -0.12 0.0 0 0." rgba="0.9 0.9 0.2 0.0" class="collision"/>
 
             <body name="Hip_Yaw_Right" pos="0 0 -0.081854">
               <inertial pos="-0.007191 -0.000149 -0.08922" quat="0.714468 -0.0315638 -0.0336391 0.698146" mass="2.17"
@@ -235,7 +235,7 @@
                 <geom class="visual" mesh="Shank_Right"/>
                 <geom class="collision" size="0.05 0.075" pos="0 0 -0.12" type="cylinder"/>
 
-                <geom name="right_knee_col" type="capsule" size="0.052" pos="0 0 0" fromto="0.0 0 -0.18 0.0 0 0.01" rgba="0.2 0.2 0.9 0.3" class="collision"/>
+                <geom name="right_knee_col" type="capsule" size="0.052" pos="0 0 0" fromto="0.0 0 -0.18 0.0 0 0.01" rgba="0.2 0.2 0.9 0.0" class="collision"/>
 
                 <body name="Ankle_Cross_Right" pos="0 0 -0.28">
                   <inertial pos="-0.003722 0 -0.007981" quat="0.443136 0.551027 0.551027 0.443136" mass="0.073"

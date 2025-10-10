@@ -34,14 +34,14 @@ experiment:
       right_foot_site_name: right_foot
       swing_pos_w: 4
       swing_orn_w: 2
-      stance_stability_pos_w: 2
-      stance_stability_orn_w: 1
+      # stance_stability_pos_w: 2
+      # stance_stability_orn_w: 1
       torso_height_w: 5
       action_rate_w: 1e-2
       sharp_pos: 100.0
       sharp_orn: 1200.0
-      sharp_stance_pos: 2000.0
-      sharp_stance_orn: 1.0e5
+      # sharp_stance_pos: 2000.0
+      # sharp_stance_orn: 1.0e5
       sharp_height: 50
     actuation_spec:
       - AAHead_yaw
