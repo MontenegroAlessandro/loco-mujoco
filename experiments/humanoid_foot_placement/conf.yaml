@@ -32,25 +32,25 @@ experiment:
     reward_params:
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
-      swing_pos_w: 4
+      swing_pos_w: 6
       swing_orn_w: 0
-      torso_height_w: 3
+      torso_height_w: 4
       action_rate_w: 1e-2
-      sharp_pos: 40.0
+      sharp_pos: 50.0
       sharp_orn: 40.0
       sharp_height: 40.0
     actuation_spec:
-      - AAHead_yaw
-      - Head_pitch
-      - Left_Shoulder_Pitch
-      - Left_Shoulder_Roll
-      - Left_Elbow_Pitch
-      - Left_Elbow_Yaw
-      - Right_Shoulder_Pitch
-      - Right_Shoulder_Roll
-      - Right_Elbow_Pitch
-      - Right_Elbow_Yaw
-      - Waist
+      # - AAHead_yaw
+      # - Head_pitch
+      # - Left_Shoulder_Pitch
+      # - Left_Shoulder_Roll
+      # - Left_Elbow_Pitch
+      # - Left_Elbow_Yaw
+      # - Right_Shoulder_Pitch
+      # - Right_Shoulder_Roll
+      # - Right_Elbow_Pitch
+      # - Right_Elbow_Yaw
+      # - Waist
       - Left_Hip_Pitch
       - Left_Hip_Roll
       - Left_Hip_Yaw
@@ -135,17 +135,17 @@ experiment:
       clip_actions: 1.0
       
       p_gain: 
-        - 40 # AAHead_yaw
-        - 40 # Head_pitch
-        - 40 # Left_Shoulder_Pitch
-        - 40 # Left_Shoulder_Roll
-        - 40 # Left_Elbow_Pitch
-        - 40 # Left_Elbow_Yaw
-        - 40 # Right_Shoulder_Pitch
-        - 40 # Right_Shoulder_Roll
-        - 40 # Right_Elbow_Pitch
-        - 40 # Right_Elbow_Yaw
-        - 200 # Waist
+        # - 40 # AAHead_yaw
+        # - 40 # Head_pitch
+        # - 40 # Left_Shoulder_Pitch
+        # - 40 # Left_Shoulder_Roll
+        # - 40 # Left_Elbow_Pitch
+        # - 40 # Left_Elbow_Yaw
+        # - 40 # Right_Shoulder_Pitch
+        # - 40 # Right_Shoulder_Roll
+        # - 40 # Right_Elbow_Pitch
+        # - 40 # Right_Elbow_Yaw
+        # - 200 # Waist
         - 200 # Left_Hip_Pitch
         - 200 # Left_Hip_Roll
         - 200 # Left_Hip_Yaw
@@ -160,17 +160,17 @@ experiment:
         - 30 # Right_Ankle_Roll
 
       d_gain:
-        - 2.0 # AAHead_yaw
-        - 2.0 # Head_pitch
-        - 2.0 # Left_Shoulder_Pitch
-        - 2.0 # Left_Shoulder_Roll
-        - 2.0 # Left_Elbow_Pitch
-        - 2.0 # Left_Elbow_Yaw
-        - 2.0 # Right_Shoulder_Pitch
-        - 2.0 # Right_Shoulder_Roll
-        - 2.0 # Right_Elbow_Pitch
-        - 2.0 # Right_Elbow_Yaw
-        - 5.0 # Waist
+        # - 2.0 # AAHead_yaw
+        # - 2.0 # Head_pitch
+        # - 2.0 # Left_Shoulder_Pitch
+        # - 2.0 # Left_Shoulder_Roll
+        # - 2.0 # Left_Elbow_Pitch
+        # - 2.0 # Left_Elbow_Yaw
+        # - 2.0 # Right_Shoulder_Pitch
+        # - 2.0 # Right_Shoulder_Roll
+        # - 2.0 # Right_Elbow_Pitch
+        # - 2.0 # Right_Elbow_Yaw
+        # - 5.0 # Waist
         - 5.0 # Left_Hip_Pitch
         - 5.0 # Left_Hip_Roll
         - 5.0 # Left_Hip_Yaw
@@ -185,17 +185,17 @@ experiment:
         - 1.0 # Right_Ankle_Roll
 
       nominal_joint_positions:
-        - 0.0 # AAHead_yaw
-        - 0.0 # Head_pitch
-        - 0.2 # Left_Shoulder_Pitch
-        - -1.35 # Left_Shoulder_Roll
-        - 0.0 # Left_Elbow_Pitch
-        - -0.5 # Left_Elbow_Yaw
-        - 0.2 # Right_Shoulder_Pitch
-        - 1.35 # Right_Shoulder_Roll
-        - 0.0 # Right_Elbow_Pitch
-        - 0.5 # Right_Elbow_Yaw
-        - 0.0 # Waist
+        # - 0.0 # AAHead_yaw
+        # - 0.0 # Head_pitch
+        # - 0.2 # Left_Shoulder_Pitch
+        # - -1.35 # Left_Shoulder_Roll
+        # - 0.0 # Left_Elbow_Pitch
+        # - -0.5 # Left_Elbow_Yaw
+        # - 0.2 # Right_Shoulder_Pitch
+        # - 1.35 # Right_Shoulder_Roll
+        # - 0.0 # Right_Elbow_Pitch
+        # - 0.5 # Right_Elbow_Yaw
+        # - 0.0 # Waist
         - -0.2 # Left_Hip_Pitch
         - 0.0 # Left_Hip_Roll
         - 0.0 # Left_Hip_Yaw
