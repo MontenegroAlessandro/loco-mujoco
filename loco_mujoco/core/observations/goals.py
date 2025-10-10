@@ -1454,7 +1454,7 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         distance = jax.random.uniform(subkey1, minval=self.xy_distance_range[0], maxval=self.xy_distance_range[1])
         # step direction
         angle = jax.random.uniform(subkey2, minval=self.angle_range_rad[0], maxval=self.angle_range_rad[1])
-        lateral_sign = jnp.where(stance_is_right, -1, 1)
+        lateral_sign = jnp.where(stance_is_right, 1, -1)
         # target height 
         target_z_offset = jax.random.uniform(subkey3, minval=self.z_height_range[0], maxval=self.z_height_range[1])
         # step vector to be added to the stance foot coordinates
@@ -1465,7 +1465,8 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         root_rot = R.from_quat(root_quat_scipy)
         step_vec_world = root_rot.apply(step_vec_local)
         # compute the target position for the foot in WORLD coordinates, applying the displacement to WORLD stance foot
-        target_pos = stance_foot_pos + step_vec_world
+        # target_pos = stance_foot_pos + step_vec_world
+        target_pos = stance_foot_pos + step_vec_local
         target_pos = target_pos.at[2].set(stance_foot_pos[2] + target_z_offset)
 
         # [3] Generate Orientation Target
@@ -1473,7 +1474,8 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         # sample the yaw relative to the current stance foot yaw
         rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1]) * lateral_sign
         # target orientation in WORLD coordinates via a displacement w.r.t. the current yaw of the stance foot
-        target_orn_rot = R.from_euler('z', rand_yaw) * R.from_quat(root_quat_scipy)
+        # target_orn_rot = R.from_euler('z', rand_yaw) * R.from_quat(root_quat_scipy)
+        target_orn_rot = R.from_euler('z', rand_yaw)
         target_orn = target_orn_rot.as_quat(scalar_first=True)
 
         # [4] Update the carry object
@@ -1483,7 +1485,7 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         observation_states = carry.observation_states.replace(**{self.name: goal_state})
         return data, carry.replace(key=key, observation_states=observation_states)
 
-    def get_obs_and_update_state(self, env, model, data, carry, backend):
+    def complex_get_obs_and_update_state(self, env, model, data, carry, backend):
         """
         Swing offset:  [Δx, Δy, Δz, Δquat(4)]
         One hot dwing foot id
@@ -1545,6 +1547,45 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         observation = backend.concatenate([
             d_swing_local,
             q_swing_rel,
+            swing_one_hot
+        ])
+
+        if self.visualize_goal:
+            carry = self.set_visuals(observation, env, model, data, carry, self.visual_geoms_idx, backend)
+        return observation, carry
+    
+    def get_obs_and_update_state(self, env, model, data, carry, backend):
+        R = jnp_R if backend == jnp else np_R
+        state = getattr(carry.observation_states, self.name)
+
+        # Get the rotation matrix to convert into the root frame
+        global_pose_root = data.qpos[self._root_qpos_ids]
+        global_pos = global_pose_root[:3] # root global position
+        global_quat = global_pose_root[3:7] # root global orientation
+        global_rot = R.from_quat(quat_scalarfirst2scalarlast(global_quat)) # root rotation matrix
+
+        # Compute the target position offset in base frame
+        global_offset_pos = state.swing_target_pos - global_pos # offset in global frame
+        local_target_pos_offset = global_rot.inv().apply(global_offset_pos) # offset in local frame
+
+        # Compute the orientation offset in base frame
+        R_target_orn_world = R.from_quat(quat_scalarfirst2scalarlast(state.swing_target_orn))
+        local_target_offset_orn = (R_target_orn_world * global_rot.inv()).as_quat(scalar_first=True)
+        # Hemisphere correction (keep w >= 0 for continuity)
+        if backend == jnp:
+            sign = jnp.where(local_target_offset_orn[0] < 0, -1.0, 1.0)
+            local_target_offset_orn = local_target_offset_orn * sign
+        else:
+            if local_target_offset_orn[0] < 0:
+                local_target_offset_orn = -local_target_offset_orn
+
+        # Compute the one hot of the foot to move
+        swing_one_hot = jax.nn.one_hot(state.swing_foot_idx, 2)
+
+        # Concatenate the observation
+        observation = backend.concatenate([
+            local_target_pos_offset,
+            local_target_offset_orn,
             swing_one_hot
         ])
 

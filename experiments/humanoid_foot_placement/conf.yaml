@@ -33,16 +33,12 @@ experiment:
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       swing_pos_w: 4
-      swing_orn_w: 2
-      # stance_stability_pos_w: 2
-      # stance_stability_orn_w: 1
-      torso_height_w: 5
+      swing_orn_w: 0
+      torso_height_w: 3
       action_rate_w: 1e-2
-      sharp_pos: 100.0
-      sharp_orn: 1200.0
-      # sharp_stance_pos: 2000.0
-      # sharp_stance_orn: 1.0e5
-      sharp_height: 50
+      sharp_pos: 40.0
+      sharp_orn: 40.0
+      sharp_height: 40.0
     actuation_spec:
       - AAHead_yaw
       - Head_pitch
@@ -336,7 +332,7 @@ experiment:
   lr: 1e-4
   num_envs: 2048
   num_steps: 50
-  total_timesteps: 100e6
+  total_timesteps: 150e6
   update_epochs: 4
   num_minibatches: 32
   gamma: 0.99

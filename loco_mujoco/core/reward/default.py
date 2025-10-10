@@ -530,14 +530,10 @@ class FootPlacementReward(Reward):
             right_foot_site_name: str,
             swing_pos_w=4,
             swing_orn_w=2,
-            #  stance_stability_pos_w=2,
-            #  stance_stability_orn_w=1,
             torso_height_w=5,
             action_rate_w=1e-2,
             sharp_pos=100.0,
             sharp_orn=1200.0,
-            # sharp_stance_pos=2000.0,
-            # sharp_stance_orn=1.0e5,
             sharp_height=50,
             **kwargs
         ):
@@ -547,16 +543,12 @@ class FootPlacementReward(Reward):
         # Weights
         self._swing_pos_w = swing_pos_w
         self._swing_orn_w = swing_orn_w
-        # self._stance_stability_pos_w = stance_stability_pos_w
-        # self._stance_stability_orn_w = stance_stability_orn_w
         self._torso_height_w = torso_height_w
         self._action_rate_w = action_rate_w
 
         # Sharpness
         self._sharp_pos = sharp_pos
         self._sharp_orn = sharp_orn
-        # self._sharp_stance_pos = sharp_stance_pos
-        # self._sharp_stance_orn = sharp_stance_orn
         self._sharp_height = sharp_height
 
         # Get target torso height from environment
@@ -580,26 +572,20 @@ class FootPlacementReward(Reward):
         reward_state = carry.reward_state
         goal_state = getattr(carry.observation_states, self.goal_name)
 
-        # --- Goal info ---
+        # Goal info
         swing_target_pos = goal_state.swing_target_pos
         swing_target_orn = goal_state.swing_target_orn
-        stance_ref_pos = goal_state.stance_target_pos
-        stance_ref_orn = goal_state.stance_target_orn
         swing_foot_idx = goal_state.swing_foot_idx
 
-        # --- Foot IDs ---
+        # Foot IDs
         swing_id = jax.lax.select((swing_foot_idx == 1), self._foot_site_id_right, self._foot_site_id_left)
-        # stance_id = jax.lax.select((swing_foot_idx == 1), self._foot_site_id_left, self._foot_site_id_right)
 
-        # --- Current poses ---
+        # Current poses
         swing_pos = data.site_xpos[swing_id]
         swing_orn = R.from_matrix(data.site_xmat[swing_id].reshape(3, 3)).as_quat(scalar_first=True)
-        # stance_pos = data.site_xpos[stance_id]
-        # stance_orn = R.from_matrix(data.site_xmat[stance_id].reshape(3, 3)).as_quat(scalar_first=True)
 
-        # --- 1. Swing tracking ---
+        # Swing tracking
         pos_err_sq = backend.sum(backend.square(swing_pos - swing_target_pos))
-
         swing_pos_reward = self._swing_pos_w * backend.exp(-self._sharp_pos * pos_err_sq)
 
         dot_q = backend.sum(swing_target_orn * swing_orn)
@@ -608,34 +594,23 @@ class FootPlacementReward(Reward):
         orn_err = 1.0 - backend.square(dot_q)         # in [0, 1]
         swing_orn_reward = self._swing_orn_w * backend.exp(-self._sharp_orn * orn_err)
 
-        # --- 2. Stance stability (as positive rewards that peak at zero error) ---
-        # stance_pos_err_sq = backend.sum(backend.square(stance_pos - stance_ref_pos))
-        # stance_pos_reward = self._stance_stability_pos_w * backend.exp(-self._sharp_stance_pos * stance_pos_err_sq)
-
-        # stance_dot = backend.sum(stance_orn * stance_ref_orn)
-        # stance_dot = backend.clip(stance_dot, -1.0, 1.0)
-        # stance_orn_err = 1.0 - backend.square(stance_dot)
-        # stance_orn_reward = self._stance_stability_orn_w * backend.exp(-self._sharp_stance_orn * stance_orn_err)
-
-        # --- 3. Torso height stability ---
+        # Torso height stability 
         torso_z = data.xpos[self._torso_body_id][2]
         height_err_sq = backend.square(torso_z - self._target_height)
         torso_height_reward = self._torso_height_w * backend.exp(-self._sharp_height * height_err_sq)
 
-        # --- 4. Smoothness penalty ---
+        # Smoothness penalty
         action_rate_penalty = self._action_rate_w * backend.sum(backend.square(action - reward_state.last_action))
 
-        # --- 5. Total reward ---
+        # Total reward
         total_reward = (
             swing_pos_reward
             + swing_orn_reward
-            # + stance_pos_reward
-            # + stance_orn_reward
             + torso_height_reward
             - action_rate_penalty
         )
 
-        # --- Update state ---
+        # Update state
         reward_state = reward_state.replace(last_action=action)
         carry = carry.replace(reward_state=reward_state)
         return total_reward, carry

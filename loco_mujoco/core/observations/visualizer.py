@@ -256,20 +256,15 @@ class FootPlacementVisualizer:
 
         # --- Parse goal vector ---
         goal_state = getattr(carry.observation_states, self.name)
-        swing_pos = goal_state.swing_target_pos # goal[0:3]
-        swing_orn = goal_state.swing_target_orn # goal[3:7]
-        # stance_pos = goal_state.stance_target_pos # goal[7:10]
-        # stance_orn = goal_state.stance_target_orn # goal[10:14]
-        swing_one_hot = jax.nn.one_hot(goal_state.swing_foot_idx, 2) # goal[14:16]
+        swing_pos = goal_state.swing_target_pos 
+        swing_orn = goal_state.swing_target_orn 
+        swing_one_hot = jax.nn.one_hot(goal_state.swing_foot_idx, 2)
 
         # --- Determine which foot is swing / stance ---
         swing_color = backend.sum(swing_one_hot[:, None] * backend.array(self._colors), axis=0)
-        # stance_color = backend.sum((1 - swing_one_hot)[:, None] * backend.array(self._colors), axis=0)
-        # stance_color = (0.3, 0.3, 0.3, 0.7) # stance color always gray
 
         # Convert quaternions to rotation matrices
         swing_mat = R.from_quat(quat_scalarfirst2scalarlast(swing_orn)).as_matrix().reshape(-1)
-        # stance_mat = R.from_quat(quat_scalarfirst2scalarlast(stance_orn)).as_matrix().reshape(-1)
 
         # --- Update both geoms ---
         if backend == jnp:
@@ -287,13 +282,6 @@ class FootPlacementVisualizer:
             geom_size = geom_size.at[visual_geoms_idx[0]].set(self._box_size)
             geom_rgba = geom_rgba.at[visual_geoms_idx[0]].set(swing_color)
 
-            # Stance target
-            # geom_pos = geom_pos.at[visual_geoms_idx[1]].set(stance_pos)
-            # geom_mat = geom_mat.at[visual_geoms_idx[1]].set(stance_mat)
-            geom_type = geom_type.at[visual_geoms_idx[1]].set(self._box_type)
-            geom_size = geom_size.at[visual_geoms_idx[1]].set(self._box_size)
-            # geom_rgba = geom_rgba.at[visual_geoms_idx[1]].set(stance_color)
-
         else:
             # NumPy backend (mutable)
             geom_pos = geoms.pos.copy()
@@ -308,13 +296,6 @@ class FootPlacementVisualizer:
             geom_type[visual_geoms_idx[0]] = self._box_type
             geom_size[visual_geoms_idx[0]] = self._box_size
             geom_rgba[visual_geoms_idx[0]] = np.array(swing_color)
-
-            # Stance target
-            # geom_pos[visual_geoms_idx[1]] = stance_pos
-            # geom_mat[visual_geoms_idx[1]] = stance_mat
-            geom_type[visual_geoms_idx[1]] = self._box_type
-            geom_size[visual_geoms_idx[1]] = self._box_size
-            # geom_rgba[visual_geoms_idx[1]] = np.array(stance_color)
 
         # Create new geoms and update carry
         new_geoms = geoms.replace(
