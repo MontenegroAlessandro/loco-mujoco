@@ -1,5 +1,5 @@
 from .base import Reward
-from .default import NoReward, TargetVelocityGoalReward, TargetXVelocityReward, LocomotionReward,FootPlacementReward
+from .default import NoReward, TargetVelocityGoalReward, TargetXVelocityReward, LocomotionReward,FootPlacementReward,FootPlacementLocomotionReward
 from .trajectory_based import TargetVelocityTrajReward, MimicReward, CrispBoosterLocomotionReward
 from .utils import *
 
@@ -12,3 +12,4 @@ MimicReward.register()
 LocomotionReward.register()
 CrispBoosterLocomotionReward.register()
 FootPlacementReward.register()
+FootPlacementLocomotionReward.register()

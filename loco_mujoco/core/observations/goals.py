@@ -1570,7 +1570,8 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
 
         # Compute the orientation offset in base frame
         R_target_orn_world = R.from_quat(quat_scalarfirst2scalarlast(state.swing_target_orn))
-        local_target_offset_orn = (R_target_orn_world * global_rot.inv()).as_quat(scalar_first=True)
+        # local_target_offset_orn = (R_target_orn_world * global_rot.inv()).as_quat(scalar_first=True)
+        local_target_offset_orn = (global_rot.inv() * R_target_orn_world).as_quat(scalar_first=True)
         # Hemisphere correction (keep w >= 0 for continuity)
         if backend == jnp:
             sign = jnp.where(local_target_offset_orn[0] < 0, -1.0, 1.0)

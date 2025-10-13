@@ -638,41 +638,43 @@ class FootPlacementLocomotionReward(Reward):
     - Uses the same conventions/utilities as the existing rewards in this file.
     """
 
-    def __init__(self,
-                 env: Any,
-                 left_foot_site_name: str,
-                 right_foot_site_name: str,
-                 # --- Foot-placement weights ---
-                 swing_pos_w: float = 4.0,
-                 swing_orn_w: float = 2.0,
-                 torso_height_w: float = 5.0,
-                 action_rate_w: float = 1e-2,
-                 sharp_pos: float = 100.0,
-                 sharp_orn: float = 1200.0,
-                 sharp_height: float = 50.0,
-                 # --- Locomotion-style regularizers (same defaults as your LocomotionReward) ---
-                 z_vel_coeff: float = 2.0,
-                 roll_pitch_vel_coeff: float = 5e-2,
-                 roll_pitch_pos_coeff: float = 2e-1,
-                 nominal_joint_pos_coeff: float = 0.0,
-                 nominal_joint_pos_names: Union[None, list] = None,
-                 joint_position_limit_coeff: float = 10.0,
-                 joint_vel_coeff: float = 0.0,
-                 joint_acc_coeff: float = 2e-7,
-                 joint_torque_coeff: float = 2e-5,
-                 air_time_max: float = 0.0,
-                 air_time_coeff: float = 0.0,
-                 symmetry_air_coeff: float = 0.0,  # keep 0.0 for humanoids unless you define a pairing
-                 energy_coeff: float = 0.0,
-                 # --- Optional velocity tracking (like TargetVelocityGoalReward) ---
-                 include_velocity_tracking: bool = False,
-                 tracking_w_exp_xy: float = 10.0,
-                 tracking_w_exp_yaw: float = 10.0,
-                 tracking_w_sum_xy: float = 1.0,
-                 tracking_w_sum_yaw: float = 1.0,
-                 # --- Scale for all locomotion regularizers (acts as a single knob) ---
-                 locomotion_scale: float = 0.3,
-                 **kwargs):
+    def __init__(
+            self,
+            env: Any,
+            left_foot_site_name: str,
+            right_foot_site_name: str,
+            # --- Foot-placement weights ---
+            swing_pos_w: float = 6.0,
+            swing_orn_w: float = 2.0,
+            torso_height_w: float = 3.0,
+            action_rate_w: float = 1e-2,
+            sharp_pos: float = 60.0,
+            sharp_orn: float = 400.0,
+            sharp_height: float = 80.0,
+            # --- Locomotion-style regularizers (same defaults as your LocomotionReward) ---
+            z_vel_coeff: float = 2.0,
+            roll_pitch_vel_coeff: float = 5e-2,
+            roll_pitch_pos_coeff: float = 2e-1,
+            nominal_joint_pos_coeff: float = 0.0,
+            nominal_joint_pos_names: Union[None, list] = None,
+            joint_position_limit_coeff: float = 10.0,
+            joint_vel_coeff: float = 0.0,
+            joint_acc_coeff: float = 2e-7,
+            joint_torque_coeff: float = 2e-5,
+            air_time_max: float = 0.0,
+            air_time_coeff: float = 0.0,
+            symmetry_air_coeff: float = 0.0,  # keep 0.0 for humanoids unless you define a pairing
+            energy_coeff: float = 0.0,
+            # --- Optional velocity tracking (like TargetVelocityGoalReward) ---
+            include_velocity_tracking: bool = False,
+            tracking_w_exp_xy: float = 10.0,
+            tracking_w_exp_yaw: float = 10.0,
+            tracking_w_sum_xy: float = 1.0,
+            tracking_w_sum_yaw: float = 1.0,
+            # --- Scale for all locomotion regularizers (acts as a single knob) ---
+            locomotion_scale: float = 0.3,
+            **kwargs
+        ):
         super().__init__(env, **kwargs)
 
         self.goal_name = "GoalRandomFootPlacement"
