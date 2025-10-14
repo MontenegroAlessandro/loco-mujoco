@@ -11,7 +11,7 @@ import time
 
 job_timestamp_str = time.strftime("%Y-%m-%d/%H-%M-%S", time.localtime())
 
-@hydra.main(version_base=None, config_path="./", config_name="conf_g1")
+@hydra.main(version_base=None, config_path="./", config_name="conf_t1")
 def experiment(config: DictConfig):
     try:
         import jax

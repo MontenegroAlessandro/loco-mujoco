@@ -1,29 +1,29 @@
 defaults:
   - override hydra/job_logging: default
-  - override hydra/launcher: pegasus_cluster # comment out when running locally
+  # - override hydra/launcher: pegasus_cluster # comment out when running locally
   - _self_
 
 
-hydra:
-  mode: MULTIRUN
-  job_logging: {}
-  hydra_logging: {}
-  sweeper:
-    params:
-      wandb.note: "feet roll sweep"
+# hydra:
+#   mode: MULTIRUN
+#   job_logging: {}
+#   hydra_logging: {}
+#   sweeper:
+#     params:
+#       wandb.note: "feet roll sweep"
 
-      experiment.env_params.reward_params.action_rate_coeff: -1.0
-      experiment.env_params.reward_params.survival: 0.25  
-      experiment.env_params.reward_params.tracking_w_sum_linvel_x: 1.5
-      experiment.env_params.reward_params.tracking_w_sum_linvel_y: 1.5
-      experiment.env_params.reward_params.tracking_w_sum_angvel: 1.0
-      experiment.env_params.reward_params.feet_swing_coeff: 6.0
-      experiment.env_params.reward_params.feet_yaw_diff_coeff: -1.0
-      experiment.env_params.reward_params.feet_yaw_mean_coeff: -1.0
-      experiment.env_params.reward_params.feet_roll_coeff: -4.0
-      experiment.env_params.reward_params.joint_vel_coeff: -9.e-4 
+#       experiment.env_params.reward_params.action_rate_coeff: -1.0
+#       experiment.env_params.reward_params.survival: 0.25  
+#       experiment.env_params.reward_params.tracking_w_sum_linvel_x: 1.5
+#       experiment.env_params.reward_params.tracking_w_sum_linvel_y: 1.5
+#       experiment.env_params.reward_params.tracking_w_sum_angvel: 1.0
+#       experiment.env_params.reward_params.feet_swing_coeff: 6.0
+#       experiment.env_params.reward_params.feet_yaw_diff_coeff: -1.0
+#       experiment.env_params.reward_params.feet_yaw_mean_coeff: -1.0
+#       experiment.env_params.reward_params.feet_roll_coeff: -4.0
+#       experiment.env_params.reward_params.joint_vel_coeff: -9.e-4 
 
-      experiment.env_params.control_params.clip_actions: 1.0
+#       experiment.env_params.control_params.clip_actions: 1.0
 
 
 
@@ -62,11 +62,11 @@ experiment:
       survival: 0.25
       # tracking rewards
       tracking_w_exp_linvel_x: 4.0
-      tracking_w_sum_linvel_x: 1.0
+      tracking_w_sum_linvel_x: 1.5
       tracking_w_exp_linvel_y: 4.0
-      tracking_w_sum_linvel_y: 1.0
+      tracking_w_sum_linvel_y: 1.5
       tracking_w_exp_angvel: 4.0
-      tracking_w_sum_angvel: 0.5
+      tracking_w_sum_angvel: 1.0
       tracking_nominal_joint_pos_exp: 4
       tracking_nominal_joint_pos_coeff: 0
       tracking_nominal_joint_pos_names: 
@@ -93,18 +93,18 @@ experiment:
       energy_coeff: -2.e-3
       z_vel_coeff: -0.0
       roll_pitch_vel_coeff: -0.2
-      joint_vel_coeff: -1.e-4
+      joint_vel_coeff: -9.e-4
       joint_acc_coeff: -1.e-7
       root_acc_coeff: -1.e-4
       action_rate_coeff: -1.
       joint_position_limit_scale: 0.98
       joint_position_limit_coeff: -1.
       feet_slip_coeff: -0.1
-      feet_yaw_diff_coeff: -0.5
-      feet_yaw_mean_coeff: -0.5
-      feet_roll_coeff: -0.1
+      feet_yaw_diff_coeff: -1.0
+      feet_yaw_mean_coeff: -1.0
+      feet_roll_coeff: -4.0
       feet_distance_target: 0.2
-      feet_swing_coeff: 3.
+      feet_swing_coeff: 6.0
       feet_swing_period: 0.2
       feet_distance_coeff: 0.0
       # extra regularization / penalties
@@ -313,10 +313,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 1200e6
+      total_timesteps: 600e6
       num_curriculum_steps: 1
       num_environments: 8192
-      num_total_timesteps: 1200e6
+      num_total_timesteps: 600e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -428,7 +428,7 @@ experiment:
   len_obs_history: 1
   num_envs: 8192
   num_steps: 50
-  total_timesteps: 1200e6
+  total_timesteps: 600e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995
