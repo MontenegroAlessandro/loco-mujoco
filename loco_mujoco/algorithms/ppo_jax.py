@@ -12,11 +12,9 @@ from flax import struct
 import flax
 import optax
 
-from loco_mujoco.algorithms import (
-    JaxRLAlgorithmBase, AgentConfBase, AgentStateBase, ActorCritic, Transition, TrainState, TrainStateBuffer, 
-    MetricHandlerTransition, renyiDivergenceMultivariateGaussians
-)
-from loco_mujoco.core.wrappers import LogWrapper, NStepWrapper, LogEnvState, VecEnv, NormalizeVecReward, SummaryMetrics
+from loco_mujoco.algorithms import (JaxRLAlgorithmBase, AgentConfBase, AgentStateBase, ActorCritic,
+                                    Transition, TrainState, TrainStateBuffer, MetricHandlerTransition, AdaptiveLRState)
+from loco_mujoco.core.wrappers import RichLogWrapper, NStepWrapper, RichLogEnvState, VecEnv, NormalizeVecReward, SummaryRichMetrics
 from loco_mujoco.utils import MetricsHandler, ValidationSummary
 
 
@@ -110,24 +108,23 @@ class PPOJax(JaxRLAlgorithmBase):
         tx = cls._get_optimizer(config)
 
         return cls._agent_conf(config, network, tx)
-
+    
     @classmethod
     def _get_optimizer(cls, config):
-        if config.experiment.anneal_lr:
+        if config.experiment.get("adaptive_lr", False) or config.experiment.get("anneal_lr", False):
             tx = optax.chain(
                 optax.clip_by_global_norm(config.experiment.max_grad_norm),
-                optax.adamw(weight_decay=config.experiment.weight_decay, eps=1e-5,
-                            learning_rate=lambda count: cls._linear_lr_schedule(count, config.experiment.num_minibatches,
-                                                                                config.experiment.update_epochs, config.lr,
-                                                                                config.experiment.num_updates))
+                optax.inject_hyperparams(optax.adamw)(
+                    learning_rate=config.experiment.lr, # Initial LR
+                    weight_decay=config.experiment.weight_decay,
+                    eps=1e-5
+                ),
             )
         else:
-            tx = optax.chain(
+             tx = optax.chain(
                 optax.clip_by_global_norm(config.experiment.max_grad_norm),
                 optax.adamw(config.experiment.lr, weight_decay=config.experiment.weight_decay, eps=1e-5),
             )
-
-        tx = optax.apply_if_finite(tx, max_consecutive_errors=10000000)
 
         return tx
 
@@ -135,7 +132,10 @@ class PPOJax(JaxRLAlgorithmBase):
     def _train_fn(cls, rng, env,
                   agent_conf: PPOAgentConf,
                   agent_state: PPOAgentState = None,
-                  mh: MetricsHandler = None, eval_env=None, wandb_run=None):
+                  mh: MetricsHandler = None,
+                  wandb_run=None,
+                  eval_env=None
+                  ):
 
         # extract static agent info
         config, network, tx =\
@@ -157,12 +157,18 @@ class PPOJax(JaxRLAlgorithmBase):
 
         else:
             raise NotImplementedError("Loading of train state not implemented yet.")
+        
+        if config.get("adaptive_lr", False):
+            adaptive_lr_state = AdaptiveLRState(learning_rate=jnp.array(config.lr))
+        else:
+            adaptive_lr_state = None
 
         # init new train states from old params
         train_state = TrainState.create(
             apply_fn=network.apply,
             params=network_params["params"] if train_state is None else train_state.params,
             run_stats=network_params["run_stats"] if train_state is None else train_state.run_stats,
+            adaptive_lr_state=adaptive_lr_state if train_state is None else train_state.adaptive_lr_state,
             tx=tx,
         )
 
@@ -180,23 +186,20 @@ class PPOJax(JaxRLAlgorithmBase):
                 train_state, env_state, last_obs, train_state_buffer, rng = runner_state
 
                 # SELECT ACTION
-                # jax.debug.print("last obs: {}", last_obs[0])
                 rng, _rng = jax.random.split(rng)
-                y, updates = network.apply(
-                    {'params': train_state.params, 'run_stats': train_state.run_stats}, 
-                    last_obs, 
-                    mutable=["run_stats"]
-                )
+                y, updates = network.apply({'params': train_state.params,
+                                                  'run_stats': train_state.run_stats},
+                                                 last_obs, mutable=["run_stats"])
                 pi, value = y
                 train_state = train_state.replace(run_stats=updates['run_stats'])   # update stats
                 action = pi.sample(seed=_rng)
                 log_prob = pi.log_prob(action)
-                # jax.debug.print("Action: {}", action)
+
                 # STEP ENV
                 obsv, reward, absorbing, done, info, env_state = env.step(env_state, action)
 
                 # GET METRICS
-                log_env_state = env_state.find(LogEnvState)
+                log_env_state = env_state.find(RichLogEnvState)
                 logged_metrics = log_env_state.metrics
 
                 transition = Transition(
@@ -212,11 +215,9 @@ class PPOJax(JaxRLAlgorithmBase):
 
             # CALCULATE ADVANTAGE
             train_state, env_state, last_obs, train_state_buffer, rng = runner_state
-            y, _ = network.apply(
-                {'params': train_state.params, 'run_stats': train_state.run_stats},
-                last_obs, 
-                mutable=["run_stats"]
-            )
+            y, _ = network.apply({'params': train_state.params,
+                                              'run_stats': train_state.run_stats},
+                                             last_obs, mutable=["run_stats"])
             pi, last_val = y
 
             def _calculate_gae(traj_batch, last_val):
@@ -255,11 +256,8 @@ class PPOJax(JaxRLAlgorithmBase):
 
                     def _loss_fn(params, traj_batch, gae, targets):
                         # RERUN NETWORK
-                        y, _ = network.apply(
-                            {'params': params, 'run_stats': train_state.run_stats},
-                            traj_batch.obs, 
-                            mutable=["run_stats"]
-                        )
+                        y, _ = network.apply({'params': params, 'run_stats': train_state.run_stats},
+                                             traj_batch.obs, mutable=["run_stats"])
                         pi, value = y
                         log_prob = pi.log_prob(traj_batch.action)
 
@@ -275,31 +273,6 @@ class PPOJax(JaxRLAlgorithmBase):
 
                         # CALCULATE PPO ACTOR LOSS
                         ratio = jnp.exp(log_prob - traj_batch.log_prob)
-                        
-                        # power mean correction when asked
-                        if config.power_mean.use_pm:
-                            # compute the divergence
-                            z, _ = network.apply(
-                                {'params': train_state.params, 'run_stats': train_state.run_stats},
-                                traj_batch.obs, 
-                                mutable=["run_stats"]
-                            )
-                            old_pi, _ = z
-
-                            pm_divergence = jnp.exp(renyiDivergenceMultivariateGaussians(pi, old_pi))
-
-                            # comnpute lambda
-                            pm_lambda = config.power_mean.confidence / pm_divergence
-                            # jax.debug.print("div: {}", pm_divergence)
-                            # jax.debug.print("lambda: {}", pm_lambda)
-                            # jax.debug.print(f"MEANS: {pi.loc} - {old_pi.loc}")
-                            # jax.debug.print(f"vars: {pi.scale_diag} - {old_pi.scale_diag}")
-                            # jax.debug.print(f"d {train_state.params.shape}")
-                            pm_lambda = jnp.clip(pm_lambda, 0, 1)
-
-                            # correct the ratio
-                            ratio = ratio / (1 - pm_lambda + pm_lambda * ratio)
-
                         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
                         loss_actor1 = ratio * gae
                         loss_actor2 = (
@@ -310,10 +283,7 @@ class PPOJax(JaxRLAlgorithmBase):
                                 )
                                 * gae
                         )
-                        if config.power_mean.use_pm and not config.power_mean.clip:
-                            loss_actor = loss_actor1
-                        else:
-                            loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
+                        loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
                         loss_actor = loss_actor.mean()
                         entropy = pi.entropy().mean()
 
@@ -322,14 +292,50 @@ class PPOJax(JaxRLAlgorithmBase):
                             + config.vf_coef * value_loss
                             - config.ent_coef * entropy
                         )
-                        return total_loss, (value_loss, loss_actor, entropy)
+                        return total_loss, (value_loss, loss_actor, entropy, ratio)
 
                     grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-                    total_loss, grads = grad_fn(
+                    (total_loss, (value_loss, loss_actor, entropy, ratio)), grads = grad_fn(
                         train_state.params, traj_batch, advantages, targets
                     )
-                    train_state = train_state.apply_gradients(grads=grads)
-                    return train_state, total_loss
+                    # train_state = train_state.apply_gradients(grads=grads)
+
+                    if config.get("adaptive_lr", False):
+                        current_lr = train_state.adaptive_lr_state.learning_rate
+                        
+                        train_state = train_state.apply_gradients(grads=grads)
+                        
+                        eps = 1e-7
+                        approx_kl = jnp.mean((ratio - 1.0 + eps) - jnp.log(ratio + eps))
+                        
+                        next_lr = jax.lax.cond(approx_kl > config.kl_target * config.kl_margin,
+                                                lambda lr: lr / config.kl_lr_scale,
+                                                lambda lr: lr,
+                                                current_lr)
+                        next_lr = jax.lax.cond(approx_kl < config.kl_target / config.kl_margin,
+                                                lambda lr: lr * config.kl_lr_scale,
+                                                lambda lr: lr,
+                                                next_lr)
+                        
+                        next_lr = jnp.clip(next_lr, config.lr_min, config.lr_max)
+
+                        old_hyperparams = train_state.opt_state[1].hyperparams
+                        new_hyperparams = {**old_hyperparams, "learning_rate": next_lr}
+                        new_inject_state = train_state.opt_state[1]._replace(hyperparams=new_hyperparams)
+                        new_opt_state = tuple(
+                            train_state.opt_state[i] if i != 1 else new_inject_state
+                            for i in range(len(train_state.opt_state))
+                        )
+                        train_state = train_state.replace(opt_state=new_opt_state)
+
+                        #for tracking
+                        new_adaptive_lr_state = AdaptiveLRState(learning_rate=next_lr)
+                        train_state = train_state.replace(adaptive_lr_state=new_adaptive_lr_state)
+                    else:
+                        train_state = train_state.apply_gradients(grads=grads)
+
+                    all_losses = (total_loss, value_loss, loss_actor, entropy)
+                    return train_state, all_losses
 
                 train_state, traj_batch, advantages, targets, rng = update_state
                 rng, _rng = jax.random.split(rng)
@@ -368,10 +374,16 @@ class PPOJax(JaxRLAlgorithmBase):
 
             logged_metrics = traj_batch.metrics
 
-            metric = SummaryMetrics(
+            mean_episode_return_components = dict()
+            for key in logged_metrics.returned_episode_return_components.keys():
+                mean_episode_return_components[key] = jnp.sum(jnp.where(logged_metrics.done, logged_metrics.returned_episode_return_components[key], 0.0)) / jnp.sum(logged_metrics.done)
+
+            metric = SummaryRichMetrics(
                 mean_episode_return=jnp.sum(jnp.where(logged_metrics.done, logged_metrics.returned_episode_returns, 0.0)) / jnp.sum(logged_metrics.done),
                 mean_episode_length=jnp.sum(jnp.where(logged_metrics.done, logged_metrics.returned_episode_lengths, 0.0)) / jnp.sum(logged_metrics.done),
                 max_timestep=jnp.max(logged_metrics.timestep * config.num_envs),
+                frac_absorbed=jnp.sum(jnp.where(logged_metrics.done, logged_metrics.absorbed, 0.0)) / (jnp.sum(logged_metrics.done) + 1e-6),
+                mean_episode_return_components=mean_episode_return_components
             )
 
             def _evaluation_step():
@@ -392,7 +404,7 @@ class PPOJax(JaxRLAlgorithmBase):
                     obsv, reward, absorbing, done, info, env_state = env.step(env_state, action)
 
                     # GET METRICS
-                    log_env_state = env_state.find(LogEnvState)
+                    log_env_state = env_state.find(RichLogEnvState)
                     logged_metrics = log_env_state.metrics
 
                     transition = MetricHandlerTransition(env_state, logged_metrics)
@@ -422,15 +434,32 @@ class PPOJax(JaxRLAlgorithmBase):
                 validation_metrics = jax.lax.cond(counter % config.validation_interval == 0, _evaluation_step,
                                                    mh.get_zero_container)
 
-            if config.debug:
-                def callback(metrics):
-                    return_values = metrics.returned_episode_returns[metrics.done]
-                    timesteps = metrics.timestep[metrics.done] * config.num_envs
+            def callback(metric, live_info):
+                mean_ep_return = metric.mean_episode_return
+                mean_ep_length = metric.mean_episode_length
+                timestep = metric.max_timestep
+                frac_absorbed = metric.frac_absorbed
+                mean_ep_return_components = metric.mean_episode_return_components                
 
-                    for t in range(len(timesteps)):
-                        print(f"global step={timesteps[t]}, episodic return={return_values[t]}")
+                if config.debug:
+                    print(f"timestep={timestep}, episodic return={mean_ep_return}, episodic length={mean_ep_length}, absorbed={frac_absorbed}")
+                else:
+                    wandb_log_dict = dict()
+                    wandb_log_dict["Live Info/Mean Episode Return"] = mean_ep_return
+                    wandb_log_dict["Live Info/Mean Episode Length"] = mean_ep_length
+                    wandb_log_dict["Live Info/Absorbed Envs"] = frac_absorbed
+                    # also log other live info
+                    for key, value in live_info.items():
+                        wandb_log_dict["Live Info/" + key] = value
 
-                jax.debug.callback(callback, env_state.metrics)
+                    for key in mean_ep_return_components.keys():
+                        group = "Live Return Components"
+                        wandb_log_dict[group + '/' + key] = mean_ep_return_components[key]
+                        wandb_run.log(wandb_log_dict, step=timestep)                
+
+            jax.debug.callback(callback, metric, live_info={
+                "Learning Rate": train_state.adaptive_lr_state.learning_rate if config.get("adaptive_lr", False) else config.lr,
+            })
 
             # add train state to buffer if needed
             train_state_buffer = jax.lax.cond(counter % config.validation_interval == 0,
@@ -556,7 +585,7 @@ class PPOJax(JaxRLAlgorithmBase):
 
         if "len_obs_history" in config and config.len_obs_history > 1:
             env = NStepWrapper(env, config.len_obs_history)
-        env = LogWrapper(env)
+        env = RichLogWrapper(env)
         env = VecEnv(env)
         if config.normalize_env:
             env = NormalizeVecReward(env, config.gamma)

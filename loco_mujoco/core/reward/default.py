@@ -517,6 +517,7 @@ class LocomotionReward(TargetVelocityGoalReward):
 class FootPlacementRewardState:
     """State for the FootPlacementReward function."""
     last_action: Union[np.ndarray, jax.Array]
+    reward_components: Dict[str, Union[np.ndarray, jax.Array]]
     
 class FootPlacementReward(Reward):
     """
@@ -565,7 +566,16 @@ class FootPlacementReward(Reward):
         assert self._torso_body_id != -1
 
     def init_state(self, env, key, model, data, backend):
-        return FootPlacementRewardState(last_action=backend.zeros(env.info.action_space.shape[0]))
+        reward_components = {
+            "tracking/foot_position": 0.,
+            "tracking/foot_orientation": 0.,
+            "tracking/height": 0.,
+            "penalties/action_displacement": 0.,
+        }
+        return FootPlacementRewardState(
+            last_action=backend.zeros(env.info.action_space.shape[0]),
+            reward_components=reward_components
+        )
 
     def __call__(self, state, action, next_state, absorbing, info, env, model, data, carry, backend):
         R = np_R if backend == np else jnp_R
@@ -611,7 +621,13 @@ class FootPlacementReward(Reward):
         )
 
         # Update state
-        reward_state = reward_state.replace(last_action=action)
+        updated_reward_components = {
+            "tracking/foot_position": swing_pos_reward,
+            "tracking/foot_orientation": swing_orn_reward,
+            "tracking/height": torso_height_reward,
+            "penalties/action_displacement": action_rate_penalty,
+        }
+        reward_state = reward_state.replace(last_action=action, reward_components=updated_reward_components)
         carry = carry.replace(reward_state=reward_state)
         return total_reward, carry
 

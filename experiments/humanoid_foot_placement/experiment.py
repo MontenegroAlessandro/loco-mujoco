@@ -15,7 +15,7 @@ from omegaconf import DictConfig, OmegaConf
 import traceback
 
 
-@hydra.main(version_base=None, config_path="./", config_name="conf")
+@hydra.main(version_base=None, config_path="./", config_name="oldconf")
 def experiment(config: DictConfig):
     try:
 

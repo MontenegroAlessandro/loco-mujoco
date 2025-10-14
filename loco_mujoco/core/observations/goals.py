@@ -1230,7 +1230,7 @@ class GoalChangingRandomRootVelocity(Goal, RootVelocityArrowVisualizer):
         Returns:
             GoalRandomRootVelocityAndFrequencyState: Initialized state.
         """
-        return GoalRandomRootVelocityAndFrequencyState(0.0, 0.0, 0.0, 0.6, 0.0)
+        return GoalRandomRootVelocityAndFrequencyState(0.0, 0.0, 0.0, 8, 0.0)
 
     def reset_state(self,
                     env: Any,
