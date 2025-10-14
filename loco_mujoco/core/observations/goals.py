@@ -1131,7 +1131,6 @@ class GoalRandomRootVelocityAndFrequencyState:
     goal_height: float
     gait_frequency: float
 
-
 class GoalChangingRandomRootVelocity(Goal, RootVelocityArrowVisualizer):
     """
     A class representing a random root velocity goal that changes over time.
@@ -1152,7 +1151,7 @@ class GoalChangingRandomRootVelocity(Goal, RootVelocityArrowVisualizer):
                  max_x_vel: float = 1.0,
                  max_y_vel: float = 1.0,
                  max_yaw_vel: float = 1.0,
-                 max_height: float = 1.04,
+                 max_height: float = 0.68,
                  min_height: float = 0.68,
                  resample_rate: float = 1/800,
                  still_proportion: float = 0.1,
@@ -1230,7 +1229,7 @@ class GoalChangingRandomRootVelocity(Goal, RootVelocityArrowVisualizer):
         Returns:
             GoalRandomRootVelocityAndFrequencyState: Initialized state.
         """
-        return GoalRandomRootVelocityAndFrequencyState(0.0, 0.0, 0.0, 8, 0.0)
+        return GoalRandomRootVelocityAndFrequencyState(0.0, 0.0, 0.0, 0.68, 0.0)
 
     def reset_state(self,
                     env: Any,

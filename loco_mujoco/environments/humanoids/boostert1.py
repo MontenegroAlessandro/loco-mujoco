@@ -764,6 +764,16 @@ class BoosterT1(BaseRobotHumanoid):
         """
         return (0.45, 1.0)
     
+    # @info_property
+    # def foot_geom_names(self) -> List[str]:
+    #     """
+    #     Returns the names of the foot geometries.
+
+    #     Returns:
+    #         List[str]: The names of the foot geometries.
+    #     """
+    #     return ["right_foot_collision", "left_foot_collision"]
+
     @info_property
     def foot_geom_names(self) -> List[str]:
         """

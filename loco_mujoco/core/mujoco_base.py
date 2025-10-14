@@ -41,6 +41,8 @@ class AdditionalCarry:
     user_scene: MjvScene
     total_timestep: int
 
+    total_timestep: int
+
 
 class Mujoco:
     """
