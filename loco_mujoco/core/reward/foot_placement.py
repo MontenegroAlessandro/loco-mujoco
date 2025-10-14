@@ -20,63 +20,106 @@ class FootPlacementRewardState:
     """State for the FootPlacementReward function."""
     last_action: Union[np.ndarray, jax.Array]
     reward_components: Dict[str, Union[np.ndarray, jax.Array]]
-    
+
+
 class FootPlacementReward(Reward):
     """
-    Rewards accurate swing-foot tracking and stance-foot stability (position + orientation),
-    while maintaining an upright torso height and smooth control.
+    Improved FootPlacementReward aligned with CrispBoosterLocomotionReward conventions.
+
+    Components:
+    - Swing-foot tracking (pos + orn)
+    - Torso height stability
+    - Touchdown bonus (accurate landings)
+    - Swing clearance shaping
+    - Feet slip and impact penalties
+    - Smooth action regularization
+
+    All penalties are dt-scaled, following CrispBooster style.
     """
 
     def __init__(
-            self, env,
-            left_foot_site_name: str,
-            right_foot_site_name: str,
-            swing_pos_w: float = 6.0,
-            swing_orn_w: float = 2.0,
-            torso_height_w: float = 3.0,
-            action_rate_w: float = 1e-2,
-            sharp_pos: float = 60.0,
-            sharp_orn: float = 400.0,
-            sharp_height: float = 80.0,
-            **kwargs
-        ):
+        self,
+        env,
+        left_foot_site_name: str,
+        right_foot_site_name: str,
+        swing_pos_w: float = 6.0,
+        swing_orn_w: float = 2.0,
+        torso_height_w: float = 3.0,
+        action_rate_w: float = 1e-2,
+        sharp_pos: float = 60.0,
+        sharp_orn: float = 400.0,
+        sharp_height: float = 80.0,
+        touchdown_w: float = 1.0,
+        touchdown_sharp: float = 20.0,
+        clearance_w: float = 0.5,
+        clearance_sharp: float = 80.0,
+        slip_w: float = 0.5,
+        impact_w: float = 0.3,
+        impact_threshold: float = 6.0,
+        clearance_target: float = 0.03,
+        **kwargs,
+    ):
         super().__init__(env, **kwargs)
         self.goal_name = "GoalRandomFootPlacement"
 
-        # Weights
+        # Store weights and parameters
         self._swing_pos_w = swing_pos_w
         self._swing_orn_w = swing_orn_w
         self._torso_height_w = torso_height_w
         self._action_rate_w = action_rate_w
+        self._touchdown_w = touchdown_w
+        self._clearance_w = clearance_w
+        self._clearance_sharp = clearance_sharp
+        self._slip_w = slip_w
+        self._impact_w = impact_w
+        self._impact_threshold = impact_threshold
+        self._clearance_target = clearance_target
+        self._touchdown_sharp = touchdown_sharp
 
-        # Sharpness
         self._sharp_pos = sharp_pos
         self._sharp_orn = sharp_orn
         self._sharp_height = sharp_height
 
-        # Get target torso height from environment
+        # Healthy height midpoint
         min_h, max_h = env.root_height_healthy_range
         self._target_height = (min_h + max_h) / 2.0
 
-        # Foot sites
-        self._foot_site_id_left = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, left_foot_site_name)
-        self._foot_site_id_right = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, right_foot_site_name)
-        self._torso_body_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_BODY, env.root_body_name)
+        # Model references
+        model = env.model
+        self._foot_site_id_left = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, left_foot_site_name)
+        self._foot_site_id_right = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, right_foot_site_name)
+        self._torso_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, env.root_body_name)
+        self._floor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
 
-        assert self._foot_site_id_left != -1
-        assert self._foot_site_id_right != -1
-        assert self._torso_body_id != -1
+        assert self._foot_site_id_left != -1 and self._foot_site_id_right != -1 and self._torso_body_id != -1
+
+        # Try to get foot body and sensor ids (for slip)
+        self._left_foot_body_id = model.site_bodyid[self._foot_site_id_left]
+        self._right_foot_body_id = model.site_bodyid[self._foot_site_id_right]
+        self._left_sensor_adr = None
+        self._right_sensor_adr = None
+        for name in getattr(env._model.sensor_names, [], []):
+            if "left_foot_global_linvel" in name:
+                sid = model.sensor(name).id
+                self._left_sensor_adr = list(range(model.sensor_adr[sid], model.sensor_adr[sid] + model.sensor_dim[sid]))
+            if "right_foot_global_linvel" in name:
+                sid = model.sensor(name).id
+                self._right_sensor_adr = list(range(model.sensor_adr[sid], model.sensor_adr[sid] + model.sensor_dim[sid]))
 
     def init_state(self, env, key, model, data, backend):
         reward_components = {
             "tracking/foot_position": 0.,
             "tracking/foot_orientation": 0.,
             "tracking/height": 0.,
-            "penalties/action_displacement": 0.,
+            "bonus/touchdown": 0.,
+            "tracking/clearance": 0.,
+            "penalties/slip": 0.,
+            "penalties/impact": 0.,
+            "penalties/action_rate": 0.,
         }
         return FootPlacementRewardState(
             last_action=backend.zeros(env.info.action_space.shape[0]),
-            reward_components=reward_components
+            reward_components=reward_components,
         )
 
     def __call__(self, state, action, next_state, absorbing, info, env, model, data, carry, backend):
@@ -90,48 +133,83 @@ class FootPlacementReward(Reward):
         swing_foot_idx = goal_state.swing_foot_idx
 
         # Foot IDs
-        swing_id = jax.lax.select((swing_foot_idx == 1), self._foot_site_id_right, self._foot_site_id_left)
+        swing_site_id = jax.lax.select((swing_foot_idx == 1), self._foot_site_id_right, self._foot_site_id_left)
+        swing_body_id = jax.lax.select((swing_foot_idx == 1), self._right_foot_body_id, self._left_foot_body_id)
 
-        # Current poses
-        swing_pos = data.site_xpos[swing_id]
-        swing_orn = R.from_matrix(data.site_xmat[swing_id].reshape(3, 3)).as_quat(scalar_first=True)
+        # Current pose
+        swing_pos = data.site_xpos[swing_site_id]
+        swing_orn = R.from_matrix(data.site_xmat[swing_site_id].reshape(3, 3)).as_quat(scalar_first=True)
 
-        # Swing tracking
+        # --- 1. Swing-foot tracking (pos + orn)
         pos_err_sq = backend.sum(backend.square(swing_pos - swing_target_pos))
+        dot_q = backend.clip(backend.sum(swing_target_orn * swing_orn), -1.0, 1.0)
+        orn_err = 1.0 - backend.square(dot_q)
         swing_pos_reward = self._swing_pos_w * backend.exp(-self._sharp_pos * pos_err_sq)
-
-        dot_q = backend.sum(swing_target_orn * swing_orn)
-        # numeric safety
-        dot_q = backend.clip(dot_q, -1.0, 1.0)
-        orn_err = 1.0 - backend.square(dot_q)         # in [0, 1]
         swing_orn_reward = self._swing_orn_w * backend.exp(-self._sharp_orn * orn_err)
 
-        # Torso height stability 
+        # --- 2. Torso height tracking
         torso_z = data.xpos[self._torso_body_id][2]
         height_err_sq = backend.square(torso_z - self._target_height)
         torso_height_reward = self._torso_height_w * backend.exp(-self._sharp_height * height_err_sq)
 
-        # Smoothness penalty
-        action_rate_penalty = self._action_rate_w * backend.sum(backend.square(action - reward_state.last_action))
+        # --- 3. Clearance reward 
+        clearance_reward = self._clearance_w * backend.exp(
+            -self._clearance_sharp * backend.square(backend.maximum(0.0, self._clearance_target - swing_pos[2]))
+        ) * env.dt
 
-        # Total reward
+        # --- 4. Touchdown bonus (based on contact + accuracy)
+        foot_on_ground = mj_check_collisions(swing_body_id, self._floor_id, data, backend)
+        cfrc = backend.linalg.norm(backend.array(data.cfrc_ext[swing_body_id, :3]))
+        touchdown_reward = backend.where(
+            backend.logical_and(foot_on_ground, cfrc > self._impact_threshold),
+            self._touchdown_w * backend.exp(-self._touchdown_sharp * pos_err_sq) * env.dt,
+            0.0,
+        )
+
+        # --- 5. Slip penalty
+        if (swing_foot_idx == 0 and self._left_sensor_adr is not None) or (swing_foot_idx == 1 and self._right_sensor_adr is not None):
+            foot_vel = (
+                data.sensordata[self._left_sensor_adr]
+                if swing_foot_idx == 0
+                else data.sensordata[self._right_sensor_adr]
+            )
+        else:
+            foot_vel = data.site_xvelp[swing_site_id]
+        slip_penalty = self._slip_w * backend.square(backend.linalg.norm(foot_vel[:2])) * env.dt
+
+        # --- 6. Impact penalty
+        impact_penalty = self._impact_w * backend.maximum(0.0, cfrc - self._impact_threshold) * env.dt
+
+        # --- 7. Smoothness penalty
+        action_rate_penalty = self._action_rate_w * backend.sum(backend.square(action - reward_state.last_action)) * env.dt
+
+        # --- Combine and clip
         total_reward = (
             swing_pos_reward
             + swing_orn_reward
             + torso_height_reward
-            - action_rate_penalty
+            + clearance_reward
+            + touchdown_reward
+            - (slip_penalty + impact_penalty + action_rate_penalty)
         )
+        total_reward = backend.maximum(total_reward, 0.0)
 
-        # Update state
-        updated_reward_components = {
+        # --- Update components
+        comps = {
             "tracking/foot_position": swing_pos_reward,
             "tracking/foot_orientation": swing_orn_reward,
             "tracking/height": torso_height_reward,
-            "penalties/action_displacement": action_rate_penalty,
+            "bonus/touchdown": touchdown_reward,
+            "tracking/clearance": clearance_reward,
+            "penalties/slip": slip_penalty,
+            "penalties/impact": impact_penalty,
+            "penalties/action_rate": action_rate_penalty,
         }
-        reward_state = reward_state.replace(last_action=action, reward_components=updated_reward_components)
-        carry = carry.replace(reward_state=reward_state)
+
+        new_state = reward_state.replace(last_action=action, reward_components=comps)
+        carry = carry.replace(reward_state=new_state)
         return total_reward, carry
+
 
 
 @struct.dataclass
