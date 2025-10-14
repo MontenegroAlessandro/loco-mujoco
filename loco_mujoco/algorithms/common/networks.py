@@ -10,10 +10,11 @@ import distrax
 def get_activation_fn(name: str):
     """ Get activation function by name from the flax.linen module."""
     try:
-        # Use getattr to dynamically retrieve the activation function from flax.linen
+        # Use getattr to dynamically retrieve the activation function from jax.nn
         return getattr(nn, name)
     except AttributeError:
         raise ValueError(f"Activation function '{name}' not found. Name must be the same as in flax.linen!")
+
 
 class FullyConnectedNet(nn.Module):
 
@@ -79,6 +80,47 @@ class ActorCritic(nn.Module):
         critic = FullyConnectedNet(self.hidden_layer_dims, 1, self.activation, None, False, False)(critic_x)
 
         return pi, jnp.squeeze(critic, axis=-1)
+
+class RunningMeanStd(nn.Module):
+    """Layer that maintains running mean and variance for input normalization."""
+
+    @nn.compact
+    def __call__(self, x):
+
+        x = jnp.atleast_2d(x)
+
+        # Initialize running mean, variance, and count
+        mean = self.variable('run_stats', 'mean', lambda: jnp.zeros(x.shape[-1]))
+        var = self.variable('run_stats', 'var', lambda: jnp.ones(x.shape[-1]))
+        count = self.variable('run_stats', 'count', lambda: jnp.array(1e-6))
+
+        # Compute batch mean and variance
+        batch_mean = jnp.mean(x, axis=0)
+        batch_var = jnp.var(x, axis=0) + 1e-6  # Add epsilon for numerical stability
+        batch_count = x.shape[0]
+
+        # Update counts
+        updated_count = count.value + batch_count
+
+        # Numerically stable mean and variance update
+        delta = batch_mean - mean.value
+        new_mean = mean.value + delta * batch_count / updated_count
+
+        # Compute the new variance using Welford's method
+        m_a = var.value * count.value
+        m_b = batch_var * batch_count
+        M2 = m_a + m_b + jnp.square(delta) * count.value * batch_count / updated_count
+        new_var = M2 / updated_count
+
+        # Normalize input
+        normalized_x = (x - new_mean) / jnp.sqrt(new_var + 1e-8)
+
+        # Update state variables
+        mean.value = new_mean
+        var.value = new_var
+        count.value = updated_count
+
+        return jnp.squeeze(normalized_x)
 
 class TD3Actor(nn.Module):
     """"
@@ -245,48 +287,7 @@ class FastTD3Critic(nn.Module):
         proj_dist = proj_dist.at[batch_indices[:, None], u].add(weight_u)
         
         return proj_dist
-
-class RunningMeanStd(nn.Module):
-    """Layer that maintains running mean and variance for input normalization."""
-
-    @nn.compact
-    def __call__(self, x):
-
-        x = jnp.atleast_2d(x)
-
-        # Initialize running mean, variance, and count
-        mean = self.variable('run_stats', 'mean', lambda: jnp.zeros(x.shape[-1]))
-        var = self.variable('run_stats', 'var', lambda: jnp.ones(x.shape[-1]))
-        count = self.variable('run_stats', 'count', lambda: jnp.array(1e-6))
-
-        # Compute batch mean and variance
-        batch_mean = jnp.mean(x, axis=0)
-        batch_var = jnp.var(x, axis=0) + 1e-6  # Add epsilon for numerical stability
-        batch_count = x.shape[0]
-
-        # Update counts
-        updated_count = count.value + batch_count
-
-        # Numerically stable mean and variance update
-        delta = batch_mean - mean.value
-        new_mean = mean.value + delta * batch_count / updated_count
-
-        # Compute the new variance using Welford's method
-        m_a = var.value * count.value
-        m_b = batch_var * batch_count
-        M2 = m_a + m_b + jnp.square(delta) * count.value * batch_count / updated_count
-        new_var = M2 / updated_count
-
-        # Normalize input
-        normalized_x = (x - new_mean) / jnp.sqrt(new_var + 1e-8)
-
-        # Update state variables
-        mean.value = new_mean
-        var.value = new_var
-        count.value = updated_count
-
-        return jnp.squeeze(normalized_x)
-
+    
 class RunningMinMax(nn.Module):
     """Layer that maintains running max and min for input normalization."""
     update_stats: bool = True

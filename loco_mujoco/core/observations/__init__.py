@@ -1,5 +1,6 @@
 from .base import Observation, ObservationIndexContainer, ObservationContainer, ObservationType, StatefulObservation
 from .goals import *
+from .goals_foot_placement import GoalRandomFootPlacement
 
 # register all goals
 NoGoal.register()

@@ -33,7 +33,8 @@ class AdaptiveLRState:
 
 class TrainState(train_state.TrainState):
     run_stats: Any
-    adaptive_lr_state: Optional[AdaptiveLRState] = None
+
+    adaptive_lr_state: Optional[AdaptiveLRState]
 
 @struct.dataclass
 class TrainStateBuffer:
@@ -84,7 +85,8 @@ class BestTrainStates:
             n=n,
             size=0
         )
-    
+
+
 @dataclass
 class ReplayBuffer:
     """

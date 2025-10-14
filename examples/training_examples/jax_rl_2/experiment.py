@@ -28,26 +28,23 @@ def experiment(config: DictConfig):
         # Create env
         factory = TaskFactory.get_factory_cls(config.experiment.task_factory.name)
         env = factory.make(**config.experiment.env_params, **config.experiment.task_factory.params)
+        
+        # --- TD3 SPECIFIC CHANGES START HERE ---
 
         # Wrap env to log episode stats
         env = LogWrapper(env)
         env = VecEnv(env)
         if config.experiment.normalize_env:
             env = NormalizeVecReward(env, config.experiment.gamma)
-
-        # Create eval env
-        eval_env = factory.make(**config.experiment.env_params, **config.experiment.task_factory.params)
-        eval_env = LogWrapper(eval_env)
-        eval_env = VecEnv(eval_env)
         
         # Get initial agent configuration
         agent_conf = TD3Jax.init_agent_conf(env, config)
 
         # Build training function
-        train_fn = TD3Jax.build_train_fn(env, agent_conf, wandb_run=run, eval_env=eval_env)
+        train_fn = TD3Jax.build_train_fn(env, agent_conf)
 
         # JIT and vmap training function
-        train_fn = jax.vmap(train_fn) if config.experiment.n_seeds > 1 else train_fn
+        train_fn = jax.jit(jax.vmap(train_fn)) if config.experiment.n_seeds > 1 else jax.jit(train_fn)
 
         # Get rng keys and run training
         rngs = [jax.random.PRNGKey(i) for i in range(config.experiment.n_seeds + 1)]
@@ -60,40 +57,31 @@ def experiment(config: DictConfig):
         run.config.update({"agent_save_path": save_path})
 
         # --- METRICS LOGGING ---
-        # if not config.experiment.debug:
-            # metrics = out["metrics"]
+        if not config.experiment.debug:
+            metrics = out["metrics"]
             # To get episode returns, you must ensure your TD3 _train_fn also returns them.
             # Assuming the LogWrapper provides them in `info` and they are passed up.
-            # episode_metrics = out["episode_metrics"] 
+            episode_metrics = out["episode_metrics"] 
 
             # Calculate mean across seeds
-            # metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), metrics)
-            # episode_metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), episode_metrics)
+            metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), metrics)
+            episode_metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), episode_metrics)
             
             # Log metrics
-            # for i in range(len(metrics["critic_loss"])):
-            #     step = int(i * config.experiment.num_envs * config.experiment.utd_ratio)
-            #     log_data = {
-            #         "Loss/Critic Loss": metrics.critic_loss[i],
-            #         "Loss/Actor Loss": metrics.actor_loss[i],
-            #         # "Episode/Mean Return": jnp.mean(episode_metrics.returned_episode_returns[i]),
-            #         # "Episode/Mean Length": jnp.mean(episode_metrics.returned_episode_lengths[i])
-            #     }
-            #     run.log(log_data, step=step)
+            for i in range(len(metrics.critic_loss)):
+                step = int(i * config.experiment.num_envs)
+                log_data = {
+                    "Loss/Critic Loss": metrics.critic_loss[i],
+                    "Loss/Actor Loss": metrics.actor_loss[i],
+                    "Episode/Mean Return": jnp.mean(episode_metrics.returned_episode_returns[i]),
+                    "Episode/Mean Length": jnp.mean(episode_metrics.returned_episode_lengths[i])
+                }
+                run.log(log_data, step=step)
 
         # Run the environment with the trained agent to record video
-        TD3Jax.play_policy(eval_env, agent_conf, agent_state, n_envs=20, n_steps=1000, record=True, deterministic=True)
-
-        # Get the video path from the environment that did the recording
-        video_file = eval_env.video_file_path
-
-        # Check if the file exists before logging
-        if video_file and os.path.exists(video_file):
-            run.log({"Agent Video": wandb.Video(video_file)})
-        else:
-            print(f"Video file not found at path: {video_file}")
-
-        wandb.finish()
+        TD3Jax.play_policy(env, agent_conf, agent_state, n_envs=1, n_steps=1000, record=True, deterministic=True)
+        video_file = env.video_file_path
+        run.log({"Agent Video": wandb.Video(video_file)})
 
         wandb.finish()
 

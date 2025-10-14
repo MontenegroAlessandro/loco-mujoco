@@ -3,7 +3,7 @@ defaults:
   - override hydra/launcher: basic
 
 wandb:
-  project: "loco_mujoco_td3_debug" 
+  project: "loco_mujoco_td3" 
 
 experiment:
   task_factory:
@@ -31,44 +31,29 @@ experiment:
       action_rate_coeff: 0.1
       symmetry_air_coeff: 0.005
       energy_coeff: 5.0e-05
-      
-  # Network Arch
+  actor_lr: 3e-4
+  critic_lr: 3e-4
   actor_hidden_dims: [512, 256]
   critic_hidden_dims: [512, 256]
-  activation: relu
-  
-  # Optimizers
-  actor_lr: 1e-4
-  critic_lr: 1e-4
-  
-  # Replay Buffer and Batching
-  buffer_size: 1000000 # 20480000 
-  batch_size: 256 # 20480 
-  learning_starts: 25000 # 204800 
-  
-  # TD3 Core Parameters
+  buffer_size: 1000000
+  batch_size: 256
   gamma: 0.99
-  tau: 0.005
-  policy_noise: 0.2 # 0.001 # noise scale for the target computation
-  noise_clip: 0.5 
-  std_min: 0.1 # min exploration noise with the env
-  std_max: 0.1 # max exploration noise with the env
-  schedule_noise: false
-  linear_schedule: false # if false exponential schedule
-  policy_frequency: 2
-  update_after: 1 # number of steps have to elapse between environment interactions and learning in this case utd is updated
+  tau: 0.005              # For soft target updates
+  policy_noise: 0.2       # Noise added to target policy actions
+  noise_clip: 0.5         # Clipping for target policy noise
+  exploration_noise: 0.1  # Noise for exploration during interaction
+  policy_frequency: 2     # Delayed policy updates frequency
+  learning_starts: 25000  # Warmup steps before learning starts
   
   # General Training Config
-  utd_ratio: 64
-  num_envs: 128
-  total_timesteps: 1e6 # total interactions
-  n_seeds: 1
-  vmap_across_seeds: true
+  num_envs: 2048
+  total_timesteps: 10e7
   normalize_env: true
   debug: false
-  log_interval: 1e4 
+  n_seeds: 1
+  vmap_across_seeds: true
   validation:
     active: false
-    num_steps: 1000
-    num_envs: 20
-    num: 10 
+    num_steps: 100
+    num_envs: 100
+    num: 10 # set to 0 to disable validation
