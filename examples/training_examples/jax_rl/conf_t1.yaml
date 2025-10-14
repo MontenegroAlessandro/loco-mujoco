@@ -62,11 +62,11 @@ experiment:
       survival: 0.25
       # tracking rewards
       tracking_w_exp_linvel_x: 4.0
-      tracking_w_sum_linvel_x: 1.5
+      tracking_w_sum_linvel_x: 1.5 # 1.0
       tracking_w_exp_linvel_y: 4.0
-      tracking_w_sum_linvel_y: 1.5
+      tracking_w_sum_linvel_y: 1.5 # 1.0
       tracking_w_exp_angvel: 4.0
-      tracking_w_sum_angvel: 1.0
+      tracking_w_sum_angvel: 1.0 # 0.5
       tracking_nominal_joint_pos_exp: 4
       tracking_nominal_joint_pos_coeff: 0
       tracking_nominal_joint_pos_names: 
@@ -93,18 +93,18 @@ experiment:
       energy_coeff: -2.e-3
       z_vel_coeff: -0.0
       roll_pitch_vel_coeff: -0.2
-      joint_vel_coeff: -9.e-4
+      joint_vel_coeff: -9.e-4 # -1.e-4
       joint_acc_coeff: -1.e-7
       root_acc_coeff: -1.e-4
       action_rate_coeff: -1.
       joint_position_limit_scale: 0.98
       joint_position_limit_coeff: -1.
       feet_slip_coeff: -0.1
-      feet_yaw_diff_coeff: -1.0
-      feet_yaw_mean_coeff: -1.0
-      feet_roll_coeff: -4.0
+      feet_yaw_diff_coeff: -1.0 # -0.5
+      feet_yaw_mean_coeff: -1.0 # -0.5
+      feet_roll_coeff: -4.0 # -0.1
       feet_distance_target: 0.2
-      feet_swing_coeff: 6.0
+      feet_swing_coeff: 6 # 3.
       feet_swing_period: 0.2
       feet_distance_coeff: 0.0
       # extra regularization / penalties

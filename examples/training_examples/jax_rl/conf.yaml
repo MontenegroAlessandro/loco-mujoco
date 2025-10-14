@@ -2,8 +2,22 @@ efaults:
   - override hydra/job_logging: default
   - override hydra/launcher: basic
 
+#hydra:
+#  mode: MULTIRUN
+#  job_logging: {}
+#  hydra_logging: {}
+#  sweeper:
+#    params:
+#      experiment.learnable_std: true, false
+#      experiment.init_std: 0.1, 0.2
+#      experiment.num_steps: 10, 20
+#      experiment.update_epochs: 4
+#      experiment.clip_eps: 0.2, 0.05
+#      # env_params
+#      experiment.env_params.env_name: MjxUnitreeH1.walk, MjxUnitreeH1.run
+
 wandb:
-  project: "3PO"
+  project: "unitreeGo2"
 
 experiment:
   task_factory:
@@ -46,7 +60,7 @@ experiment:
   ent_coef: 0.0
   vf_coef: 0.5
   max_grad_norm: 0.5
-  activation: relu # tanh
+  activation: tanh
   anneal_lr: false
   weight_decay: 0.0
   normalize_env: true
@@ -58,8 +72,3 @@ experiment:
     num_steps: 100
     num_envs: 100
     num: 10 # set to 0 to disable validation
-  power_mean:
-    use_pm: true
-    clip: true
-    confidence: 0.2
-    window: 1

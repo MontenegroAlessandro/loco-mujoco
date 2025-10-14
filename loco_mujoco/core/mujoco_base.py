@@ -39,7 +39,6 @@ class AdditionalCarry:
     terminal_state_handler_state: struct.PyTreeNode
     control_func_state: struct.PyTreeNode
     user_scene: MjvScene
-    total_timestep: int
 
     total_timestep: int
 
@@ -178,6 +177,7 @@ class Mujoco:
         # setup domain randomization
         domain_randomization_params = {} if domain_randomization_params is None else domain_randomization_params
         self._domain_randomizer = DomainRandomizer.registered[domain_randomization_type](self, **domain_randomization_params)
+
 
         # setup terminal state handler
         if terminal_state_params is None:

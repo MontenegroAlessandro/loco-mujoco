@@ -248,10 +248,9 @@ class FastTD3Critic(nn.Module):
 
 class RunningMeanStd(nn.Module):
     """Layer that maintains running mean and variance for input normalization."""
-    update_stats: bool = True
 
     @nn.compact
-    def __call__(self, x, squeeze_output = True):
+    def __call__(self, x):
 
         x = jnp.atleast_2d(x)
 
@@ -260,37 +259,33 @@ class RunningMeanStd(nn.Module):
         var = self.variable('run_stats', 'var', lambda: jnp.ones(x.shape[-1]))
         count = self.variable('run_stats', 'count', lambda: jnp.array(1e-6))
 
-        # Normalize with current stats
-        normalized_x = (x - mean.value) / jnp.sqrt(var.value + 1e-8)
-
         # Compute batch mean and variance
-        if self.update_stats and self.is_mutable_collection('run_stats'):
-            batch_mean = jnp.mean(x, axis=0)
-            batch_var = jnp.var(x, axis=0) + 1e-6  # Add epsilon for numerical stability
-            batch_count = x.shape[0]
+        batch_mean = jnp.mean(x, axis=0)
+        batch_var = jnp.var(x, axis=0) + 1e-6  # Add epsilon for numerical stability
+        batch_count = x.shape[0]
 
-            # Update counts
-            updated_count = count.value + batch_count
+        # Update counts
+        updated_count = count.value + batch_count
 
-            # Numerically stable mean and variance update
-            delta = batch_mean - mean.value
-            new_mean = mean.value + delta * batch_count / updated_count
+        # Numerically stable mean and variance update
+        delta = batch_mean - mean.value
+        new_mean = mean.value + delta * batch_count / updated_count
 
-            # Compute the new variance using Welford's method
-            m_a = var.value * count.value
-            m_b = batch_var * batch_count
-            M2 = m_a + m_b + jnp.square(delta) * count.value * batch_count / updated_count
-            new_var = M2 / updated_count
+        # Compute the new variance using Welford's method
+        m_a = var.value * count.value
+        m_b = batch_var * batch_count
+        M2 = m_a + m_b + jnp.square(delta) * count.value * batch_count / updated_count
+        new_var = M2 / updated_count
 
-            # Normalize input
-            normalized_x = (x - new_mean) / jnp.sqrt(new_var + 1e-8)
+        # Normalize input
+        normalized_x = (x - new_mean) / jnp.sqrt(new_var + 1e-8)
 
-            # Update state variables
-            mean.value = new_mean
-            var.value = new_var
-            count.value = updated_count
+        # Update state variables
+        mean.value = new_mean
+        var.value = new_var
+        count.value = updated_count
 
-        return jnp.squeeze(normalized_x) if squeeze_output else normalized_x
+        return jnp.squeeze(normalized_x)
 
 class RunningMinMax(nn.Module):
     """Layer that maintains running max and min for input normalization."""
