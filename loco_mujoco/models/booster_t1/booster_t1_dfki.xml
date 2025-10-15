@@ -196,8 +196,10 @@
                     <geom class="visual" mesh="left_foot_link"/>
                     <!-- <geom name="left_foot_collision" class="collision" size="0.1115 0.05 0.015" pos="0.01 0 -0.015" type="box"/> -->
                     <!-- <geom name="left_foot_col" class="collision" size="0.1115 0.05 0.015" pos="0.01 0 -0.015" rgba="0.9 0.2 0.2 0.3" type="box"/> -->
-                    <geom name="left_foot_1_col" class="collision" size="0.02 0.0915" pos="0.01 0.035 -0.01"  quat="0.707105 0 0.707108 0" rgba="0.9 0.2 0.2 0.3" type="capsule"/>
-                    <geom name="left_foot_2_col" class="collision" size="0.02 0.0915" pos="0.01 -0.035 -0.01"  quat="0.707105 0 0.707108 0" rgba="0.9 0.2 0.2 0.3" type="capsule"/>
+                    <!-- <geom name="left_foot_1_col" class="collision" size="0.02 0.0915" pos="0.01 0.035 -0.01"  quat="0.707105 0 0.707108 0" rgba="0.9 0.2 0.2 0.3" type="capsule"/>
+                    <geom name="left_foot_2_col" class="collision" size="0.02 0.0915" pos="0.01 -0.035 -0.01"  quat="0.707105 0 0.707108 0" rgba="0.9 0.2 0.2 0.3" type="capsule"/> -->
+                    <geom name="left_foot_1_col" class="collision" size="0.02 0.0915" pos="0.01 0.035 -0.01"  quat="0.707105 0 0.707108 0" rgba="0.2 0.6 1.0 0.7" type="capsule"/>
+                    <geom name="left_foot_2_col" class="collision" size="0.02 0.0915" pos="0.01 -0.035 -0.01"  quat="0.707105 0 0.707108 0" rgba="0.2 0.6 1.0 0.7" type="capsule"/>
                     <site name="left_foot" size="0.015" pos="0.0 0 -0.025"/>
                   </body>
                 </body>
@@ -249,8 +251,10 @@
                     <geom class="visual" mesh="right_foot_link"/>
                     <!-- <geom name="right_foot_collision" class="collision" size="0.1115 0.05 0.015" pos="0.01 0 -0.015" type="box"/> -->
                     <!-- <geom name="right_foot_col" class="collision" size="0.1115 0.05 0.015" pos="0.01 0 -0.015" rgba="0.9 0.2 0.2 0.3" type="box"/> -->
-                    <geom name="right_foot_1_col" class="collision" size="0.02 0.0915" pos="0.01 0.035 -0.01" rgba="0.9 0.2 0.2 0.3" quat="0.707105 0 0.707108 0" type="capsule" />
-                    <geom name="right_foot_2_col" class="collision" size="0.02 0.0915" pos="0.01 -0.035 -0.01" rgba="0.9 0.2 0.2 0.3" quat="0.707105 0 0.707108 0" type="capsule" />
+                    <!-- <geom name="right_foot_1_col" class="collision" size="0.02 0.0915" pos="0.01 0.035 -0.01" rgba="0.9 0.2 0.2 0.3" quat="0.707105 0 0.707108 0" type="capsule" />
+                    <geom name="right_foot_2_col" class="collision" size="0.02 0.0915" pos="0.01 -0.035 -0.01" rgba="0.9 0.2 0.2 0.3" quat="0.707105 0 0.707108 0" type="capsule" /> -->
+                    <geom name="right_foot_1_col" class="collision" size="0.02 0.0915" pos="0.01 0.035 -0.01" rgba="1.0 0.6 0.2 0.7" quat="0.707105 0 0.707108 0" type="capsule" />
+                    <geom name="right_foot_2_col" class="collision" size="0.02 0.0915" pos="0.01 -0.035 -0.01" rgba="1.0 0.6 0.2 0.7" quat="0.707105 0 0.707108 0" type="capsule" />
                     <site name="right_foot" size="0.015" pos="0.0 0 -0.025"/>
                   </body>
                 </body>
