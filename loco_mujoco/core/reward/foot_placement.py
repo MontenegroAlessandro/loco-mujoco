@@ -743,8 +743,15 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             "penalties/impact_reward": 0.,
         }
 
+        # random gait initialization
+        if backend == np:
+            gp0 = np.random.uniform(0.0, 1.0)
+        else:
+            gp0 = jax.random.uniform(jax.random.PRNGKey(0), minval=0.0, maxval=1.0)
+
+
         return CrispBoosterLocomotionRewardFootPlacementState(
-            gait_process=0.0,
+            gait_process=gp0,
             last_qvel=data.qvel, 
             last_action=backend.zeros(env.info.action_space.shape[0]),
             time_since_last_touchdown=backend.zeros(2, dtype=backend.float32),
@@ -833,7 +840,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         swing_pos = data.site_xpos[swing_site_id][:2] # just (x,y)
         swing_orn = R.from_matrix(data.site_xmat[swing_site_id].reshape(3, 3)).as_quat(scalar_first=True)
 
-        # --- 1. Swing-foot tracking (pos + orn)
+        # Swing-foot tracking (pos + orn)
         pos_err_sq = backend.sum(backend.square(swing_pos - swing_target_pos))
         dot_q = backend.clip(backend.sum(swing_target_orn * swing_orn), -1.0, 1.0)
         orn_err = 1.0 - backend.square(dot_q)
