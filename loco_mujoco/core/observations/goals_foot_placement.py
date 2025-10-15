@@ -27,6 +27,8 @@ class GoalRandomFootPlacementState:
     swing_target_pos: jax.Array         # 3D (x,y,z) desired WORLD position of the swing foot
     swing_target_orn: jax.Array         # 4D (w,x,y,z) desired WORLD world orientation quaternion of the swing foot
     swing_foot_idx: int                 # 0 for left, 1 for right
+    goal_height = 0.68
+    gait_frequency = 1.0
 
 class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
     """
@@ -226,14 +228,40 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         global_quat = global_pose_root[3:7] # root global orientation
         global_rot = R.from_quat(quat_scalarfirst2scalarlast(global_quat)) # root rotation matrix
 
+        # retireve info about the swing foot
+        def left_info(_):
+            left_pos_w  = data.site_xpos[self._foot_site_id_left]
+            left_mat_w  = data.site_xmat[self._foot_site_id_left].reshape(3, 3)
+            left_quat_w = R.from_matrix(left_mat_w).as_quat(scalar_first=True)  # (w,x,y,z)
+            return (left_pos_w, left_quat_w)
+
+        def right_info(_):
+            right_pos_w  = data.site_xpos[self._foot_site_id_right]
+            right_mat_w  = data.site_xmat[self._foot_site_id_right].reshape(3, 3)
+            right_quat_w = R.from_matrix(right_mat_w).as_quat(scalar_first=True)
+            return (right_pos_w, right_quat_w)
+
+        if backend == jnp:
+            swing_pos_w, swing_orn_w = jax.lax.cond(
+                (state.swing_foot_idx == 0),
+                left_info,
+                right_info,
+                operand=None
+            )
+        else:
+            swing_pos_w, swing_orn_w = left_info(None) if state.swing_foot_idx == 0 else right_info(None)
+
         # Compute the target position offset in base frame
-        global_offset_pos = state.swing_target_pos - global_pos # offset in global frame
+        # global_offset_pos = state.swing_target_pos - global_pos # offset in global frame
+        global_offset_pos = state.swing_target_pos - swing_pos_w # offset in the world
         local_target_pos_offset = global_rot.inv().apply(global_offset_pos) # offset in local frame
 
         # Compute the orientation offset in base frame
+        swing_mat = R.from_quat(quat_scalarfirst2scalarlast(swing_orn_w)) # rotation matrix of the swing foot
         R_target_orn_world = R.from_quat(quat_scalarfirst2scalarlast(state.swing_target_orn))
         # local_target_offset_orn = (R_target_orn_world * global_rot.inv()).as_quat(scalar_first=True)
-        local_target_offset_orn = (global_rot.inv() * R_target_orn_world).as_quat(scalar_first=True)
+        # local_target_offset_orn = (global_rot.inv() * R_target_orn_world).as_quat(scalar_first=True)
+        local_target_offset_orn = (swing_mat.inv() * R_target_orn_world).as_quat(scalar_first=True)
         # Hemisphere correction (keep w >= 0 for continuity)
         if backend == jnp:
             sign = jnp.where(local_target_offset_orn[0] < 0, -1.0, 1.0)

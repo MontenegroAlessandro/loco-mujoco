@@ -3,7 +3,7 @@ defaults:
   - _self_
 
 wandb:
-  project: "BoosterT1"
+  project: "BoosterT1 Foot Placement"
   note: ""
 
 experiment:
@@ -30,31 +30,68 @@ experiment:
       angle_range_deg: [30, 180] # x in front, y left (then mirrored for the right foot)
       # Range for randomizing the target foot yaw relative to the body
       yaw_range_deg: [-20, 20]
+      group: [prioritized, policy]
 
     
     headless: true
 
-    reward_type: FootPlacementReward
+    reward_type: CrispBoosterLocomotionFootPlacementReward
     reward_params:
       left_foot_site_name: left_foot
-      right_foot_site_name: right_foot\
-      # tracking terms
+      right_foot_site_name: right_foot
+      survival: 0.25
+      # tracking rewards
       swing_pos_w: 1.0
       swing_orn_w: 1.0
-      torso_height_w: 0.0
-      action_rate_w: 1e-2
-      sharp_pos: 10.0
-      sharp_orn: 10.0
-      sharp_height: 5.0
+      sharp_pos: 10
+      sharp_orn: 10
+      tracking_nominal_joint_pos_exp: 4
+      tracking_nominal_joint_pos_coeff: 0
+      tracking_nominal_joint_pos_names: 
+        - AAHead_yaw
+        - Head_pitch
+        - Left_Shoulder_Pitch
+        - Left_Shoulder_Roll
+        - Left_Elbow_Pitch
+        - Left_Elbow_Yaw
+        - Right_Shoulder_Pitch
+        - Right_Shoulder_Roll
+        - Right_Elbow_Pitch
+        - Right_Elbow_Yaw
+        - Waist
+        - Right_Ankle_Roll
+        - Left_Ankle_Roll
       # penalties
-      touchdown_w: 1.0
-      touchdown_sharp: 1.0
-      clearance_w: 0
-      clearance_sharp: 0
-      slip_w: 0
-      impact_w: 0
-      impact_threshold: 0
-      clearance_target: 0
+      joint_deviation_l1_coeff: -0.3
+      base_height_target: 0.68
+      base_height_coeff: -10.
+      orientation_coeff: -5.
+      joint_torque_coeff: -2.e-4
+      torque_tiredness_coeff: 0.0
+      energy_coeff: -2.e-3
+      z_vel_coeff: -0.0
+      roll_pitch_vel_coeff: -0.2
+      joint_vel_coeff: -9.e-4 # -1.e-4
+      joint_acc_coeff: -1.e-7
+      root_acc_coeff: -1.e-4
+      action_rate_coeff: -1.
+      joint_position_limit_scale: 0.98
+      joint_position_limit_coeff: -1.
+      feet_slip_coeff: -0.1
+      feet_yaw_diff_coeff: -1.0 # -0.5
+      feet_yaw_mean_coeff: -1.0 # -0.5
+      feet_roll_coeff: -4.0 # -0.1
+      feet_distance_target: 0.2
+      feet_swing_coeff: 6 # 3.
+      feet_swing_period: 0.2
+      feet_distance_coeff: 0.0
+      # extra regularization / penalties
+      low_gains_coeff: 0.0
+      air_time_max: 0.3
+      air_time_coeff: 0
+      no_fly_coeff: 0
+      impact_threshold: 150
+      impact_coeff: 0
 
     actuation_spec:
       - AAHead_yaw

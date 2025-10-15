@@ -1,6 +1,7 @@
 from typing import Any, Union, List, Tuple
 from types import ModuleType
 import numpy as np
+import jax
 import jax.numpy as jnp
 from jax.scipy.spatial.transform import Rotation as jnp_R
 from scipy.spatial.transform import Rotation as np_R
