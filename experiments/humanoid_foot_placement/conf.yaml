@@ -30,6 +30,11 @@ experiment:
       angle_range_deg: [30, 180] # x in front, y left (then mirrored for the right foot)
       # Range for randomizing the target foot yaw relative to the body
       yaw_range_deg: [-20, 20]
+      # gait frequency target
+      gait_frequency: 1.0
+      # desired height to maintain
+      goal_height: 0.68
+      # observation group
       group: [prioritized, policy]
 
     

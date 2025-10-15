@@ -27,8 +27,8 @@ class GoalRandomFootPlacementState:
     swing_target_pos: jax.Array         # 3D (x,y,z) desired WORLD position of the swing foot
     swing_target_orn: jax.Array         # 4D (w,x,y,z) desired WORLD world orientation quaternion of the swing foot
     swing_foot_idx: int                 # 0 for left, 1 for right
-    goal_height = 0.68
-    gait_frequency = 1.0
+    goal_height: float                  # the desired height to maintain (for booster is 0.68)
+    gait_frequency: float               # the desired gait frequency (1.0 is normal, 2.0 is very fast)            
 
 class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
     """
@@ -44,6 +44,8 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
             z_height_range: List[float] = [0.05, 0.15],
             angle_range_deg: List[float] = [-180.0, 180.0],
             yaw_range_deg: List[float] = [-15.0, 15.0],
+            goal_height: float = 0.68,
+            gait_frequency: float = 1.0,
             **kwargs
         ):
         
@@ -52,6 +54,8 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         self.z_height_range = z_height_range
         self.angle_range_rad = [np.deg2rad(angle_range_deg[0]), np.deg2rad(angle_range_deg[1])]
         self.yaw_range_rad = [np.deg2rad(yaw_range_deg[0]), np.deg2rad(yaw_range_deg[1])]
+        self.goal_height = goal_height
+        self.gait_frequency = gait_frequency
         
         self._foot_site_ids = [-1, -1]
         self._root_joint_name = info_props["root_free_joint_xml_name"]
@@ -83,7 +87,9 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
         return GoalRandomFootPlacementState(
             swing_target_pos=backend.zeros(3), 
             swing_target_orn=backend.array([1.0, 0.0, 0.0, 0.0]), 
-            swing_foot_idx=0
+            swing_foot_idx=0,
+            goal_height=0.68,
+            gait_frequency=1.0
         )
 
     def reset_state(self, env, model, data, carry, backend):
@@ -144,7 +150,8 @@ class GoalRandomFootPlacement(Goal, FootPlacementVisualizer):
 
         # [4] Update the carry object
         goal_state = GoalRandomFootPlacementState(
-            swing_target_pos=target_pos, swing_target_orn=target_orn, swing_foot_idx=swing_foot_idx
+            swing_target_pos=target_pos, swing_target_orn=target_orn, swing_foot_idx=swing_foot_idx,
+            goal_height=self.goal_height, gait_frequency=self.gait_frequency
         )
         observation_states = carry.observation_states.replace(**{self.name: goal_state})
         return data, carry.replace(key=key, observation_states=observation_states)
