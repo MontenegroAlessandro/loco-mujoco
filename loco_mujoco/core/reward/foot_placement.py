@@ -1284,6 +1284,15 @@ class FootPlacementTargetReward(Reward):
         # Threshold for the stopping penalty
         self._stopping_dist_threshold = kwargs.get("stopping_dist_threshold", 0.05)
 
+        # Weight for the clearance reward
+        self._swing_clearance_w = kwargs.get("swing_clearance_w", 2.0)
+        # The target height for the foot during the middle of the step
+        self._swing_clearance_target = kwargs.get("swing_clearance_target", 0.05)
+        # How sharply the reward is focused around the target height
+        self._swing_clearance_sharp = kwargs.get("swing_clearance_sharp", 500.0)
+        # Determines how quickly the clearance reward fades as the foot lands
+        self._swing_clearance_fade_sharp = kwargs.get("swing_clearance_fade_sharp", 20.0)
+
         # Initialize joint limits and nominal positions
         self._limited_joints = np.array(model.jnt_limited, dtype=bool)
         self._limited_joints_qpos_id = model.jnt_qposadr[np.where(self._limited_joints)]
@@ -1312,6 +1321,7 @@ class FootPlacementTargetReward(Reward):
             "tracking/joint_qpos_reward": 0.,
             "tracking/stance_slip_reward": 0.,
             "tracking/stopping_reward": 0.,
+            "tracking/swing_clearance_reward": 0.,
             # "tracking/feet_swing_reward": 0.,
             "penalties/joint_deviation_l1_penalty": 0.,
             "penalties/base_height_reward": 0.,
@@ -1405,6 +1415,17 @@ class FootPlacementTargetReward(Reward):
         orn_err = 1.0 - backend.square(dot_q)
         swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * pos_err_sq)
         swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * orn_err)
+
+        # Swing Foot Clearance Reward
+        swing_foot_z = swing_pos[2] 
+        # Reward for reaching the target clearance height
+        clearance_height_reward = self._swing_clearance_w * backend.exp(
+            -self._swing_clearance_sharp * backend.square(swing_foot_z - self._swing_clearance_target)
+        )
+        # This modulation factor is \approx 1 when the foot is far from the target and fades to 0 as it gets closer.
+        # It ensures the clearance reward is only active mid-swing, not at the end.
+        clearance_modulation = 1.0 - backend.exp(-self._swing_clearance_fade_sharp * pos_err_sq)
+        swing_clearance_reward = clearance_height_reward * clearance_modulation
 
         # Base height reward
         base_height_target = goal_state.goal_height
@@ -1644,8 +1665,9 @@ class FootPlacementTargetReward(Reward):
 
         # ============ SCALE REWARDS ============
         # survival_reward *= (self._survival * env.dt)
-        swing_pos_reward *= env.dt
-        swing_orn_reward *= env.dt
+        # swing_pos_reward *= env.dt
+        # swing_orn_reward *= env.dt
+        # swing_clearance_reward *= env.dt
         stance_slip_reward = -stance_slip_penalty * (self._stance_slip_coeff * env.dt)
         stopping_reward = -stopping_penalty * (self._stopping_vel_coeff * env.dt)
         joint_qpos_reward *= (self._nominal_joint_pos_coeff * env.dt)
@@ -1681,6 +1703,7 @@ class FootPlacementTargetReward(Reward):
             + joint_qpos_reward 
             + stance_slip_reward
             + stopping_reward
+            + swing_clearance_reward
             # + feet_swing_reward
         )
         
@@ -1733,6 +1756,7 @@ class FootPlacementTargetReward(Reward):
             "tracking/joint_qpos_reward": joint_qpos_reward,
             "tracking/stance_slip_reward": stance_slip_reward,
             "tracking/stopping_reward": stopping_reward,
+            "tracking/swing_clearance_reward": swing_clearance_reward,
             # "tracking/feet_swing_reward": feet_swing_reward,
             "penalties/base_height_reward": base_height_reward,
             "penalties/joint_deviation_l1_penalty": joint_deviation_l1_penalty,
