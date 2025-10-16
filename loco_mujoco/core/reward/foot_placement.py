@@ -1337,7 +1337,7 @@ class FootPlacementTargetReward(Reward):
             "penalties/impact_reward": 0.,
         }
 
-        return FootPlacementRewardState(
+        return FootPlacementTargetRewardState(
             # gait_process=0.0,
             last_qvel=data.qvel, 
             last_action=backend.zeros(env.info.action_space.shape[0]),
@@ -1508,7 +1508,15 @@ class FootPlacementTargetReward(Reward):
 
         # swing foot stopping penalty
         is_close = (pos_err_sq < self._stopping_dist_threshold**2)
-        swing_foot_vel = data.site_xvelp[swing_site_id]
+        left_foot_vel = data.sensordata[self._left_foot_sensor_adr]
+        right_foot_vel = data.sensordata[self._right_foot_sensor_adr]
+        if backend == jnp:
+            swing_foot_vel = jax.lax.select(
+                swing_foot_idx == 1, right_foot_vel, left_foot_vel
+            )
+        else:
+            swing_foot_vel = right_foot_vel if swing_foot_idx == 1 else left_foot_vel
+        # swing_foot_vel = data.site_xvelp[swing_site_id]
         stopping_penalty = backend.sum(backend.square(swing_foot_vel)) * is_close
 
         # Feet slip reward
@@ -1636,8 +1644,8 @@ class FootPlacementTargetReward(Reward):
 
         # ============ SCALE REWARDS ============
         # survival_reward *= (self._survival * env.dt)
-        # swing_pos_reward *= env.dt
-        # swing_orn_reward *= env.dt
+        swing_pos_reward *= env.dt
+        swing_orn_reward *= env.dt
         stance_slip_reward = -stance_slip_penalty * (self._stance_slip_coeff * env.dt)
         stopping_reward = -stopping_penalty * (self._stopping_vel_coeff * env.dt)
         joint_qpos_reward *= (self._nominal_joint_pos_coeff * env.dt)
