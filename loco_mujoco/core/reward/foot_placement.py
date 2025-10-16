@@ -637,6 +637,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         self._tracking_swing_orn_w = kwargs.get("swing_orn_w", 0.0)
         self._tracking_swing_pos_sharp = kwargs.get("sharp_pos", 0.0)
         self._tracking_swing_orn_sharp = kwargs.get("sharp_orn", 0.0)
+        self._tracking_swing_pos_threshold = kwargs.get("swing_pos_threshold", 0.05)
 
         # Nominal posture tracking weights and coefficients
         self._nominal_joint_pos_exp = kwargs.get("tracking_nominal_joint_pos_exp", 0.0)
@@ -839,6 +840,12 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         orn_err = 1.0 - backend.square(dot_q)
         swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * pos_err_sq)
         swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * orn_err)
+        # check if within threshold
+        position_reached = (pos_err_sq <= self._tracking_swing_pos_threshold**2)
+        if backend == np:
+            position_reached = int(not position_reached)
+        else:
+            position_reached = jnp.where(position_reached, 0, 1)
 
         # Base height reward
         base_height_target = goal_state.goal_height
@@ -982,7 +989,21 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
 
         # Feet swing reward
         gait_frequency = goal_state.gait_frequency
-        gait_process = backend.fmod(reward_state.gait_process + env.dt * gait_frequency, 1.0)
+        # correct the gait process
+        gp = reward_state.gait_process
+        if backend == np:
+            if swing_foot_idx == 1 and gp < 0.5:
+                gp += 0.5
+            elif swing_foot_idx == 0 and gp >= 0.5:
+                gp -= 0.5
+        else:
+            gp = jax.lax.cond(
+                swing_foot_idx == 1,
+                lambda: jax.lax.cond(gp < 0.5, lambda: gp + 0.5, lambda: gp),
+                lambda: jax.lax.cond(gp >= 0.5, lambda: gp - 0.5, lambda: gp)
+            )
+        # gait_process = backend.fmod(reward_state.gait_process + env.dt * gait_frequency, 1.0)
+        gait_process = backend.fmod(gp + env.dt * gait_frequency, 1.0)
         
         left_swing = (
             (backend.abs(gait_process - 0.25) < 0.5 * self._feet_swing_period) & 
@@ -993,10 +1014,11 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             (gait_frequency > 1.0e-8)
         )
         
+        swinging_weight = 1 - backend.exp(-50.0 * backend.sqrt(pos_err_sq))
         feet_swing_reward = (
-            (left_swing & ~feet_on_ground[0]).astype(backend.float32) +
-            (right_swing & ~feet_on_ground[1]).astype(backend.float32)
-        )
+            (left_swing & ~feet_on_ground[0] & ~swing_foot_idx).astype(backend.float32) +
+            (right_swing & ~feet_on_ground[1] & swing_foot_idx).astype(backend.float32)
+        ) * swinging_weight
 
         # Nominal joint position rewards
         joint_qpos_reward = backend.exp(
@@ -1166,8 +1188,6 @@ class FootPlacementTargetReward(Reward):
     Reward function thought for tracking a foot placement target in a single human-like step and then stopping.
     """
     def __init__(self, env: Any, **kwargs):
-        # TODO: specify all the fields
-
         # ============ SETUP ============
         super().__init__(env, **kwargs)
 
@@ -1287,11 +1307,11 @@ class FootPlacementTargetReward(Reward):
         # Weight for the clearance reward
         self._swing_clearance_w = kwargs.get("swing_clearance_w", 2.0)
         # The target height for the foot during the middle of the step
-        self._swing_clearance_target = kwargs.get("swing_clearance_target", 0.05)
+        self._swing_clearance_target = kwargs.get("swing_clearance_target", 0.1)
         # How sharply the reward is focused around the target height
-        self._swing_clearance_sharp = kwargs.get("swing_clearance_sharp", 500.0)
+        self._swing_clearance_sharp = kwargs.get("swing_clearance_sharp", 10.0)
         # Determines how quickly the clearance reward fades as the foot lands
-        self._swing_clearance_fade_sharp = kwargs.get("swing_clearance_fade_sharp", 20.0)
+        self._swing_clearance_fade_sharp = kwargs.get("swing_clearance_fade_sharp", 10.0)
 
         # Initialize joint limits and nominal positions
         self._limited_joints = np.array(model.jnt_limited, dtype=bool)
