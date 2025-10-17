@@ -989,21 +989,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
 
         # Feet swing reward
         gait_frequency = goal_state.gait_frequency
-        # correct the gait process
-        gp = reward_state.gait_process
-        if backend == np:
-            if swing_foot_idx == 1 and gp < 0.5:
-                gp += 0.5
-            elif swing_foot_idx == 0 and gp >= 0.5:
-                gp -= 0.5
-        else:
-            gp = jax.lax.cond(
-                swing_foot_idx == 1,
-                lambda: jax.lax.cond(gp < 0.5, lambda: gp + 0.5, lambda: gp),
-                lambda: jax.lax.cond(gp >= 0.5, lambda: gp - 0.5, lambda: gp)
-            )
-        # gait_process = backend.fmod(reward_state.gait_process + env.dt * gait_frequency, 1.0)
-        gait_process = backend.fmod(gp + env.dt * gait_frequency, 1.0)
+        gait_process = backend.fmod(reward_state.gait_process + env.dt * gait_frequency, 1.0)
         
         left_swing = (
             (backend.abs(gait_process - 0.25) < 0.5 * self._feet_swing_period) & 
@@ -1014,11 +1000,11 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             (gait_frequency > 1.0e-8)
         )
         
-        swinging_weight = 1 - backend.exp(-50.0 * backend.sqrt(pos_err_sq))
+        # swinging_weight = 1 - backend.exp(-50.0 * backend.sqrt(pos_err_sq))
         feet_swing_reward = (
             (left_swing & ~feet_on_ground[0] & ~swing_foot_idx).astype(backend.float32) +
             (right_swing & ~feet_on_ground[1] & swing_foot_idx).astype(backend.float32)
-        ) * swinging_weight
+        ) # * swinging_weight
 
         # Nominal joint position rewards
         joint_qpos_reward = backend.exp(

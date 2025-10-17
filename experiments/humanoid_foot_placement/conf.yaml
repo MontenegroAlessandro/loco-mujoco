@@ -16,14 +16,14 @@ experiment:
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
-    goal_type: GoalRandomFootPlacement
+    goal_type: GoalRandomChangingFootPlacement # GoalRandomFootPlacement
     goal_params:
       visualize_goal: true
       # Names of the foot sites from the booster_t1_dfki.xml file
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.20, 0.2] # [0.4, 0.6]
+      xy_distance_range: [0.2, 0.6]
       # Range for the target foot height [min, max] from the ground
       z_height_range: [0.0, 0.0]
       # Range for omnidirectional step angle [-180, 180] for a full circle
@@ -32,6 +32,7 @@ experiment:
       yaw_range_deg: [-10, 10]
       # gait frequency target
       gait_frequency: 1.0
+      feet_swing_period: 0.2
       # desired height to maintain
       goal_height: 0.68
       # observation group
