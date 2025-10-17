@@ -366,9 +366,9 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
         assert self._foot_site_id_right != -1, f"Site '{self.foot_site_names[1]}' not found."
         self._initialized_from_mj = True
 
-    def init_state(self, env, key, model, data, backend) -> GoalRandomFootPlacementState:
+    def init_state(self, env, key, model, data, backend) -> GoalRandomChangingFootPlacementState:
         """Initializes the state with a zero target."""
-        return GoalRandomFootPlacementState(
+        return GoalRandomChangingFootPlacementState(
             swing_target_pos=backend.zeros(3), 
             swing_target_orn=backend.array([1.0, 0.0, 0.0, 0.0]), 
             swing_foot_idx=0,
@@ -463,7 +463,7 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
         target_orn = target_orn_rot.as_quat(scalar_first=True)
 
         # Update the carry object
-        goal_state = GoalRandomFootPlacementState(
+        goal_state = GoalRandomChangingFootPlacementState(
             swing_target_pos=target_pos, 
             swing_target_orn=target_orn, 
             swing_foot_idx=swing_foot_idx,
