@@ -405,17 +405,19 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
         # Select the swing foot based on the gait process
         gp = initial_gait
 
-        left_swing = (
-            (backend.abs(gp - 0.25) < 0.5 * self.feet_swing_period) & 
-            (self.gait_frequency > 1.0e-8)
-        )
-        right_swing = (
-            (backend.abs(gp - 0.75) < 0.5 * self.feet_swing_period) & 
-            (self.gait_frequency > 1.0e-8)
-        )
+        # left_swing = (
+        #     (backend.abs(gp - 0.25) < 0.5 * self.feet_swing_period) & 
+        #     (self.gait_frequency > 1.0e-8)
+        # )
+        # right_swing = (
+        #     (backend.abs(gp - 0.75) < 0.5 * self.feet_swing_period) & 
+        #     (self.gait_frequency > 1.0e-8)
+        # )
+        left_swing = (gp < 0.5)
 
-        swing_foot_idx = ~left_swing & right_swing
-        swing_foot_idx = backend.astype(swing_foot_idx, backend.int32)
+        # swing_foot_idx = ~left_swing & right_swing
+        # swing_foot_idx = backend.astype(swing_foot_idx, backend.int32)
+        swing_foot_idx = backend.astype(~left_swing, backend.int32)
         
         # Retrieve the stance foot id to access data
         stance_foot_idx = 1 - swing_foot_idx 
@@ -451,7 +453,7 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
         # compute the target position for the foot in WORLD coordinates, applying the displacement to WORLD stance foot
         # target_pos = stance_foot_pos + step_vec_world
         target_pos = stance_foot_pos + step_vec_local
-        target_pos = target_pos.at[2].set(stance_foot_pos[2] + target_z_offset)
+        # target_pos = target_pos.at[2].set(stance_foot_pos[2] + target_z_offset)
 
         # Generate Orientation Target
         key, subkey4 = jax.random.split(key)
@@ -480,16 +482,18 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
         # Check whether to update the goal
         # (each time the phase is over)
         gp = state.gait_process
-        left_swing = (
-            (backend.abs(gp - 0.25) < 0.5 * self.feet_swing_period) & 
-            (self.gait_frequency > 1.0e-8)
-        )
-        right_swing = (
-            (backend.abs(gp - 0.75) < 0.5 * self.feet_swing_period) & 
-            (self.gait_frequency > 1.0e-8)
-        )
-        swing_foot_idx = ~left_swing & right_swing
-        swing_foot_idx = backend.astype(swing_foot_idx, backend.int32)
+        # left_swing = (
+        #     (backend.abs(gp - 0.25) < 0.5 * self.feet_swing_period) & 
+        #     (self.gait_frequency > 1.0e-8)
+        # )
+        # right_swing = (
+        #     (backend.abs(gp - 0.75) < 0.5 * self.feet_swing_period) & 
+        #     (self.gait_frequency > 1.0e-8)
+        # )
+        left_swing = (gp < 0.5)
+        # swing_foot_idx = ~left_swing & right_swing
+        swing_foot_idx = backend.astype(~left_swing, backend.int32)
+        # swing_foot_idx = backend.astype(swing_foot_idx, backend.int32)
         # check if it is needed to resample the goal
         resample_goal = (swing_foot_idx != state.swing_foot_idx)
         if backend == np:

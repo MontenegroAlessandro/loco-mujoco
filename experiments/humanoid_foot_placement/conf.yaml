@@ -23,11 +23,11 @@ experiment:
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.2, 0.6]
+      xy_distance_range: [0.2, 0.4]
       # Range for the target foot height [min, max] from the ground
       z_height_range: [0.0, 0.0]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [30, 180] # x in front, y left (then mirrored for the right foot)
+      angle_range_deg: [30, 150] # x in front, y left (then mirrored for the right foot)
       # Range for randomizing the target foot yaw relative to the body
       yaw_range_deg: [-10, 10]
       # gait frequency target
@@ -43,14 +43,15 @@ experiment:
 
     reward_type: CrispBoosterLocomotionFootPlacementReward
     reward_params:
+      goal_name: GoalRandomChangingFootPlacement 
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       survival: 0.25
       # tracking rewards
-      swing_pos_w: 1.0
-      swing_orn_w: 1.0
-      sharp_pos: 10
-      sharp_orn: 10
+      swing_pos_w: 3.0 # 1.0
+      swing_orn_w: 3.0 # 1.0
+      sharp_pos: 40 # 10
+      sharp_orn: 30 # 10
       tracking_nominal_joint_pos_exp: 4
       tracking_nominal_joint_pos_coeff: 0
       tracking_nominal_joint_pos_names: 
@@ -297,10 +298,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 200e6
+      total_timesteps: 300e6
       num_curriculum_steps: 1
       num_environments: 8192
-      num_total_timesteps: 200e6
+      num_total_timesteps: 300e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -393,7 +394,7 @@ experiment:
       filter_action_alpha: 0.0
 
       # Kicking
-      kick_robots: true
+      kick_robots: false # true
       kick_min_vel: 0.2
       kick_max_vel: 0.6 # m/s
       kick_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 kick per second
@@ -412,7 +413,7 @@ experiment:
   len_obs_history: 1
   num_envs: 8192
   num_steps: 50
-  total_timesteps: 200e6
+  total_timesteps: 300e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995

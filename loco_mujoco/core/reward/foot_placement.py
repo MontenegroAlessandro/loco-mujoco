@@ -698,6 +698,9 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             self._nominal_joint_qpos_id = np.concatenate([
                 mj_jntname2qposid(name, model) for name in self._nominal_joint_pos_names
             ])
+        
+        # Goal class name
+        self._goal_name = kwargs.get("goal_name", "GoalRandomFootPlacement")
 
     def init_state(self, env: Any, key: Any, model: Union[MjModel, Model], 
                    data: Union[MjData, Data], backend: ModuleType):
@@ -802,8 +805,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
 
         # Get current states
         reward_state = carry.reward_state
-        # goal_state = getattr(carry.observation_states, "GoalRandomFootPlacement")
-        goal_state = getattr(carry.observation_states, "GoalRandomChangingFootPlacement") # FIXME
+        goal_state = getattr(carry.observation_states, self._goal_name)
 
         # Extract global pose and velocity information
         global_pose_root = data.qpos[self._free_joint_qpos_ind]
@@ -990,7 +992,11 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
 
         # Feet swing reward
         gait_frequency = goal_state.gait_frequency
-        gait_process = backend.fmod(reward_state.gait_process + env.dt * gait_frequency, 1.0)
+        if self._goal_name == "GoalRandomChangingFootPlacement":
+            # if we use the changing target, we have to sync to the goal gait phase
+            gait_process = goal_state.gait_process
+        else:
+            gait_process = backend.fmod(reward_state.gait_process + env.dt * gait_frequency, 1.0)
         
         left_swing = (
             (backend.abs(gait_process - 0.25) < 0.5 * self._feet_swing_period) & 
@@ -1003,8 +1009,8 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         
         # swinging_weight = 1 - backend.exp(-50.0 * backend.sqrt(pos_err_sq))
         feet_swing_reward = (
-            (left_swing & ~feet_on_ground[0] & ~swing_foot_idx).astype(backend.float32) +
-            (right_swing & ~feet_on_ground[1] & swing_foot_idx).astype(backend.float32)
+            (left_swing & ~feet_on_ground[0]).astype(backend.float32) +
+            (right_swing & ~feet_on_ground[1]).astype(backend.float32)
         ) # * swinging_weight
 
         # Nominal joint position rewards
