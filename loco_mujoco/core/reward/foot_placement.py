@@ -1007,11 +1007,10 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             (gait_frequency > 1.0e-8)
         )
         
-        # swinging_weight = 1 - backend.exp(-50.0 * backend.sqrt(pos_err_sq))
         feet_swing_reward = (
             (left_swing & ~feet_on_ground[0]).astype(backend.float32) +
             (right_swing & ~feet_on_ground[1]).astype(backend.float32)
-        ) # * swinging_weight
+        ) 
 
         # Nominal joint position rewards
         joint_qpos_reward = backend.exp(

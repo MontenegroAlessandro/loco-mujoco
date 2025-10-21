@@ -23,15 +23,15 @@ experiment:
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.2, 0.4]
+      xy_distance_range: [0.2, 0.3]
       # Range for the target foot height [min, max] from the ground
       z_height_range: [0.0, 0.0]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [30, 150] # x in front, y left (then mirrored for the right foot)
+      angle_range_deg: [45, 135] # x in front, y left (then mirrored for the right foot)
       # Range for randomizing the target foot yaw relative to the body
       yaw_range_deg: [-10, 10]
       # gait frequency target
-      gait_frequency: 1.0
+      gait_frequency_range: [0.8, 2.0]
       feet_swing_period: 0.2
       # desired height to maintain
       goal_height: 0.68
@@ -48,9 +48,9 @@ experiment:
       right_foot_site_name: right_foot
       survival: 0.25
       # tracking rewards
-      swing_pos_w: 3.0 # 1.0
+      swing_pos_w: 4.0 # 1.0
       swing_orn_w: 3.0 # 1.0
-      sharp_pos: 40 # 10
+      sharp_pos: 50 # 10
       sharp_orn: 30 # 10
       tracking_nominal_joint_pos_exp: 4
       tracking_nominal_joint_pos_coeff: 0

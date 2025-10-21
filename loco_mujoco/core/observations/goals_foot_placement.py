@@ -327,8 +327,8 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
             angle_range_deg: List[float] = [-180.0, 180.0],
             yaw_range_deg: List[float] = [-15.0, 15.0],
             goal_height: float = 0.68,
-            gait_frequency: float = 1.0,
             feet_swing_period: float = 0.2,
+            gait_frequency_range: List[float] = [1.0, 2.0],
             **kwargs
         ):
         
@@ -338,7 +338,7 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
         self.angle_range_rad = [np.deg2rad(angle_range_deg[0]), np.deg2rad(angle_range_deg[1])]
         self.yaw_range_rad = [np.deg2rad(yaw_range_deg[0]), np.deg2rad(yaw_range_deg[1])]
         self.goal_height = goal_height
-        self.gait_frequency = gait_frequency
+        self.gait_frequency_range = gait_frequency_range
         self.feet_swing_period = feet_swing_period
         
         self._foot_site_ids = [-1, -1]
@@ -464,13 +464,21 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
         target_orn_rot = R.from_euler('z', rand_yaw)
         target_orn = target_orn_rot.as_quat(scalar_first=True)
 
+        # Sample the gait frequency form the range
+        key, subkey5 = jax.random.split(key)
+        gait_frequency = jax.random.uniform(
+            subkey5, 
+            minval=self.gait_frequency_range[0], 
+            maxval=self.gait_frequency_range[1]
+        )
+
         # Update the carry object
         goal_state = GoalRandomChangingFootPlacementState(
             swing_target_pos=target_pos, 
             swing_target_orn=target_orn, 
             swing_foot_idx=swing_foot_idx,
             goal_height=self.goal_height, 
-            gait_frequency=self.gait_frequency,
+            gait_frequency=gait_frequency,
             gait_process=gp
         )
         return goal_state
