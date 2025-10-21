@@ -303,3 +303,102 @@ class FootPlacementVisualizer:
         )
         new_user_scene = user_scene.replace(geoms=new_geoms)
         return carry.replace(user_scene=new_user_scene)
+
+
+class DoubleFootPlacementVisualizer:
+    """
+    Visualizes both stance and swing foot placement targets as semi-transparent boxes.
+    - Left foot target shown in BLUE
+    - Right foot target shown in ORANGE
+    """
+
+    def __init__(self,
+                 box_size: Tuple[float, float, float] = (0.1, 0.04, 0.01),
+                 left_foot_color: Tuple[float, float, float, float] = (0.2, 0.6, 1.0, 0.7),     # BLUE
+                 right_foot_color: Tuple[float, float, float, float] = (1.0, 0.6, 0.2, 0.7)):   # ORANGE
+        
+        # Two geoms: one for stance, one for swing
+        self._n_visual_geoms = 2
+        self._box_size = np.array(box_size)
+        self._box_type = int(mujoco.mjtGeom.mjGEOM_BOX)
+        self._colors = np.array([left_foot_color, right_foot_color])
+
+    def set_visuals(self,
+                    goal: Union[np.ndarray, jnp.ndarray],
+                    env: Any,
+                    model: Union[MjModel, Model],
+                    data: Union[MjData, Data],
+                    carry: Any,
+                    visual_geoms_idx: List[int],
+                    backend: ModuleType) -> Any:
+        """
+        Draws both the swing and stance target boxes.
+        """
+
+        R = np_R if backend == np else jnp_R
+        user_scene = carry.user_scene
+        geoms = user_scene.geoms
+
+        # Parse goal vector
+        goal_state = getattr(carry.observation_states, self.name)
+        left_pos = goal_state.left_foot_target_pos 
+        left_orn = goal_state.left_foot_target_orn 
+        right_pos = goal_state.right_foot_target_pos 
+        right_orn = goal_state.right_foot_target_orn 
+        # swing_one_hot = jax.nn.one_hot(goal_state.swing_foot_idx, 2)
+
+        # Convert quaternions to rotation matrices
+        left_mat = R.from_quat(quat_scalarfirst2scalarlast(left_orn)).as_matrix().reshape(-1)
+        right_mat = R.from_quat(quat_scalarfirst2scalarlast(right_orn)).as_matrix().reshape(-1)
+
+        # --- Update both geoms ---
+        if backend == jnp:
+            # JAX backend (immutable)
+            geom_pos = geoms.pos
+            geom_mat = geoms.mat
+            geom_type = geoms.type
+            geom_size = geoms.size
+            geom_rgba = geoms.rgba
+
+            # Left foot target (index 0)
+            geom_pos = geom_pos.at[visual_geoms_idx[0]].set(left_pos)
+            geom_mat = geom_mat.at[visual_geoms_idx[0]].set(left_mat)
+            geom_type = geom_type.at[visual_geoms_idx[0]].set(self._box_type)
+            geom_size = geom_size.at[visual_geoms_idx[0]].set(self._box_size)
+            geom_rgba = geom_rgba.at[visual_geoms_idx[0]].set(self._colors[0])
+
+            # Right foot target (index 1)
+            geom_pos = geom_pos.at[visual_geoms_idx[1]].set(right_pos)
+            geom_mat = geom_mat.at[visual_geoms_idx[1]].set(right_mat)
+            geom_type = geom_type.at[visual_geoms_idx[1]].set(self._box_type)
+            geom_size = geom_size.at[visual_geoms_idx[1]].set(self._box_size)
+            geom_rgba = geom_rgba.at[visual_geoms_idx[1]].set(self._colors[1])
+
+        else:
+            # NumPy backend (mutable)
+            geom_pos = geoms.pos.copy()
+            geom_mat = geoms.mat.copy()
+            geom_type = geoms.type.copy()
+            geom_size = geoms.size.copy()
+            geom_rgba = geoms.rgba.copy()
+
+            # Left foot target (index 0)
+            geom_pos[visual_geoms_idx[0]] = left_pos
+            geom_mat[visual_geoms_idx[0]] = left_mat
+            geom_type[visual_geoms_idx[0]] = self._box_type
+            geom_size[visual_geoms_idx[0]] = self._box_size
+            geom_rgba[visual_geoms_idx[0]] = self._colors[0]
+
+            # Right foot target (index 1)
+            geom_pos[visual_geoms_idx[1]] = right_pos
+            geom_mat[visual_geoms_idx[1]] = right_mat
+            geom_type[visual_geoms_idx[1]] = self._box_type
+            geom_size[visual_geoms_idx[1]] = self._box_size
+            geom_rgba[visual_geoms_idx[1]] = self._colors[1]
+
+        # --- Create new geoms and update carry ---
+        new_geoms = geoms.replace(
+            pos=geom_pos, mat=geom_mat, size=geom_size, type=geom_type, rgba=geom_rgba
+        )
+        new_user_scene = user_scene.replace(geoms=new_geoms)
+        return carry.replace(user_scene=new_user_scene)
