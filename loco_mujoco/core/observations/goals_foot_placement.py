@@ -444,19 +444,21 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
             [distance * backend.cos(angle), distance * backend.sin(angle) * lateral_sign, 0.0]
         )
         # compute the WORLD coordinates of the displacement
-        root_rot = R.from_quat(root_quat_scipy)
-        step_vec_world = root_rot.apply(step_vec_local)
-        # compute the target position for the foot in WORLD coordinates, applying the displacement to WORLD stance foot
-        target_pos = stance_foot_pos + step_vec_world
-        # target_pos = stance_foot_pos + step_vec_local
-        # target_pos = target_pos.at[2].set(stance_foot_pos[2] + target_z_offset)
+        # NOTE: one would naturally make the rotation to the world frame, but actually the orientation is the one of
+        # NOTE: the torso (that moves quite a lot), so it makes more sense to keep the step in local frame. 
+        # NOTE: The stuff to do would be to consider the waist instead of the torso.
+        # root_rot = R.from_quat(root_quat_scipy)
+        # step_vec_world = root_rot.apply(step_vec_local)
+        # target_pos = stance_foot_pos + step_vec_world
+        target_pos = stance_foot_pos + step_vec_local
+        target_pos = target_pos.at[2].set(stance_foot_pos[2] + target_z_offset)
 
         # Generate Orientation Target
         key, subkey4 = jax.random.split(key)
         # sample the yaw relative to the current stance foot yaw
         rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1]) * lateral_sign
-        # target orientation in WORLD coordinates via a displacement w.r.t. the current yaw of the stance foot
-        # target_orn_rot = R.from_euler('z', rand_yaw) * R.from_quat(root_quat_scipy)
+        # NOTE: if one wants to consider the relative yaw w.r.t. the stance foot, one should compose the rotations
+        # target_orn_rot = R.from_euler('z', rand_yaw) * R.from_quat(root_quat_scipy) # ... add stance rotation !
         target_orn_rot = R.from_euler('z', rand_yaw)
         target_orn = target_orn_rot.as_quat(scalar_first=True)
 
@@ -525,15 +527,15 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
             swing_pos_w, swing_orn_w = left_info(None) if state.swing_foot_idx == 0 else right_info(None)
 
         # Compute the target position offset in base frame
-        # global_offset_pos = state.swing_target_pos - global_pos # offset in global frame
         global_offset_pos = state.swing_target_pos - swing_pos_w # offset in the world
-        local_target_pos_offset = global_rot.inv().apply(global_offset_pos) # offset in local frame
+        local_target_pos_offset = global_rot.apply(global_offset_pos, inverse=True) # offset in local frame
+        # NOTE: using the flag inverse=True is more efficient since internally it is just taking the transpose.
+        # NOTE: global_rot is needed to rotate from the torso frame into the world frame. 
+        # NOTE: global_rot.inv() is the oppsite!
 
         # Compute the orientation offset in base frame
         swing_mat = R.from_quat(quat_scalarfirst2scalarlast(swing_orn_w)) # rotation matrix of the swing foot
         R_target_orn_world = R.from_quat(quat_scalarfirst2scalarlast(state.swing_target_orn))
-        # local_target_offset_orn = (R_target_orn_world * global_rot.inv()).as_quat(scalar_first=True)
-        # local_target_offset_orn = (global_rot.inv() * R_target_orn_world).as_quat(scalar_first=True)
         local_target_offset_orn = (swing_mat.inv() * R_target_orn_world).as_quat(scalar_first=True)
         # Hemisphere correction (keep w >= 0 for continuity)
         if backend == jnp:
