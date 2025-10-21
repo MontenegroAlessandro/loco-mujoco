@@ -447,8 +447,8 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
         root_rot = R.from_quat(root_quat_scipy)
         step_vec_world = root_rot.apply(step_vec_local)
         # compute the target position for the foot in WORLD coordinates, applying the displacement to WORLD stance foot
-        # target_pos = stance_foot_pos + step_vec_world
-        target_pos = stance_foot_pos + step_vec_local
+        target_pos = stance_foot_pos + step_vec_world
+        # target_pos = stance_foot_pos + step_vec_local
         # target_pos = target_pos.at[2].set(stance_foot_pos[2] + target_z_offset)
 
         # Generate Orientation Target
