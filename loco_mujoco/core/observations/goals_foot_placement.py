@@ -373,7 +373,7 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
             swing_target_orn=backend.array([1.0, 0.0, 0.0, 0.0]), 
             swing_foot_idx=0,
             goal_height=0.68,
-            gait_frequency=self.gait_frequency,
+            gait_frequency=1.0,
             gait_process=0.0
         )
     
@@ -383,40 +383,36 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
         key = carry.key
 
         # Sample the random starting phase of the gait
-        key, subkey1, subkey2 = jax.random.split(key, 3)
+        key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
         gp0 = jax.random.randint(subkey1, shape=(), minval=0, maxval=2) / 2
+
+        # sample the gait frequency
+        gait_frequency = jax.random.uniform(
+            subkey2, 
+            minval=self.gait_frequency_range[0], 
+            maxval=self.gait_frequency_range[1]
+        )
 
         # Sample the initial goal
         goal_state = self.sample_goal(
             data=data,
-            carry=carry.replace(key=subkey2),
+            carry=carry.replace(key=subkey3),
             backend=backend,
-            initial_gait=gp0
+            initial_gait=gp0,
+            gait_frequency=gait_frequency
         )
 
         observation_states = carry.observation_states.replace(**{self.name: goal_state})
         return data, carry.replace(key=key, observation_states=observation_states)
 
-    def sample_goal(self, data, carry, backend, initial_gait):
+    def sample_goal(self, data, carry, backend, initial_gait, gait_frequency):
         """Sample a new random foot placement goal for a random foot in any direction."""
         R = jnp_R if backend == jnp else np_R
         key = carry.key
 
         # Select the swing foot based on the gait process
         gp = initial_gait
-
-        # left_swing = (
-        #     (backend.abs(gp - 0.25) < 0.5 * self.feet_swing_period) & 
-        #     (self.gait_frequency > 1.0e-8)
-        # )
-        # right_swing = (
-        #     (backend.abs(gp - 0.75) < 0.5 * self.feet_swing_period) & 
-        #     (self.gait_frequency > 1.0e-8)
-        # )
         left_swing = (gp < 0.5)
-
-        # swing_foot_idx = ~left_swing & right_swing
-        # swing_foot_idx = backend.astype(swing_foot_idx, backend.int32)
         swing_foot_idx = backend.astype(~left_swing, backend.int32)
         
         # Retrieve the stance foot id to access data
@@ -464,14 +460,6 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
         target_orn_rot = R.from_euler('z', rand_yaw)
         target_orn = target_orn_rot.as_quat(scalar_first=True)
 
-        # Sample the gait frequency form the range
-        key, subkey5 = jax.random.split(key)
-        gait_frequency = jax.random.uniform(
-            subkey5, 
-            minval=self.gait_frequency_range[0], 
-            maxval=self.gait_frequency_range[1]
-        )
-
         # Update the carry object
         goal_state = GoalRandomChangingFootPlacementState(
             swing_target_pos=target_pos, 
@@ -490,28 +478,19 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
         # Check whether to update the goal
         # (each time the phase is over)
         gp = state.gait_process
-        # left_swing = (
-        #     (backend.abs(gp - 0.25) < 0.5 * self.feet_swing_period) & 
-        #     (self.gait_frequency > 1.0e-8)
-        # )
-        # right_swing = (
-        #     (backend.abs(gp - 0.75) < 0.5 * self.feet_swing_period) & 
-        #     (self.gait_frequency > 1.0e-8)
-        # )
         left_swing = (gp < 0.5)
-        # swing_foot_idx = ~left_swing & right_swing
         swing_foot_idx = backend.astype(~left_swing, backend.int32)
-        # swing_foot_idx = backend.astype(swing_foot_idx, backend.int32)
+    
         # check if it is needed to resample the goal
         resample_goal = (swing_foot_idx != state.swing_foot_idx)
         if backend == np:
             if resample_goal:
-                new_goal = self.sample_goal(data=data, carry=carry, backend=backend, initial_gait=gp)
+                new_goal = self.sample_goal(data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency)
                 state = new_goal
         else:
             state = jax.lax.cond(
                 resample_goal,
-                lambda s: self.sample_goal(data=data, carry=carry, backend=backend, initial_gait=gp),
+                lambda s: self.sample_goal(data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency),
                 lambda s: s,
                 operand=state
             )
@@ -575,7 +554,7 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
         ])
 
         # make the gait process progress
-        gp = backend.fmod(gp + env.dt * self.gait_frequency, 1.0)
+        gp = backend.fmod(gp + env.dt * state.gait_frequency, 1.0)
         state = state.replace(gait_process=gp)
         observation_states = carry.observation_states.replace(**{self.name: state})
         carry = carry.replace(observation_states=observation_states)
