@@ -630,8 +630,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # Walking Schemes
         self.gait_horizon = gait_horizon
         self._scheme_direction = jnp.array([0.0, np.pi, np.pi/2.0, -np.pi/2.0, 0.0])  # [forward, back, left, right, stand]
-        self._scheme_forward = jnp.array([0.3, -0.3, 0.0, 0.0, 0.0])
-        self._scheme_lateral = jnp.array([0.0, 0.0, 0.2, -0.2, 0.0])
+        self._scheme_forward = jnp.array([0.3, 0.3, 0.0, 0.0, 0.0])
+        self._scheme_lateral = jnp.array([0.0, 0.0, 0.2, 0.2, 0.0])
         self._scheme_height = jnp.array([0.0, 0.0, 0.0, 0.0, 0.0])
         self._scheme_yaw = jnp.array([0.0, 0.0, 0.0, 0.0, 0.0])
         # map walking scheme strings to indices
@@ -881,6 +881,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 walking_scheme_idx=walking_scheme_idx,
                 gait_counter=gait_counter
             )
+            observation_states = carry.observation_states.replace(**{self.name: state})
+            carry = carry.replace(observation_states=observation_states)
 
         # resample goal if needed
         if backend == np:

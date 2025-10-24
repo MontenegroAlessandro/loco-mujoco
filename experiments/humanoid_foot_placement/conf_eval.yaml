@@ -39,8 +39,8 @@ experiment:
       # observation group
       group: [prioritized, policy]
       # walking schemes
-      walking_schemes: [forward]
-      gait_horizon: 1000
+      walking_schemes: [forward,stand,backward]
+      gait_horizon: 10
 
 
     headless: true
