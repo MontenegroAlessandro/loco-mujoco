@@ -630,8 +630,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # Walking Schemes
         self.gait_horizon = gait_horizon
         self._scheme_direction = jnp.array([0.0, np.pi, np.pi/2.0, -np.pi/2.0, 0.0])  # [forward, back, left, right, stand]
-        self._scheme_forward = jnp.array([0.3, 0.3, 0.0, 0.0, 0.0])
-        self._scheme_lateral = jnp.array([0.0, 0.0, 0.2, 0.2, 0.0])
+        self._scheme_forward = jnp.array([1.0, 1.0, 0.0, 0.0, 0.0])
+        self._scheme_lateral = jnp.array([0.0, 0.0, 1.0, 1.0, 0.0])
         self._scheme_height = jnp.array([0.0, 0.0, 0.0, 0.0, 0.0])
         self._scheme_yaw = jnp.array([0.0, 0.0, 0.0, 0.0, 0.0])
         # map walking scheme strings to indices
@@ -759,20 +759,23 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         root_quat_mj = jnp.array(data.qpos)[self._root_qpos_ids[3:7]]
         root_quat_scipy = quat_scalarfirst2scalarlast(root_quat_mj)
 
+        # Generate Position Target
+        key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
+        # how far to step
+        distance = jax.random.uniform(subkey1, minval=distance_range[0], maxval=distance_range[1])
+
         # consider if we have to sample a goal according to a walking scheme
         if self.walking_scheme_indices.size > 0:
             idx = jax.lax.dynamic_index_in_dim(self.walking_scheme_indices, state.walking_scheme_idx, keepdims=False)
-            step_vec_local, step_height, target_yaw = self.sample_from_scheme(idx, swing_foot_idx == 0, backend)
+            step_vec_local, step_height, target_yaw = self.sample_from_scheme(
+                idx=idx, swing_is_left=(swing_foot_idx == 0), backend=backend, displacement=distance
+            )
 
             # Compute the targets
             target_pos = swing_foot_pos + step_vec_local
             target_pos = target_pos.at[2].set(swing_foot_pos[2] + step_height)
             target_orn = R.from_euler('z', target_yaw).as_quat(scalar_first=True)
         else:
-            # Generate Position Target
-            key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
-            # how far to step
-            distance = jax.random.uniform(subkey1, minval=distance_range[0], maxval=distance_range[1])
             # step direction
             angle = jax.random.uniform(subkey2, minval=angle_range_rad[0], maxval=angle_range_rad[1])
             lateral_sign = jnp.where(stance_is_right, 1, -1)
@@ -973,10 +976,10 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             carry = self.set_visuals(observation, env, model, data, carry, self.visual_geoms_idx, backend)
         return observation, carry
     
-    def sample_from_scheme(self, idx: int, swing_is_left: bool, backend):
+    def sample_from_scheme(self, idx: int, swing_is_left: bool, backend, displacement: float = 0.2):
         # retrieve scheme params safely under tracing
         direction = jax.lax.dynamic_index_in_dim(self._scheme_direction, idx, keepdims=False)
-        forward = jax.lax.dynamic_index_in_dim(self._scheme_forward, idx, keepdims=False)
+        forward = displacement * jax.lax.dynamic_index_in_dim(self._scheme_forward, idx, keepdims=False)
         lateral = jax.lax.dynamic_index_in_dim(self._scheme_lateral, idx, keepdims=False)
         height = jax.lax.dynamic_index_in_dim(self._scheme_height, idx, keepdims=False)
         yaw = jax.lax.dynamic_index_in_dim(self._scheme_yaw, idx, keepdims=False)
