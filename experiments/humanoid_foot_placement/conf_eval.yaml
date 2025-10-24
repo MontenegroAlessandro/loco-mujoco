@@ -3,10 +3,11 @@ defaults:
   - _self_
 
 wandb:
-  project: "BoosterT1 Foot Placement - 2"
+  project: "BoosterT1 Foot Placement - Eval"
   note: ""
 
 experiment:
+  agent_path: .
   task_factory:
     name: RLFactory
     params: {}
@@ -16,43 +17,50 @@ experiment:
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
-    goal_type: GoalRandomFootPlacement
+    goal_type: GoalDoubleFootPlacement # GoalRandomChangingFootPlacement # GoalRandomFootPlacement
     goal_params:
       visualize_goal: true
       # Names of the foot sites from the booster_t1_dfki.xml file
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.4, 0.6]
+      xy_distance_range: [0.2, 0.5]
       # Range for the target foot height [min, max] from the ground
       z_height_range: [0.0, 0.0]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [30, 180] # x in front, y left (then mirrored for the right foot)
+      angle_range_deg: [45, 135] # x in front, y left (then mirrored for the right foot)
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-20, 20]
+      yaw_range_deg: [-10, 10]
       # gait frequency target
-      gait_frequency: 1.0
+      gait_frequency_range: [1.0, 1.0]
+      feet_swing_period: 0.2
       # desired height to maintain
       goal_height: 0.68
       # observation group
       group: [prioritized, policy]
+      # walking schemes
+      walking_schemes: [forward]
+      gait_horizon: 1000
 
-    
+
     headless: true
 
-    reward_type: FootPlacementTargetReward
+    reward_type: CrispBoosterLocomotionFootPlacementReward
     reward_params:
+      goal_name: GoalDoubleFootPlacement # GoalRandomChangingFootPlacement 
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       survival: 0.25
-      # tracking rewards
-      swing_pos_w: 1.0
-      swing_orn_w: 1.0
-      sharp_pos: 10
-      sharp_orn: 10
-      stance_slip_coeff: 2.0
-      stopping_vel_coeff: 2.5
-      stopping_dist_threshold: 0.05
+      # feet tracking rewards
+      swing_pos_w: 4.0 # 4.0 # 1.0
+      swing_orn_w: 2.0 # 3.0 # 1.0
+      stance_pos_w: 2.0 # 1.0
+      stance_orn_w: 2.0 # 1.0
+      sharp_pos: 100 # 50 # 10
+      sharp_orn: 100 # 10
+      stance_sharp_pos: 100
+      stance_sharp_orn: 100 
+      # other tracking rewards
       tracking_nominal_joint_pos_exp: 4
       tracking_nominal_joint_pos_coeff: 0
       tracking_nominal_joint_pos_names: 
@@ -86,8 +94,8 @@ experiment:
       joint_position_limit_scale: 0.98
       joint_position_limit_coeff: -1.
       feet_slip_coeff: -0.1
-      feet_yaw_diff_coeff: -1.0 # -0.5
-      feet_yaw_mean_coeff: -1.0 # -0.5
+      feet_yaw_diff_coeff: 0.0 # -1.0 # -0.5
+      feet_yaw_mean_coeff: 0.0 # -1.0 # -0.5
       feet_roll_coeff: -4.0 # -0.1
       feet_distance_target: 0.2
       feet_swing_coeff: 6 # 3.
@@ -299,10 +307,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 200e6
+      total_timesteps: 300e6
       num_curriculum_steps: 1
       num_environments: 8192
-      num_total_timesteps: 200e6
+      num_total_timesteps: 300e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -395,7 +403,7 @@ experiment:
       filter_action_alpha: 0.0
 
       # Kicking
-      kick_robots: true
+      kick_robots: false # true
       kick_min_vel: 0.2
       kick_max_vel: 0.6 # m/s
       kick_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 kick per second
@@ -414,7 +422,7 @@ experiment:
   len_obs_history: 1
   num_envs: 8192
   num_steps: 50
-  total_timesteps: 200e6
+  total_timesteps: 300e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995
