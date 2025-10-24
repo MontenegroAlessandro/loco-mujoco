@@ -632,12 +632,18 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         # Extract reward coefficients from kwargs
         self._survival = kwargs.get("survival", 0.0)
 
-        # Velocity tracking weights and coefficients
+        # feet tracking weights and coefficients
         self._tracking_swing_pos_w = kwargs.get("swing_pos_w", 0.0)
         self._tracking_swing_orn_w = kwargs.get("swing_orn_w", 0.0)
         self._tracking_swing_pos_sharp = kwargs.get("sharp_pos", 0.0)
         self._tracking_swing_orn_sharp = kwargs.get("sharp_orn", 0.0)
-        self._tracking_swing_pos_threshold = kwargs.get("swing_pos_threshold", 0.05)
+
+        self._tracking_stance_pos_w = kwargs.get("stance_pos_w", 0.0)
+        self._tracking_stance_orn_w = kwargs.get("stance_orn_w", 0.0)
+        self._tracking_stance_pos_sharp = kwargs.get("stance_sharp_pos", 0.0)
+        self._tracking_stance_orn_sharp = kwargs.get("stance_sharp_orn", 0.0)
+
+        self._tracking_swing_pos_threshold = kwargs.get("swing_pos_threshold", 0.0)
 
         # Nominal posture tracking weights and coefficients
         self._nominal_joint_pos_exp = kwargs.get("tracking_nominal_joint_pos_exp", 0.0)
@@ -721,6 +727,8 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             "survival_reward": 0.,
             "tracking/tracking_swing_position": 0.,
             "tracking/tracking_swing_orientation": 0.,
+            "tracking/tracking_stance_position": 0.,
+            "tracking/tracking_stance_orientation": 0.,
             "tracking/joint_qpos_reward": 0.,
             "tracking/feet_swing_reward": 0.,
             "penalties/joint_deviation_l1_penalty": 0.,
@@ -826,6 +834,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
 
         # Goal tracking rewards
         # Goal info
+        swing_foot_idx = goal_state.swing_foot_idx
         if self._goal_name == "GoalDoubleFootPlacement":
             left_target_pos = goal_state.left_foot_target_pos[:2] # just (x,y)
             left_target_orn = goal_state.left_foot_target_orn
@@ -847,15 +856,22 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             rdot_q = backend.clip(backend.sum(right_target_orn * right_orn), -1.0, 1.0)
             rorn_err = 1.0 - backend.square(rdot_q)
 
-            swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * lpos_err_sq)
-            swing_pos_reward += self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * rpos_err_sq)
+            # discrimate left and right foot basing on the swing idx
+            swing_left = (swing_foot_idx == 0)
+            (swing_pos_error_sq, swing_orn_error, stance_pos_error_sq, stance_orn_error) = jax.lax.cond(
+                swing_left,
+                lambda: (lpos_err_sq, lorn_err, rpos_err_sq, rorn_err),
+                lambda: (rpos_err_sq, rorn_err, lpos_err_sq, lorn_err)
+            )
 
-            swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * lorn_err)
-            swing_orn_reward += self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * rorn_err)
+            swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq)
+            stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq)
+
+            swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * swing_orn_error) 
+            stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error)
         else:
             swing_target_pos = goal_state.swing_target_pos[:2] # just (x,y)
             swing_target_orn = goal_state.swing_target_orn
-            swing_foot_idx = goal_state.swing_foot_idx
 
             # Foot IDs
             swing_site_id = jax.lax.select((swing_foot_idx == 1), self._right_foot_site_id, self._left_foot_site_id)
@@ -876,6 +892,10 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
                 position_reached = int(not position_reached)
             else:
                 position_reached = jnp.where(position_reached, 0, 1)
+            
+            # for compatibility
+            stance_pos_reward = 0
+            stance_orn_reward = 0
 
         # Base height reward
         base_height_target = goal_state.goal_height
@@ -1101,6 +1121,8 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         survival_reward *= (self._survival * env.dt)
         swing_pos_reward *= env.dt
         swing_orn_reward *= env.dt
+        stance_pos_reward *= env.dt
+        stance_orn_reward *= env.dt
         joint_qpos_reward *= (self._nominal_joint_pos_coeff * env.dt)
         joint_deviation_l1_penalty *= (self._joint_deviation_l1_coeff * env.dt)
         base_height_reward *= (self._base_height_coeff * env.dt)
@@ -1130,6 +1152,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         
         tracking_reward = (
             swing_pos_reward + swing_orn_reward +
+            stance_pos_reward + stance_orn_reward +
             joint_qpos_reward + feet_swing_reward
         )
         
@@ -1163,6 +1186,8 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             "survival_reward": survival_reward,
             "tracking/tracking_swing_position": swing_pos_reward,
             "tracking/tracking_swing_orientation": swing_orn_reward,
+            "tracking/tracking_stance_position": stance_pos_reward,
+            "tracking/tracking_stance_orientation": stance_orn_reward,
             "tracking/joint_qpos_reward": joint_qpos_reward,
             "tracking/feet_swing_reward": feet_swing_reward,
             "penalties/base_height_reward": base_height_reward,

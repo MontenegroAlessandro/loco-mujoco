@@ -706,6 +706,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         # stance foot posiiton in the WORLD
         stance_foot_pos = data.site_xpos[stance_foot_site_id]
+        stance_foot_orn = R.from_matrix(data.site_xmat[stance_foot_site_id].reshape(3, 3)).as_quat(scalar_first=True)
+
         # orientation of the body in the WORLD (needed to compute the right angles), to be converted into (x,y,z,w)
         root_quat_mj = jnp.array(data.qpos)[self._root_qpos_ids[3:7]]
         root_quat_scipy = quat_scalarfirst2scalarlast(root_quat_mj)
@@ -718,7 +720,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         angle = jax.random.uniform(subkey2, minval=self.angle_range_rad[0], maxval=self.angle_range_rad[1])
         lateral_sign = jnp.where(stance_is_right, 1, -1)
         # target height 
-        target_z_offset = jax.random.uniform(subkey3, minval=self.z_height_range[0], maxval=self.z_height_range[1])
+        target_z_offset = 0 # FIXME jax.random.uniform(subkey3, minval=self.z_height_range[0], maxval=self.z_height_range[1])
         # step vector to be added to the stance foot coordinates
         step_vec_local = backend.array(
             [distance * backend.cos(angle), distance * backend.sin(angle) * lateral_sign, 0.0]
@@ -750,28 +752,36 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             gait_process=gp
         )
 
-        # Replace the info for the left or right foot
+        # Replace the info for the left or right foot (the stance foot has its current position and orientations as targets)
         if backend == np:
             if swing_foot_idx == 0:
                 state = state.replace(
                     left_foot_target_pos=target_pos,
-                    left_foot_target_orn=target_orn
+                    left_foot_target_orn=target_orn,
+                    right_foot_target_pos=stance_foot_pos,
+                    right_foot_target_orn=stance_foot_orn
                 )
             else:
                 state = state.replace(
                     right_foot_target_pos=target_pos,
-                    right_foot_target_orn=target_orn
+                    right_foot_target_orn=target_orn,
+                    left_foot_target_pos=stance_foot_pos,
+                    left_foot_target_orn=stance_foot_orn
                 )
         else:
             state = jax.lax.cond(
                 (swing_foot_idx == 0),
                 lambda s: s.replace(
                     left_foot_target_pos=target_pos,
-                    left_foot_target_orn=target_orn
+                    left_foot_target_orn=target_orn,
+                    right_foot_target_pos=stance_foot_pos,
+                    right_foot_target_orn=stance_foot_orn
                 ),
                 lambda s: s.replace(
                     right_foot_target_pos=target_pos,
-                    right_foot_target_orn=target_orn
+                    right_foot_target_orn=target_orn,
+                    left_foot_target_pos=stance_foot_pos,
+                    left_foot_target_orn=stance_foot_orn
                 ),
                 operand=state
             )
@@ -831,8 +841,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         left_R_target_orn_world =  R.from_quat(quat_scalarfirst2scalarlast(state.left_foot_target_orn))
         right_R_target_orn_world =  R.from_quat(quat_scalarfirst2scalarlast(state.right_foot_target_orn))
         # rotate the offsets into local frame
-        left_local_target_offset_orn = (left_foot_matrix.T * left_R_target_orn_world).as_quat(scalar_first=True)
-        right_local_target_offset_orn = (right_foot_matrix.T * right_R_target_orn_world).as_quat(scalar_first=True)
+        left_local_target_offset_orn = (left_foot_matrix.inv() * left_R_target_orn_world).as_quat(scalar_first=True)
+        right_local_target_offset_orn = (right_foot_matrix.inv() * right_R_target_orn_world).as_quat(scalar_first=True)
         # Hemisphere correction (keep w >= 0 for continuity)
         if backend == jnp:
             # left
@@ -854,10 +864,11 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
 
         # Concatenate the observation
         observation = backend.concatenate([
-            left_pos_offset_local,
-            left_local_target_offset_orn,
-            right_pos_offset_local,
-            right_local_target_offset_orn,
+            left_pos_offset_local, # left info pos
+            left_local_target_offset_orn, # left info orn
+            right_pos_offset_local, # right info pos
+            right_local_target_offset_orn, # right info orn
+            backend.array([gp, state.gait_frequency]), # gait process info
             # swing_one_hot
         ])
 
@@ -874,7 +885,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
 
     @property
     def dim(self) -> int:
-        return 14 # let's see... if also the one hot then 16
+        return 16 # let's see... if also the one hot then 16
 
     @property
     def has_visual(self) -> bool:
