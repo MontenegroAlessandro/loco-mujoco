@@ -586,12 +586,18 @@ class GoalDoubleFootPlacementState:
     goal_height: float                  # the desired height to maintain (for booster is 0.68)
     gait_frequency: float               # the desired gait frequency (1.0 is normal, 2.0 is very fast)     
     gait_process: float                 # \in [0,1] s.t. left \in [0,0.5) and right \in [0.5,1]
+    walking_scheme_idx: int
+    gait_horizon: int
+    gait_counter: int
+    angle_range_rad: List[float]
+    distance_range: List[float]
 
 class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
     """
     Goal for tracking a random target (x,y,z) position, (w,x,y,z) orientation and swing foot.
     Target is relative to the stance foot.
     """
+    walking_schemes_map = dict(forward=0, backward=1, left=2, right=3, stand=4)
     def __init__(
             self,
             info_props: Dict,
@@ -602,7 +608,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             angle_range_deg: List[float] = [-180.0, 180.0],
             yaw_range_deg: List[float] = [-15.0, 15.0],
             goal_height: float = 0.68,
-            feet_swing_period: float = 0.2,
+            feet_distance: float = 0.2,
             gait_frequency_range: List[float] = [1.0, 2.0],
             walking_schemes: List[str] = [],
             gait_horizon: int = 1,
@@ -616,14 +622,14 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.yaw_range_rad = [np.deg2rad(yaw_range_deg[0]), np.deg2rad(yaw_range_deg[1])]
         self.goal_height = goal_height
         self.gait_frequency_range = gait_frequency_range
-        self.feet_swing_period = feet_swing_period
+        self.feet_distance = feet_distance
         
         self._foot_site_ids = [-1, -1]
         self._root_joint_name = info_props["root_free_joint_xml_name"]
         self._root_qpos_ids = []
 
         # Walking Schemes
-        self.walking_schemes = walking_schemes
+        self.walking_schemes = [self.walking_schemes_map[walk] for walk in walking_schemes]
         self.gait_horizon = gait_horizon
         # NOTE: the walking schemes can be chosen as: forward, backward, left, right, stand
 
@@ -687,10 +693,15 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         )
 
         # set the walking scheme
-        distance_range, angle_range_rad = self.sample_ranges(
-            walking_scheme=self.walking_schemes[0] if len(self.walking_schemes) > 0 else None,
-            backend=backend
-        )
+        if len(self.walking_schemes) > 0:
+            distance_range, angle_range_rad = self.sample_ranges(
+                walking_scheme=self.walking_schemes[0],
+                backend=backend
+            )
+        else:
+            distance_range = backend.array(self.xy_distance_range)
+            angle_range_rad = backend.array(self.angle_range_rad)
+
 
         # Sample the initial goal
         goal_state = self.sample_goal(
@@ -835,17 +846,27 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         resample_goal = (swing_foot_idx != state.swing_foot_idx)
 
         # update the walking scheme if needed
-        if len(self.walking_schemes) > 0 and resample_goal:
-            gait_counter = state.gait_counter + 1
-            walking_scheme_idx = state.walking_scheme_idx
-            if gait_counter >= state.gait_horizon:
-                walking_scheme_idx = (walking_scheme_idx + 1) % len(self.walking_schemes)
-                gait_counter = 0
-            # update the state
+        if len(self.walking_schemes) > 0:
+            gait_counter = state.gait_counter + backend.where(resample_goal, 1, 0)
+        
+            if backend == np:
+                walking_scheme_idx = state.walking_scheme_idx
+                if gait_counter >= state.gait_horizon:
+                    walking_scheme_idx = (walking_scheme_idx + 1) % len(self.walking_schemes)
+                    gait_counter = 0
+            else:
+                walking_scheme_idx, gait_counter = jax.lax.cond(
+                    gait_counter >= state.gait_horizon,
+                    lambda _: ((state.walking_scheme_idx + 1) % len(self.walking_schemes), 0),
+                    lambda _: (state.walking_scheme_idx, gait_counter),
+                    operand=None
+                )
+
             distance_range, angle_range_rad = self.sample_ranges(
-                walking_scheme=self.walking_schemes[walking_scheme_idx],
+                walking_scheme=backend.array(self.walking_schemes)[walking_scheme_idx],
                 backend=backend
             )
+
             state = state.replace(
                 walking_scheme_idx=walking_scheme_idx,
                 gait_counter=gait_counter,
@@ -947,21 +968,41 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         distance_range = [self.xy_distance_range[0], self.xy_distance_range[1]]
         angle_range_rad = [self.angle_range_rad[0], self.angle_range_rad[1]]
 
-        if walking_scheme == "forward":
-            # The distance can remain the same, but limit the angle to a forward cone
-            angle_range_rad = [-backend.deg2rad(45.0), backend.deg2rad(45.0)]
-        elif walking_scheme == "backward":
-            # ... as before!
-            angle_range_rad = [backend.deg2rad(135.0), backend.deg2rad(135.0)]
-        elif walking_scheme == "left":
-            # ... as before!
-            angle_range_rad = [backend.deg2rad(90.0), backend.deg2rad(90.0)]
-        elif walking_scheme == "right":
-            # ... as before!
-            angle_range_rad = [backend.deg2rad(270.0), backend.deg2rad(270.0)]
-        elif walking_scheme == "stand":
-            # the distance should be zero (the angle is not relevant)
-            distance_range = [0.0, 0.0]
+        def forward(_):
+            return [-backend.deg2rad(45.0), backend.deg2rad(45.0)], distance_range
+
+        def backward(_):
+            return [backend.deg2rad(135.0), backend.deg2rad(135.0)], distance_range
+
+        def left(_):
+            return [backend.deg2rad(90.0), backend.deg2rad(90.0)], distance_range
+
+        def right(_):
+            return [backend.deg2rad(270.0), backend.deg2rad(270.0)], distance_range
+
+        def stand(_):
+            return angle_range_rad, [0.0, 0.0]
+
+        branches = [forward, backward, left, right, stand]
+
+        if backend == np:
+            if walking_scheme == self.walking_schemes_map["forward"]:
+                # The distance can remain the same, but limit the angle to a forward cone
+                angle_range_rad = [-backend.deg2rad(45.0), backend.deg2rad(45.0)]
+            elif walking_scheme == self.walking_schemes_map["backward"]:
+                # ... as before!
+                angle_range_rad = [backend.deg2rad(135.0), backend.deg2rad(135.0)]
+            elif walking_scheme == self.walking_schemes_map["left"]:
+                # ... as before!
+                angle_range_rad = [backend.deg2rad(90.0), backend.deg2rad(90.0)]
+            elif walking_scheme == self.walking_schemes_map["right"]:
+                # ... as before!
+                angle_range_rad = [backend.deg2rad(270.0), backend.deg2rad(270.0)]
+            elif walking_scheme == self.walking_schemes_map["stand"]:
+                # the distance should be zero (the angle is not relevant)
+                distance_range = [0.0, 0.0]
+        else:
+            angle_range_rad, distance_range = jax.lax.switch(walking_scheme, branches, None)
 
         return distance_range, angle_range_rad
 
