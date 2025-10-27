@@ -1252,7 +1252,7 @@ class GoalFootPlacementFromVelocity(Goal, RootAndFootPlacementVisualizer):
         target_pos = target_pos.at[2].set(stance_pos[2]) if backend == jnp else np.array([target_pos[0], target_pos[1], stance_pos[2]])
 
         # yaw only; you can compose with stance yaw if desired
-        target_yaw = dyaw * ( -1.0 if stance_is_right else 1.0 )
+        target_yaw = dyaw * (-side_sign) # ( -1.0 if stance_is_right else 1.0 )
         target_orn = R.from_euler('z', target_yaw).as_quat(scalar_first=True)
 
         # Update the pair of targets: swing gets the step; stance keeps current pose

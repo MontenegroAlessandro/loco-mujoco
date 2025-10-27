@@ -835,7 +835,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         # Goal tracking rewards
         # Goal info
         swing_foot_idx = goal_state.swing_foot_idx
-        if self._goal_name == "GoalDoubleFootPlacement":
+        if self._goal_name in ["GoalDoubleFootPlacement", "GoalFootPlacementFromVelocity"]:
             left_target_pos = goal_state.left_foot_target_pos[:2] # just (x,y)
             left_target_orn = goal_state.left_foot_target_orn
             right_target_pos = goal_state.right_foot_target_pos[:2] # just (x,y)
@@ -1039,7 +1039,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
 
         # Feet swing reward
         gait_frequency = goal_state.gait_frequency
-        if self._goal_name in ["GoalRandomChangingFootPlacement", "GoalDoubleFootPlacement"]:
+        if self._goal_name in ["GoalRandomChangingFootPlacement", "GoalDoubleFootPlacement", "GoalFootPlacementFromVelocity"]:
             # if we use the changing target, we have to sync to the goal gait phase
             gait_process = goal_state.gait_process
         else:

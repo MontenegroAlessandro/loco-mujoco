@@ -458,6 +458,7 @@ class RootAndFootPlacementVisualizer:
         R = np_R if backend == np else jnp_R
         user_scene = carry.user_scene
         geoms = user_scene.geoms
+        goal_state = getattr(carry.observation_states, self.name)
 
         # === ROOT ARROWS ===
         root_qpos = backend.squeeze(data.qpos[free_jnt_qposid])
@@ -466,8 +467,8 @@ class RootAndFootPlacementVisualizer:
         root_mat = root_quat.as_matrix()
         root_pos = data.xpos[root_body_id]
 
-        goal_lin_vel = goal[:3]
-        goal_rot_vel = goal[5] if goal.size >= 6 else 0.0
+        goal_lin_vel = goal_state.commanded_vel
+        # goal_rot_vel = goal[5] if goal.size >= 6 else 0.0
 
         arrow_mat = root_mat @ R.from_euler("y", 90, degrees=True).as_matrix()
         min_arrow_length = 0.1
@@ -529,7 +530,6 @@ class RootAndFootPlacementVisualizer:
                 user_scene.geoms.rgba[rot_idx] = self._rot_vel_arrow_color
 
         # === FOOT BOXES ===
-        goal_state = getattr(carry.observation_states, self.name)
         left_pos = goal_state.left_foot_target_pos
         left_orn = goal_state.left_foot_target_orn
         right_pos = goal_state.right_foot_target_pos
