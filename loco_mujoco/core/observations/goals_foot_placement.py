@@ -1067,9 +1067,10 @@ class GoalFootPlacementFromVelocity(Goal, RootAndFootPlacementVisualizer):
         self.upper_body_xml_name = info_props["upper_body_xml_name"]
         self.free_jnt_name = info_props["root_free_joint_xml_name"]
 
-        RootAndFootPlacementVisualizer.__init__(self, info_props, visualize_rot_vel=True)
+        RootAndFootPlacementVisualizer.__init__(self, info_props, visualize_rot_vel=False)
         n_visual_geoms = self._n_visual_geoms if visualize_goal else 0
         super().__init__(info_props, n_visual_geoms=n_visual_geoms, **kwargs)
+
 
     def _init_from_mj(self, env, model, data, current_obs_size):
         self.obs_ind = np.arange(current_obs_size, current_obs_size + self.dim)
