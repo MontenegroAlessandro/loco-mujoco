@@ -24,7 +24,7 @@ experiment:
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.2828427,0.2828427]
+      xy_distance_range: [0.2,0.5]
       # Range for the target foot height [min, max] from the ground
       z_height_range: [0.0, 0.0]
       # Range for omnidirectional step angle [-180, 180] for a full circle
@@ -39,7 +39,7 @@ experiment:
       # observation group
       group: [prioritized, policy]
       # walking schemes
-      walking_schemes: [forward,stand,backward]
+      walking_schemes: [forward,stand,backward,stand]
       gait_horizon: 10
 
 
