@@ -453,30 +453,30 @@ class RootAndFootPlacementVisualizer:
                 visual_geoms_idx: List[int],
                 backend: ModuleType) -> Any:
         """
-        Draw both the root velocity arrows and the left/right foot boxes.
-        Compatible with GoalFootPlacementFromVelocityState.
+        Draw: (1) red root-velocity arrow + center sphere (+ optional rot arrow),
+            (2) blue/orange left/right foot target boxes.
+        Reads GoalFootPlacementFromVelocityState from carry.observation_states.<self.name>.
         """
-
         R = np_R if backend == np else jnp_R
         user_scene = carry.user_scene
         geoms = user_scene.geoms
         state = getattr(carry.observation_states, self.name)
 
-        # === ROOT VELOCITY ARROWS ===
+        # ---- Root pose (yaw-only) ----
         root_qpos = backend.squeeze(data.qpos[free_jnt_qposid])
         root_quat = R.from_quat(quat_scalarfirst2scalarlast(root_qpos[3:7]))
         root_quat = extract_z_rotation(root_quat, backend)
         root_mat = root_quat.as_matrix()
         root_pos = data.xpos[root_body_id]
 
-        goal_lin_vel = state.commanded_vel
-        goal_rot_vel = state.commanded_vel[2]
-
-        # Compute arrow orientation same as RootVelocityArrowVisualizer
+        # ---- Commanded velocities ----
+        goal_lin_vel = state.commanded_vel  # [vx, vy, wz], we use vx,vy for the arrow dir
+        # orientation = root_yaw * Ry(90deg) * Rx(angle_between([0,0,1], reorder(v)))
         v1 = backend.array([0.0, 0.0, 1.0])
         reorder = np.array([2, 1, 0])
         base = root_mat @ R.from_euler("y", 90, degrees=True).as_matrix()
-        goal_lin_vel_norm = goal_lin_vel[reorder] / (backend.linalg.norm(goal_lin_vel[reorder]) + 1e-9)
+        denom = backend.linalg.norm(goal_lin_vel[reorder]) + 1e-9
+        goal_lin_vel_norm = goal_lin_vel[reorder] / denom
         cross = backend.cross(v1, goal_lin_vel_norm)
         dot = backend.dot(v1, goal_lin_vel_norm)
         angle = backend.arctan2(cross[0], dot)
@@ -487,49 +487,54 @@ class RootAndFootPlacementVisualizer:
         arrow_length = backend.linalg.norm(goal_lin_vel) + min_arrow_length
         arrow_size = backend.array([0.025, 0.025, arrow_length])
 
+        # indices layout: [arrow, sphere, (rot_arrow?), left_box, right_box]
         arrow_idx = visual_geoms_idx[0]
         sphere_idx = visual_geoms_idx[1]
         next_idx = 2
 
+        # ---- Update ARROWS ----
         if backend == jnp:
-            # JAX immutable updates
             geom_pos = geoms.pos
             geom_mat = geoms.mat
             geom_type = geoms.type
             geom_size = geoms.size
             geom_rgba = geoms.rgba
 
+            # linear vel arrow
             geom_pos = geom_pos.at[arrow_idx].set(root_pos + self._z_offset)
             geom_mat = geom_mat.at[arrow_idx].set(arrow_mat)
             geom_type = geom_type.at[arrow_idx].set(self._arrow_type)
             geom_size = geom_size.at[arrow_idx].set(arrow_size)
             geom_rgba = geom_rgba.at[arrow_idx].set(self._arrow_color)
 
+            # center sphere
             geom_pos = geom_pos.at[sphere_idx].set(root_pos + self._z_offset)
             geom_mat = geom_mat.at[sphere_idx].set(self._center_sphere_mat)
             geom_type = geom_type.at[sphere_idx].set(self._center_sphere_type)
             geom_size = geom_size.at[sphere_idx].set(self._center_sphere_size)
             geom_rgba = geom_rgba.at[sphere_idx].set(self._center_sphere_color)
 
+            # optional rot-vel arrow (kept simple: oriented with root yaw only, like your working viz)
             if self._visualize_rot_vel:
                 rot_idx = visual_geoms_idx[next_idx]
                 next_idx += 1
-                rot_vel_arrow_mat = root_mat @ R.from_euler("y", 90, degrees=True).as_matrix()
+                rot_vel_arrow_mat = (root_mat @ R.from_euler("y", 90, degrees=True).as_matrix()).reshape(-1)
                 geom_pos = geom_pos.at[rot_idx].set(root_pos + self._z_offset)
-                geom_mat = geom_mat.at[rot_idx].set(rot_vel_arrow_mat.reshape(-1))
+                geom_mat = geom_mat.at[rot_idx].set(rot_vel_arrow_mat)
                 geom_type = geom_type.at[rot_idx].set(self._rot_vel_arrow_type)
                 geom_size = geom_size.at[rot_idx].set(self._rot_vel_arrow_size)
                 geom_rgba = geom_rgba.at[rot_idx].set(self._rot_vel_arrow_color)
+
         else:
-            # NumPy mutable updates
-            user_scene.geoms.pos[arrow_idx] = root_pos + self._z_offset
-            user_scene.geoms.mat[arrow_idx] = arrow_mat
+            # NumPy: mutate in place (like your working visualizers)…
+            user_scene.geoms.pos[arrow_idx]  = root_pos + self._z_offset
+            user_scene.geoms.mat[arrow_idx]  = arrow_mat
             user_scene.geoms.type[arrow_idx] = self._arrow_type
             user_scene.geoms.size[arrow_idx] = arrow_size
             user_scene.geoms.rgba[arrow_idx] = self._arrow_color
 
-            user_scene.geoms.pos[sphere_idx] = root_pos + self._z_offset
-            user_scene.geoms.mat[sphere_idx] = self._center_sphere_mat
+            user_scene.geoms.pos[sphere_idx]  = root_pos + self._z_offset
+            user_scene.geoms.mat[sphere_idx]  = self._center_sphere_mat
             user_scene.geoms.type[sphere_idx] = self._center_sphere_type
             user_scene.geoms.size[sphere_idx] = self._center_sphere_size
             user_scene.geoms.rgba[sphere_idx] = self._center_sphere_color
@@ -537,20 +542,20 @@ class RootAndFootPlacementVisualizer:
             if self._visualize_rot_vel:
                 rot_idx = visual_geoms_idx[next_idx]
                 next_idx += 1
-                rot_vel_arrow_mat = root_mat @ R.from_euler("y", 90, degrees=True).as_matrix()
-                user_scene.geoms.pos[rot_idx] = root_pos + self._z_offset
-                user_scene.geoms.mat[rot_idx] = rot_vel_arrow_mat.reshape(-1)
+                rot_vel_arrow_mat = (root_mat @ R.from_euler("y", 90, degrees=True).as_matrix()).reshape(-1)
+                user_scene.geoms.pos[rot_idx]  = root_pos + self._z_offset
+                user_scene.geoms.mat[rot_idx]  = rot_vel_arrow_mat
                 user_scene.geoms.type[rot_idx] = self._rot_vel_arrow_type
                 user_scene.geoms.size[rot_idx] = self._rot_vel_arrow_size
                 user_scene.geoms.rgba[rot_idx] = self._rot_vel_arrow_color
 
-        # === FOOT TARGET BOXES ===
-        left_pos = state.left_foot_target_pos
-        left_orn = state.left_foot_target_orn
+        # ---- FOOT TARGET BOXES ----
+        left_pos  = state.left_foot_target_pos
+        left_orn  = state.left_foot_target_orn
         right_pos = state.right_foot_target_pos
         right_orn = state.right_foot_target_orn
 
-        left_mat = R.from_quat(quat_scalarfirst2scalarlast(left_orn)).as_matrix().reshape(-1)
+        left_mat  = R.from_quat(quat_scalarfirst2scalarlast(left_orn)).as_matrix().reshape(-1)
         right_mat = R.from_quat(quat_scalarfirst2scalarlast(right_orn)).as_matrix().reshape(-1)
 
         if backend == jnp:
@@ -569,24 +574,34 @@ class RootAndFootPlacementVisualizer:
             new_geoms = geoms.replace(
                 pos=geom_pos, mat=geom_mat, size=geom_size, type=geom_type, rgba=geom_rgba
             )
+            new_user_scene = user_scene.replace(geoms=new_geoms)
+            return carry.replace(user_scene=new_user_scene)
+
         else:
-            user_scene.geoms.pos[visual_geoms_idx[next_idx]] = left_pos
-            user_scene.geoms.mat[visual_geoms_idx[next_idx]] = left_mat
-            user_scene.geoms.type[visual_geoms_idx[next_idx]] = self._box_type
-            user_scene.geoms.size[visual_geoms_idx[next_idx]] = self._box_size
-            user_scene.geoms.rgba[visual_geoms_idx[next_idx]] = self._colors[0]
+            # mutate for boxes too
+            user_scene.geoms.pos[visual_geoms_idx[next_idx]]     = left_pos
+            user_scene.geoms.mat[visual_geoms_idx[next_idx]]     = left_mat
+            user_scene.geoms.type[visual_geoms_idx[next_idx]]    = self._box_type
+            user_scene.geoms.size[visual_geoms_idx[next_idx]]    = self._box_size
+            user_scene.geoms.rgba[visual_geoms_idx[next_idx]]    = self._colors[0]
 
-            user_scene.geoms.pos[visual_geoms_idx[next_idx+1]] = right_pos
-            user_scene.geoms.mat[visual_geoms_idx[next_idx+1]] = right_mat
-            user_scene.geoms.type[visual_geoms_idx[next_idx+1]] = self._box_type
-            user_scene.geoms.size[visual_geoms_idx[next_idx+1]] = self._box_size
-            user_scene.geoms.rgba[visual_geoms_idx[next_idx+1]] = self._colors[1]
+            user_scene.geoms.pos[visual_geoms_idx[next_idx+1]]   = right_pos
+            user_scene.geoms.mat[visual_geoms_idx[next_idx+1]]   = right_mat
+            user_scene.geoms.type[visual_geoms_idx[next_idx+1]]  = self._box_type
+            user_scene.geoms.size[visual_geoms_idx[next_idx+1]]  = self._box_size
+            user_scene.geoms.rgba[visual_geoms_idx[next_idx+1]]  = self._colors[1]
 
-            new_geoms = user_scene.geoms
+            # ❗ IMPORTANT: build commit arrays exactly like your working arrow viz
+            geom_pos  = user_scene.geoms.pos[self.visual_geoms_idx]
+            geom_mat  = user_scene.geoms.mat[self.visual_geoms_idx]
+            geom_type = user_scene.geoms.type[self.visual_geoms_idx]
+            geom_size = user_scene.geoms.size[self.visual_geoms_idx]
+            geom_rgba = user_scene.geoms.rgba[self.visual_geoms_idx]
 
-        # Commit changes
-        new_user_scene = user_scene.replace(geoms=new_geoms)
-        carry = carry.replace(user_scene=new_user_scene)
-        return carry
+            new_user_scene = user_scene.replace(geoms=user_scene.geoms.replace(
+                pos=geom_pos, mat=geom_mat, size=geom_size, type=geom_type, rgba=geom_rgba
+            ))
+            return carry.replace(user_scene=new_user_scene)
+
 
 
