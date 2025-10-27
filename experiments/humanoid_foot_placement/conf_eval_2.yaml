@@ -26,6 +26,7 @@ experiment:
       # Range for the random step length [min, max] in meters
       # xy_distance_range: [0.2,0.5]
       max_step_scale: 0.45
+      min_step_scale: 0.1
       # Range for the target foot height [min, max] from the ground
       # z_height_range: [0.0, 0.0]
       # Range for omnidirectional step angle [-180, 180] for a full circle

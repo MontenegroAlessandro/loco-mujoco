@@ -1041,6 +1041,7 @@ class GoalFootPlacementFromVelocity(Goal, RootAndFootPlacementVisualizer):
                  gait_frequency_range: List[float] = [1.0, 2.0],
                  # footstep synthesis
                  max_step_scale: float = 0.45,   # hard clip (m) per step
+                 min_step_scale: float = 0.1,   # hard clip (m) per step
                  yaw_step_clip: float = np.pi/8, # rad per step
                  goal_height: float = 0.68,
                  visualize_goal: bool = False,
@@ -1059,10 +1060,11 @@ class GoalFootPlacementFromVelocity(Goal, RootAndFootPlacementVisualizer):
 
         # step synthesis params
         self.max_step_scale = max_step_scale
+        self.min_step_scale = min_step_scale
         self.yaw_step_clip = yaw_step_clip
         self.goal_height = goal_height
 
-        DoubleFootPlacementVisualizer.__init__(self)
+        RootAndFootPlacementVisualizer.__init__(self, info_props, visualize_rot_vel=False)
         n_visual_geoms = self._n_visual_geoms if visualize_goal else 0
         super().__init__(info_props, n_visual_geoms=n_visual_geoms, **kwargs)
 
@@ -1129,18 +1131,18 @@ class GoalFootPlacementFromVelocity(Goal, RootAndFootPlacementVisualizer):
         # decide gait phase based on commanded velocity
         if backend == np:
             vx, vy, wz = cmd_v
-            if abs(vx) > abs(vy):
-                gp0 = 0.0 if vx >= 0 else 0.5
+            if abs(vy) > abs(vx):
+                gp0 = 0.0 if vy > 0 else 0.5
             else:
-                gp0 = 0.0 if vy <= 0 else 0.5
+                gp0 = 0.0 if vx >= 0 else 0.5
             # fallback: if almost zero velocity, random
             if abs(vx) < 1e-3 and abs(vy) < 1e-3 and abs(wz) < 1e-3:
                 gp0 = (np.random.randint(0, 2)) * 0.5
         else:
             vx, vy, wz = cmd_v
-            cond_forward = (backend.abs(vx) > backend.abs(vy))
-            gp0 = backend.where(cond_forward, backend.where(vx >= 0, 0.0, 0.5),
-                                backend.where(vy <= 0, 0.0, 0.5))
+            cond_forward = (backend.abs(vy) > backend.abs(vx))
+            gp0 = backend.where(cond_forward, backend.where(vy > 0, 0.0, 0.5),
+                                backend.where(vx >= 0, 0.0, 0.5))
             # if velocity is near zero, randomize
             key, subkey = jax.random.split(key)
             rand_gp = (jax.random.randint(subkey, shape=(), minval=0, maxval=2)) * 0.5
@@ -1171,7 +1173,6 @@ class GoalFootPlacementFromVelocity(Goal, RootAndFootPlacementVisualizer):
         observation_states = carry.observation_states.replace(**{self.name: state})
         return data, carry.replace(key=key, observation_states=observation_states)
 
-
     def _maybe_resample_command(self, env, model, data, carry, backend):
         """With probability resample_rate, refresh commanded velocity, gait frequency, and phase."""
         key = carry.key
@@ -1180,17 +1181,17 @@ class GoalFootPlacementFromVelocity(Goal, RootAndFootPlacementVisualizer):
         def decide_gait_phase(cmd_v, key):
             vx, vy, wz = cmd_v
             if backend == np:
-                if abs(vx) > abs(vy):
-                    gp0 = 0.0 if vx >= 0 else 0.5
+                if abs(vy) > abs(vx):
+                    gp0 = 0.0 if vy > 0 else 0.5 
                 else:
-                    gp0 = 0.0 if vy <= 0 else 0.5
+                    gp0 = 0.0 if vx >= 0 else 0.5 
                 if abs(vx) < 1e-3 and abs(vy) < 1e-3 and abs(wz) < 1e-3:
                     gp0 = (np.random.randint(0, 2)) * 0.5
             else:
-                cond_forward = (backend.abs(vx) > backend.abs(vy))
+                cond_forward = (backend.abs(vy) > backend.abs(vx))
                 gp0 = backend.where(cond_forward,
-                                    backend.where(vx >= 0, 0.0, 0.5),
-                                    backend.where(vy <= 0, 0.0, 0.5))
+                                    backend.where(vy > 0, 0.0, 0.5),
+                                    backend.where(vx >= 0, 0.0, 0.5))
                 key, subkey = jax.random.split(key)
                 rand_gp = (jax.random.randint(subkey, shape=(), minval=0, maxval=2)) * 0.5
                 near_zero = (backend.abs(vx) < 1e-3) & (backend.abs(vy) < 1e-3) & (backend.abs(wz) < 1e-3)
@@ -1385,7 +1386,15 @@ class GoalFootPlacementFromVelocity(Goal, RootAndFootPlacementVisualizer):
         carry = carry.replace(observation_states=observation_states)
 
         if self.visualize_goal:
-            carry = self.set_visuals(observation, env, model, data, carry, self.visual_geoms_idx, backend)
+            root_body_id = 0
+            # carry = self.set_visuals(observation, env, model, data, carry, self.visual_geoms_idx, backend)
+            carry = self.set_visuals(
+                observation, env, model, data, carry,
+                root_body_id=root_body_id,
+                free_jnt_qposid=self._root_qpos_ids,
+                visual_geoms_idx=self.visual_geoms_idx,
+                backend=backend
+            )
 
         return observation, carry
 
