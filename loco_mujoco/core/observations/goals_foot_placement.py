@@ -1064,7 +1064,10 @@ class GoalFootPlacementFromVelocity(Goal, RootAndFootPlacementVisualizer):
         self.yaw_step_clip = yaw_step_clip
         self.goal_height = goal_height
 
-        RootAndFootPlacementVisualizer.__init__(self, info_props, visualize_rot_vel=False)
+        self.upper_body_xml_name = info_props["upper_body_xml_name"]
+        self.free_jnt_name = info_props["root_free_joint_xml_name"]
+
+        RootAndFootPlacementVisualizer.__init__(self, info_props, visualize_rot_vel=True)
         n_visual_geoms = self._n_visual_geoms if visualize_goal else 0
         super().__init__(info_props, n_visual_geoms=n_visual_geoms, **kwargs)
 
@@ -1078,6 +1081,8 @@ class GoalFootPlacementFromVelocity(Goal, RootAndFootPlacementVisualizer):
         assert self._foot_site_id_left != -1
         assert self._foot_site_id_right != -1
         self._initialized_from_mj = True
+        self._root_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, self.upper_body_xml_name)
+        self._free_jnt_qpos_id = np.array(mj_jntname2qposid(self.free_jnt_name, model))
 
     def init_state(self, env, key, model, data, backend) -> GoalFootPlacementFromVelocityState:
         return GoalFootPlacementFromVelocityState(
@@ -1386,12 +1391,11 @@ class GoalFootPlacementFromVelocity(Goal, RootAndFootPlacementVisualizer):
         carry = carry.replace(observation_states=observation_states)
 
         if self.visualize_goal:
-            root_body_id = 0
             # carry = self.set_visuals(observation, env, model, data, carry, self.visual_geoms_idx, backend)
             carry = self.set_visuals(
                 observation, env, model, data, carry,
-                root_body_id=root_body_id,
-                free_jnt_qposid=self._root_qpos_ids,
+                root_body_id=self._root_body_id,
+                free_jnt_qposid=self._free_jnt_qpos_id,
                 visual_geoms_idx=self.visual_geoms_idx,
                 backend=backend
             )

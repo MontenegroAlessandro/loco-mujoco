@@ -403,6 +403,7 @@ class DoubleFootPlacementVisualizer:
         new_user_scene = user_scene.replace(geoms=new_geoms)
         return carry.replace(user_scene=new_user_scene)
 
+
 class RootAndFootPlacementVisualizer:
     """
     Combined visualizer for:
