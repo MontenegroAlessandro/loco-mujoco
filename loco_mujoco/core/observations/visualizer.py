@@ -588,6 +588,3 @@ class RootAndFootPlacementVisualizer:
         new_user_scene = user_scene.replace(geoms=new_geoms)
         return carry.replace(user_scene=new_user_scene)
 
-    @property
-    def n_visual_geoms(self):
-        return self._n_visual_geoms

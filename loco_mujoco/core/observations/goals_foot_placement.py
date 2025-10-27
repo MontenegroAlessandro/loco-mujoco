@@ -639,7 +639,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.walking_scheme_indices = jnp.array([scheme_map[w] for w in walking_schemes]) if walking_schemes else jnp.array([], dtype=jnp.int32)
         self.walking_schemes_len = len(walking_schemes)
 
-        FootPlacementVisualizer.__init__(self)
+        DoubleFootPlacementVisualizer.__init__(self)
         n_visual_geoms = self._n_visual_geoms if kwargs.get("visualize_goal") else 0
 
         super().__init__(info_props, n_visual_geoms=n_visual_geoms, **kwargs)
@@ -1067,7 +1067,7 @@ class GoalFootPlacementFromVelocity(Goal, RootAndFootPlacementVisualizer):
         self.upper_body_xml_name = info_props["upper_body_xml_name"]
         self.free_jnt_name = info_props["root_free_joint_xml_name"]
 
-        RootAndFootPlacementVisualizer.__init__(self, info_props, visualize_rot_vel=False)
+        RootAndFootPlacementVisualizer.__init__(self=self, info_props=info_props, visualize_rot_vel=False)
         n_visual_geoms = self._n_visual_geoms if visualize_goal else 0
         super().__init__(info_props, n_visual_geoms=n_visual_geoms, **kwargs)
 
