@@ -443,19 +443,20 @@ class RootAndFootPlacementVisualizer:
         self._n_visual_geoms = self._arrow_n_visual_geoms + 2
 
     def set_visuals(self,
-                    goal: Union[np.ndarray, jnp.ndarray],
-                    env: Any,
-                    model: Union[MjModel, Model],
-                    data: Union[MjData, Data],
-                    carry: Any,
-                    root_body_id: int,
-                    free_jnt_qposid: Union[np.ndarray, jnp.ndarray],
-                    visual_geoms_idx: List[int],
-                    backend: ModuleType) -> Any:
+                goal: Union[np.ndarray, jnp.ndarray],
+                env: Any,
+                model: Union[MjModel, Model],
+                data: Union[MjData, Data],
+                carry: Any,
+                root_body_id: int,
+                free_jnt_qposid: Union[np.ndarray, jnp.ndarray],
+                visual_geoms_idx: List[int],
+                backend: ModuleType) -> Any:
         """
         Draw both the root velocity arrows and the left/right foot boxes.
-        Uses GoalFootPlacementFromVelocityState from carry.observation_states.
+        Compatible with GoalFootPlacementFromVelocityState.
         """
+
         R = np_R if backend == np else jnp_R
         user_scene = carry.user_scene
         geoms = user_scene.geoms
@@ -471,7 +472,7 @@ class RootAndFootPlacementVisualizer:
         goal_lin_vel = state.commanded_vel
         goal_rot_vel = state.commanded_vel[2]
 
-        # Base rotation for arrow orientation
+        # Compute arrow orientation same as RootVelocityArrowVisualizer
         v1 = backend.array([0.0, 0.0, 1.0])
         reorder = np.array([2, 1, 0])
         base = root_mat @ R.from_euler("y", 90, degrees=True).as_matrix()
@@ -491,27 +492,25 @@ class RootAndFootPlacementVisualizer:
         next_idx = 2
 
         if backend == jnp:
+            # JAX immutable updates
             geom_pos = geoms.pos
             geom_mat = geoms.mat
             geom_type = geoms.type
             geom_size = geoms.size
             geom_rgba = geoms.rgba
 
-            # linear velocity arrow
             geom_pos = geom_pos.at[arrow_idx].set(root_pos + self._z_offset)
             geom_mat = geom_mat.at[arrow_idx].set(arrow_mat)
             geom_type = geom_type.at[arrow_idx].set(self._arrow_type)
             geom_size = geom_size.at[arrow_idx].set(arrow_size)
             geom_rgba = geom_rgba.at[arrow_idx].set(self._arrow_color)
 
-            # center sphere
             geom_pos = geom_pos.at[sphere_idx].set(root_pos + self._z_offset)
             geom_mat = geom_mat.at[sphere_idx].set(self._center_sphere_mat)
             geom_type = geom_type.at[sphere_idx].set(self._center_sphere_type)
             geom_size = geom_size.at[sphere_idx].set(self._center_sphere_size)
             geom_rgba = geom_rgba.at[sphere_idx].set(self._center_sphere_color)
 
-            # rotational velocity arrow (optional)
             if self._visualize_rot_vel:
                 rot_idx = visual_geoms_idx[next_idx]
                 next_idx += 1
@@ -522,6 +521,7 @@ class RootAndFootPlacementVisualizer:
                 geom_size = geom_size.at[rot_idx].set(self._rot_vel_arrow_size)
                 geom_rgba = geom_rgba.at[rot_idx].set(self._rot_vel_arrow_color)
         else:
+            # NumPy mutable updates
             user_scene.geoms.pos[arrow_idx] = root_pos + self._z_offset
             user_scene.geoms.mat[arrow_idx] = arrow_mat
             user_scene.geoms.type[arrow_idx] = self._arrow_type
@@ -567,8 +567,7 @@ class RootAndFootPlacementVisualizer:
             geom_rgba = geom_rgba.at[visual_geoms_idx[next_idx+1]].set(self._colors[1])
 
             new_geoms = geoms.replace(
-                pos=geom_pos, mat=geom_mat, size=geom_size,
-                type=geom_type, rgba=geom_rgba
+                pos=geom_pos, mat=geom_mat, size=geom_size, type=geom_type, rgba=geom_rgba
             )
         else:
             user_scene.geoms.pos[visual_geoms_idx[next_idx]] = left_pos
@@ -585,6 +584,9 @@ class RootAndFootPlacementVisualizer:
 
             new_geoms = user_scene.geoms
 
+        # Commit changes
         new_user_scene = user_scene.replace(geoms=new_geoms)
-        return carry.replace(user_scene=new_user_scene)
+        carry = carry.replace(user_scene=new_user_scene)
+        return carry
+
 
