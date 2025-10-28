@@ -408,7 +408,7 @@ experiment:
   len_obs_history: 1
   num_envs: 8192
   num_steps: 50
-  total_timesteps: 600e6
+  total_timesteps: 300e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995

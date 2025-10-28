@@ -99,7 +99,7 @@ class HierarchicalActorCritic(nn.Module):
     critic_obs_ind: jnp.ndarray = None
     # LL config
     ll_apply_fn: Callable = None
-    ll_params: Any
+    ll_params: Any = None
     ll_obs_ind: jnp.ndarray = None
 
     def setup(self):
