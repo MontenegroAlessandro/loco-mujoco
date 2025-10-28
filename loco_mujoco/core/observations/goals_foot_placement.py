@@ -600,8 +600,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
     def __init__(
             self,
             info_props: Dict,
-            left_foot_site_name: str,
-            right_foot_site_name: str,
+            left_foot_site_name: str = "left_foot",
+            right_foot_site_name: str = "right_foot",
             xy_distance_range: List[float] = [0.2, 0.4],
             z_height_range: List[float] = [0.05, 0.15],
             angle_range_deg: List[float] = [-180.0, 180.0],

@@ -12,8 +12,11 @@ from flax import struct
 import flax
 import optax
 
-from loco_mujoco.algorithms import (JaxRLAlgorithmBase, AgentConfBase, AgentStateBase, ActorCritic,
-                                    Transition, TrainState, TrainStateBuffer, MetricHandlerTransition, AdaptiveLRState)
+from loco_mujoco.algorithms import (
+    JaxRLAlgorithmBase, AgentConfBase, AgentStateBase, ActorCritic, Transition, TrainState, TrainStateBuffer, 
+    MetricHandlerTransition, AdaptiveLRState, HierarchicalActorCritic
+)
+import importlib
 from loco_mujoco.core.wrappers import RichLogWrapper, NStepWrapper, RichLogEnvState, VecEnv, NormalizeVecReward, SummaryRichMetrics
 from loco_mujoco.utils import MetricsHandler, ValidationSummary
 
@@ -77,32 +80,79 @@ class PPOJax(JaxRLAlgorithmBase):
                 config.experiment.num_updates // config.experiment.validation_interval)
 
         # INIT NETWORK
+        is_hierarchical = config.experiment.get("hierarchical", False)
+
         hidden_layers = config.experiment.hidden_layers \
             if isinstance(config.experiment.hidden_layers, (list, ListConfig)) \
             else ast.literal_eval(config.experiment.hidden_layers)
+        
         if hasattr(config.experiment, "actor_obs_group") and config.experiment.actor_obs_group is not None:
             actor_obs_ind = env.obs_container.get_obs_ind_by_group(config.experiment.actor_obs_group)
         else:
             actor_obs_ind = jnp.arange(env.mdp_info.observation_space.shape[0])
+
         if hasattr(config.experiment, "critic_obs_group") and config.experiment.critic_obs_group is not None:
             critic_obs_ind = env.obs_container.get_obs_ind_by_group(config.experiment.critic_obs_group)
         else:
             critic_obs_ind = jnp.arange(env.mdp_info.observation_space.shape[0])
+
         if hasattr(config.experiment, "len_obs_history") and config.experiment.len_obs_history > 1:
             obs_len = env.info.observation_space.shape[0]
-            actor_obs_ind = jnp.concatenate([actor_obs_ind + i*obs_len
-                                             for i in range(config.experiment.len_obs_history)])
-            critic_obs_ind = jnp.concatenate([critic_obs_ind + i*obs_len
-                                              for i in range(config.experiment.len_obs_history)])
-        network = ActorCritic(
-            env.info.action_space.shape[0],
-            activation=config.experiment.activation,
-            init_std=config.experiment.init_std,
-            learnable_std=config.experiment.learnable_std,
-            hidden_layer_dims=hidden_layers,
-            actor_obs_ind=actor_obs_ind,
-            critic_obs_ind=critic_obs_ind
-        )
+            actor_obs_ind = jnp.concatenate([actor_obs_ind + i*obs_len for i in range(config.experiment.len_obs_history)])
+            critic_obs_ind = jnp.concatenate([critic_obs_ind + i*obs_len for i in range(config.experiment.len_obs_history)])
+
+        if is_hierarchical:
+            if "ll_policy_path" not in config.experiment:
+                raise ValueError("Config must set 'll_policy_path' for hierarchical training.")
+            
+            if "ll_obs_group" in config.experiment and config.experiment.ll_obs_group is not None:
+                ll_obs_ind = env.obs_container.get_obs_ind_by_group(config.experiment.ll_obs_group)
+            else:
+                ll_obs_ind = None
+            
+            if "ll_action_goal_module" not in config.experiment or "ll_action_goal_class" not in config.experiment:
+                raise ValueError("Hierarchical config must specify 'll_action_goal_module' and 'll_action_goal_class'.")
+                
+            # Load the frozen LL policy
+            ll_agent_conf, ll_agent_state = PPOJax.load_agent(config.experiment.ll_policy_path)
+            frozen_ll_params = ll_agent_state.train_state.params
+            ll_apply_fn = ll_agent_conf.network.apply
+
+            # Get the action dimensionality for the HL from the Goal used to train the LL
+            try:
+                module_path = config.experiment.hl_action_goal_module
+                class_name = config.experiment.hl_action_goal_class
+                goal_module = importlib.import_module(module_path)
+                GoalClass = getattr(goal_module, class_name)
+            except (ImportError, AttributeError) as e:
+                raise ValueError(f"Could not import or find goal class '{class_name}' from module '{module_path}'.") from e
+            goal_params = config.experiment.get("hl_action_goal_params", {})
+            info_props = env.info.info_props
+            ref_goal = GoalClass(info_props, **goal_params)
+            action_dim = ref_goal.dim
+
+            network = HierarchicalActorCritic(
+                hl_action_dim=action_dim,
+                activation=config.experiment.activation,
+                init_std=config.experiment.init_std,
+                learnable_std=config.experiment.learnable_std,
+                hidden_layer_dims=hidden_layers,
+                actor_obs_ind=actor_obs_ind,
+                critic_obs_ind=critic_obs_ind,
+                ll_apply_fn=ll_apply_fn,
+                ll_params=frozen_ll_params,
+                ll_obs_ind=ll_obs_ind
+            )
+        else:
+            network = ActorCritic(
+                env.info.action_space.shape[0],
+                activation=config.experiment.activation,
+                init_std=config.experiment.init_std,
+                learnable_std=config.experiment.learnable_std,
+                hidden_layer_dims=hidden_layers,
+                actor_obs_ind=actor_obs_ind,
+                critic_obs_ind=critic_obs_ind
+            )
 
         # set up optimizers
         tx = cls._get_optimizer(config)
@@ -121,7 +171,7 @@ class PPOJax(JaxRLAlgorithmBase):
                 ),
             )
         else:
-             tx = optax.chain(
+            tx = optax.chain(
                 optax.clip_by_global_norm(config.experiment.max_grad_norm),
                 optax.adamw(config.experiment.lr, weight_decay=config.experiment.weight_decay, eps=1e-5),
             )
@@ -187,16 +237,22 @@ class PPOJax(JaxRLAlgorithmBase):
 
                 # SELECT ACTION
                 rng, _rng = jax.random.split(rng)
-                y, updates = network.apply({'params': train_state.params,
-                                                  'run_stats': train_state.run_stats},
-                                                 last_obs, mutable=["run_stats"])
+                y, updates = network.apply(
+                    {'params': train_state.params, 'run_stats': train_state.run_stats},last_obs, mutable=["run_stats"]
+                )
                 pi, value = y
                 train_state = train_state.replace(run_stats=updates['run_stats'])   # update stats
                 action = pi.sample(seed=_rng)
                 log_prob = pi.log_prob(action)
 
+                # select the final action (for compatibility with the hierarchical agent)
+                final_action = network.apply(
+                    {'params': train_state.params},last_obs,action, method=network.get_final_action
+                )
+
                 # STEP ENV
-                obsv, reward, absorbing, done, info, env_state = env.step(env_state, action)
+                # obsv, reward, absorbing, done, info, env_state = env.step(env_state, action)
+                obsv, reward, absorbing, done, info, env_state = env.step(env_state, final_action)
 
                 # GET METRICS
                 log_env_state = env_state.find(RichLogEnvState)
@@ -215,9 +271,9 @@ class PPOJax(JaxRLAlgorithmBase):
 
             # CALCULATE ADVANTAGE
             train_state, env_state, last_obs, train_state_buffer, rng = runner_state
-            y, _ = network.apply({'params': train_state.params,
-                                              'run_stats': train_state.run_stats},
-                                             last_obs, mutable=["run_stats"])
+            y, _ = network.apply(
+                {'params': train_state.params,'run_stats': train_state.run_stats},last_obs, mutable=["run_stats"]
+            )
             pi, last_val = y
 
             def _calculate_gae(traj_batch, last_val):
@@ -256,8 +312,9 @@ class PPOJax(JaxRLAlgorithmBase):
 
                     def _loss_fn(params, traj_batch, gae, targets):
                         # RERUN NETWORK
-                        y, _ = network.apply({'params': params, 'run_stats': train_state.run_stats},
-                                             traj_batch.obs, mutable=["run_stats"])
+                        y, _ = network.apply(
+                            {'params': params, 'run_stats': train_state.run_stats},traj_batch.obs, mutable=["run_stats"]
+                        )
                         pi, value = y
                         log_prob = pi.log_prob(traj_batch.action)
 
@@ -400,8 +457,13 @@ class PPOJax(JaxRLAlgorithmBase):
                     train_state = train_state.replace(run_stats=updates['run_stats'])  # update stats
                     action = pi.sample(seed=_rng)
 
+                    final_action = network.apply(
+                        {'params': train_state.params},last_obs,action, method=network.get_final_action
+                    )
+
                     # STEP ENV
-                    obsv, reward, absorbing, done, info, env_state = env.step(env_state, action)
+                    # obsv, reward, absorbing, done, info, env_state = env.step(env_state, action)
+                    obsv, reward, absorbing, done, info, env_state = env.step(env_state, final_action)
 
                     # GET METRICS
                     log_env_state = env_state.find(RichLogEnvState)
@@ -497,13 +559,17 @@ class PPOJax(JaxRLAlgorithmBase):
             assert n_envs == 1, "Only one mujoco env can be run at a time."
 
         def sample_actions(ts, obs, _rng):
-            y, updates = agent_conf.network.apply({'params': ts.params,
-                                                   'run_stats': ts.run_stats},
-                                                  obs, mutable=["run_stats"])
+            y, updates = agent_conf.network.apply(
+                {'params': ts.params,'run_stats': ts.run_stats}, obs, mutable=["run_stats"])
             ts = ts.replace(run_stats=updates['run_stats'])  # update stats
             pi, _ = y
             a = pi.sample(seed=_rng)
-            return a, ts
+
+            final_action = agent_conf.network.apply(
+                {'params': ts.params}, obs, a, method=agent_conf.network.get_final_action
+            )
+            # return a, ts
+            return final_action, ts
 
         config = agent_conf.config.experiment
         train_state = agent_state.train_state

@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import flax.linen as nn
 import numpy as np
 from flax.linen.initializers import constant, orthogonal
-from typing import Sequence
+from typing import Sequence, Callable, Any
 import distrax
 
 
@@ -59,6 +59,9 @@ class ActorCritic(nn.Module):
     def setup(self):
         self.activation_fn = get_activation_fn(self.activation)
 
+    def get_final_action(self, obs: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
+        return action
+
     @nn.compact
     def __call__(self, x):
 
@@ -80,6 +83,88 @@ class ActorCritic(nn.Module):
         critic = FullyConnectedNet(self.hidden_layer_dims, 1, self.activation, None, False, False)(critic_x)
 
         return pi, jnp.squeeze(critic, axis=-1)
+
+class HierarchicalActorCritic(nn.Module):
+    """
+    Hierarchical policy aimed at training a high level (HL) policy exploiting a low level (LL) one.
+    In particular, the HL learns how to feed the LL, that is frozen.
+    """
+    # HL config
+    hl_action_dim: int
+    hidden_layer_dims: Sequence[int] = (1024, 512)
+    activation: str = "tanh"
+    init_std: float = 1.0
+    learnable_std: bool = True
+    actor_obs_ind: jnp.ndarray = None
+    critic_obs_ind: jnp.ndarray = None
+    # LL config
+    ll_apply_fn: Callable = None
+    ll_params: Any
+    ll_obs_ind: jnp.ndarray = None
+
+    def setup(self):
+        if self.ll_apply_fn is None or self.ll_params is None:
+            raise ValueError("Frozen ll_apply_fn and ll_params must be provided.")
+        
+        self.activation_fn = get_activation_fn(self.activation)
+
+        self.hl_actor = FullyConnectedNet(
+            hidden_layer_dims=self.hidden_layer_dims,
+            output_dim=self.hl_action_dim,
+            activation=self.activation,
+            output_activation=None,
+            use_running_mean_stand=False,
+            squeeze_output=False
+        )
+
+        self.hl_critic = FullyConnectedNet(
+            hidden_layer_dims=self.hidden_layer_dims,
+            output_dim=1,
+            activation=self.activation,
+            output_activation=None,
+            use_running_mean_stand=False, 
+            squeeze_output=True
+        )
+    
+    def get_final_action(self, obs: jnp.ndarray, hl_action: jnp.ndarray) -> jnp.ndarray:
+        """
+        Computes the final action using the frozen LL policy.
+        """
+        # Get the observation thought for the LL policy
+        static_ll_obs = obs[..., self.ll_obs_ind] if self.ll_obs_ind is not None else jnp.array([])
+        # Combine the observations coming from the environment with what specified by the HL policy
+        ll_obs = jnp.concatenate([static_ll_obs, hl_action])
+        
+        # Get the LL policy's output distribution 
+        # NOTE: it might be deterministic or stochastic
+        ll_pi, _ = self.ll_apply_fn({'params': self.ll_params}, ll_obs)
+        
+        # Return the mean of the distribution for a deterministic action
+        final_action = ll_pi.mean()
+        
+        return final_action
+    
+    @nn.compact
+    def __call__(self, x):
+        x = RunningMeanStd()(x)
+
+        # --- High-Level Actor ---
+        actor_obs = x if self.actor_obs_ind is None else x[..., self.actor_obs_ind]
+        hl_action_mean = self.hl_actor(actor_obs)
+        
+        # Create a distribution over the high-level actions (offsets)
+        actor_logstd = self.param("log_std", nn.initializers.constant(jnp.log(self.init_std)), (self.hl_action_dim,))
+        if not self.learnable_std:
+            actor_logstd = jax.lax.stop_gradient(actor_logstd)
+        
+        # This is the distribution PPO will use for loss calculation
+        pi = distrax.MultivariateNormalDiag(hl_action_mean, jnp.exp(actor_logstd))
+
+        # --- High-Level Critic ---
+        critic_obs = x if self.critic_obs_ind is None else x[..., self.critic_obs_ind]
+        value = self.hl_critic(critic_obs)
+
+        return pi, jnp.squeeze(value, axis=-1)
 
 class RunningMeanStd(nn.Module):
     """Layer that maintains running mean and variance for input normalization."""
