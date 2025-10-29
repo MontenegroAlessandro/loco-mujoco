@@ -31,10 +31,10 @@ experiment:
       # random obstacles
       heightmap_grid_size: [16, 5]
       heightmap_resolution: 0.1
-      heightmap_offset: [0.3, 0] # x and y
+      heightmap_offset: [0.1, 0] # x and y
       num_obstacles: 3 # how many obstacles
       obstacle_radius_range: [0.1, 0.3] # how much the circular obstacles are going to be big
-      spawn_area_dims: [10, 5] # width and height
+      spawn_area_dims: [3, 3] # width and height
       # observation group
       group: [prioritized, policy]
 

@@ -1050,10 +1050,16 @@ class GoalVelocityAndObstacles(GoalChangingRandomRootVelocity):
         self._local_grid_x, self._local_grid_y = jnp.meshgrid(x_coords, y_coords, indexing='ij')
         self._local_grid_points = jnp.stack([self._local_grid_x.flatten(), self._local_grid_y.flatten()], axis=1)
 
+        # Grid visualization stuff
+        self._grid_sphere_size = np.array([0.015, 0.0, 0.0]) # Small spheres
+        self._free_color = np.array([0.2, 0.8, 0.2, 0.6])    # Green, semi-transparent
+        self._occupied_color = np.array([0.8, 0.2, 0.2, 0.6])# Red, semi-transparent
+        n_grid_geoms = self.heightmap_grid_size[0] * self.heightmap_grid_size[1]
+
         # Initialize the parent class
         # kwargs["n_visual_geoms"] = kwargs.get("n_visual_geoms", 0) + self.num_obstacles
         super().__init__(info_props, **kwargs)    
-        self.n_visual_geoms = self.n_visual_geoms + self.num_obstacles
+        self.n_visual_geoms = self.n_visual_geoms + self.num_obstacles + n_grid_geoms
     
     def init_state(
         self,
@@ -1170,34 +1176,67 @@ class GoalVelocityAndObstacles(GoalChangingRandomRootVelocity):
 
         return final_obs, carry
     
-    def set_visuals(self, goal: Union[np.ndarray, jnp.ndarray], env: Any, model: Union[MjModel, Model], data: Union[MjData, Data], carry: Any, root_body_id: int, free_jnt_qposid: Union[np.ndarray, jnp.ndarray], visual_geoms_idx: List[int], backend: ModuleType) -> Any:
+    def set_visuals(
+            self, goal: Union[np.ndarray, jnp.ndarray], env: Any, model: Union[MjModel, Model], 
+            data: Union[MjData, Data], carry: Any, root_body_id: int, free_jnt_qposid: Union[np.ndarray, jnp.ndarray], 
+            visual_geoms_idx: List[int], backend: ModuleType
+        ) -> Any:
         """Draws the velocity arrow (via parent) and the cylindrical obstacles."""
-        # Call parent to draw the velocity arrow
-        # The parent uses the first N geoms, we use the rest.
-        parent_geoms = self._arrow_n_visual_geoms
-        carry = super().set_visuals(goal, env, model, data, carry, root_body_id, free_jnt_qposid, visual_geoms_idx[:parent_geoms], backend)
-        
-        # Draw the obstacles
         state = getattr(carry.observation_states, self.name)
-        obstacle_geoms_idx = visual_geoms_idx[parent_geoms:]
-        
+        R = jnp_R if backend == jnp else np_R
+
+        parent_geoms_count = self._arrow_n_visual_geoms
+        obstacle_start_idx = parent_geoms_count
+        grid_start_idx = parent_geoms_count + self.num_obstacles
+
+        parent_geoms_idx = visual_geoms_idx[:obstacle_start_idx]
+        obstacle_geoms_idx = visual_geoms_idx[obstacle_start_idx:grid_start_idx]
+        grid_geoms_idx = visual_geoms_idx[grid_start_idx:]
+
+        # Call parent to draw the velocity arrow
+        carry = super().set_visuals(goal, env, model, data, carry, root_body_id, free_jnt_qposid, parent_geoms_idx, backend)
+
+        root_pos = data.qpos[:2]
+        root_quat_mj = data.qpos[3:7]
+        root_yaw = R.from_quat(quat_scalarfirst2scalarlast(root_quat_mj)).as_euler('xyz')[2]
+        c, s = backend.cos(root_yaw), backend.sin(root_yaw)
+        rot_mat = backend.array([[c, -s], [s, c]])
+        world_grid_points = root_pos + self._local_grid_points @ rot_mat.T
+        distances = backend.linalg.norm(world_grid_points[:, None, :] - state.obstacle_positions, axis=2)
+        is_inside = distances < state.obstacle_radii
+        occupied = backend.any(is_inside, axis=1)
+
+        # Draw the obstacles
         if backend == jnp:
             geom_pos = carry.user_scene.geoms.pos
             geom_size = carry.user_scene.geoms.size
             geom_type = carry.user_scene.geoms.type
             geom_rgba = carry.user_scene.geoms.rgba
 
+            # Draw the obstacles
             for i in range(self.num_obstacles):
                 idx = obstacle_geoms_idx[i]
                 pos3d = jnp.array([state.obstacle_positions[i, 0], state.obstacle_positions[i, 1], 0.0])
-                size3d = jnp.array([state.obstacle_radii[i], state.obstacle_radii[i], 0.5]) # radius, radius, height
+                size3d = jnp.array([state.obstacle_radii[i], state.obstacle_radii[i], 0.5])
                 geom_pos = geom_pos.at[idx].set(pos3d)
                 geom_size = geom_size.at[idx].set(size3d)
                 geom_type = geom_type.at[idx].set(int(mujoco.mjtGeom.mjGEOM_CYLINDER))
-                geom_rgba = geom_rgba.at[idx].set(jnp.array([0.8, 0.2, 0.2, 0.7])) # Red, semi-transparent
+                geom_rgba = geom_rgba.at[idx].set(jnp.array([0.8, 0.2, 0.2, 0.7]))
+
+            # Draw the heightmap grid 
+            for i in range(len(grid_geoms_idx)):
+                idx = grid_geoms_idx[i]
+                grid_pos_3d = jnp.array([world_grid_points[i, 0], world_grid_points[i, 1], 0.01]) # slightly above ground
+                color = jnp.where(occupied[i], self._occupied_color, self._free_color)
+                geom_pos = geom_pos.at[idx].set(grid_pos_3d)
+                geom_size = geom_size.at[idx].set(self._grid_sphere_size)
+                geom_type = geom_type.at[idx].set(int(mujoco.mjtGeom.mjGEOM_SPHERE))
+                geom_rgba = geom_rgba.at[idx].set(color)
             
             new_geoms = carry.user_scene.geoms.replace(pos=geom_pos, size=geom_size, type=geom_type, rgba=geom_rgba)
+        
         else: # NumPy backend
+            # Draw the obstacles
             for i in range(self.num_obstacles):
                 idx = obstacle_geoms_idx[i]
                 pos3d = np.array([state.obstacle_positions[i, 0], state.obstacle_positions[i, 1], 0.0])
@@ -1206,6 +1245,17 @@ class GoalVelocityAndObstacles(GoalChangingRandomRootVelocity):
                 carry.user_scene.geoms.size[idx] = size3d
                 carry.user_scene.geoms.type[idx] = int(mujoco.mjtGeom.mjGEOM_CYLINDER)
                 carry.user_scene.geoms.rgba[idx] = np.array([0.8, 0.2, 0.2, 0.7])
+
+            # Draw the heightmap grid
+            for i in range(len(grid_geoms_idx)):
+                idx = grid_geoms_idx[i]
+                grid_pos_3d = np.array([world_grid_points[i, 0], world_grid_points[i, 1], 0.01])
+                color = self._occupied_color if occupied[i] else self._free_color
+                carry.user_scene.geoms.pos[idx] = grid_pos_3d
+                carry.user_scene.geoms.size[idx] = self._grid_sphere_size
+                carry.user_scene.geoms.type[idx] = int(mujoco.mjtGeom.mjGEOM_SPHERE)
+                carry.user_scene.geoms.rgba[idx] = color
+
             new_geoms = carry.user_scene.geoms
 
         new_user_scene = carry.user_scene.replace(geoms=new_geoms)
