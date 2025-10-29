@@ -663,7 +663,7 @@ class CrispBoosterLocomotionReward(Reward):
         # Get current states
         reward_state = carry.reward_state
         # goal_state = getattr(carry.observation_states, "GoalChangingRandomRootVelocity")
-        goal_state = getattr(carry.observation_states, self._goal_name)
+        goal_state = getattr(carry.observation_states, self._goal_class)
 
         # Extract global pose and velocity information
         global_pose_root = data.qpos[self._free_joint_qpos_ind]

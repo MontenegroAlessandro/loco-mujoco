@@ -1051,8 +1051,9 @@ class GoalVelocityAndObstacles(GoalChangingRandomRootVelocity):
         self._local_grid_points = jnp.stack([self._local_grid_x.flatten(), self._local_grid_y.flatten()], axis=1)
 
         # Initialize the parent class
-        kwargs["n_visual_geoms"] = kwargs.get("n_visual_geoms", 0) + self.num_obstacles
+        # kwargs["n_visual_geoms"] = kwargs.get("n_visual_geoms", 0) + self.num_obstacles
         super().__init__(info_props, **kwargs)    
+        self.n_visual_geoms = self.n_visual_geoms + self.num_obstacles
     
     def init_state(
         self,
