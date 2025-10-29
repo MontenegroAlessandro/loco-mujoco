@@ -7,7 +7,7 @@ from jax.scipy.spatial.transform import Rotation as jnp_R
 from scipy.spatial.transform import Rotation as np_R
 from flax import struct
 
-from loco_mujoco.core.observations.visualizer import FootPlacementVisualizer, DoubleFootPlacementVisualizer, RootAndFootPlacementVisualizer
+from loco_mujoco.core.observations.visualizer import FootPlacementVisualizer, DoubleFootPlacementVisualizer
 
 from loco_mujoco.core.utils.math import (
     calculate_relative_site_quatities,

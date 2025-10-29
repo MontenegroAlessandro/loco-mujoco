@@ -107,16 +107,21 @@ class MjxBoosterT1(BoosterT1):
         # first with the floor
         for g_name in left_foot_geoms + right_foot_geoms: # + left_leg_geoms + right_leg_geoms + torso_geoms + head_geoms + left_arm_geoms + right_arm_geoms:
             spec.add_pair(geomname1="floor", geomname2=g_name)
+        
+        # add collisions between feet
+        for g_name in left_foot_geoms:
+            for r_g_name in right_foot_geoms:
+                spec.add_pair(geomname1=g_name, geomname2=r_g_name)
 
 
-        spec.add_pair(geomname1="left_foot_col", geomname2="right_foot_col")
-        spec.add_pair(geomname1="left_knee_col", geomname2="right_knee_col")
-        spec.add_pair(geomname1="left_hip_col", geomname2="right_hip_col")
+        # spec.add_pair(geomname1="left_foot_col", geomname2="right_foot_col")
+        # spec.add_pair(geomname1="left_knee_col", geomname2="right_knee_col")
+        # spec.add_pair(geomname1="left_hip_col", geomname2="right_hip_col")
 
-        # things the forearms can collide with
-        for g_name in head_geoms + ['torso_col'] + left_leg_geoms + right_leg_geoms:
-            spec.add_pair(geomname1="left_forearm_col", geomname2=g_name)
-            spec.add_pair(geomname1="right_forearm_col", geomname2=g_name)
+        # # things the forearms can collide with
+        # for g_name in head_geoms + ['torso_col'] + left_leg_geoms + right_leg_geoms:
+        #     spec.add_pair(geomname1="left_forearm_col", geomname2=g_name)
+        #     spec.add_pair(geomname1="right_forearm_col", geomname2=g_name)
 
 
         return spec
