@@ -537,6 +537,12 @@ class CrispBoosterLocomotionReward(Reward):
         self._impact_threshold = kwargs.get("impact_threshold", 0.0)
         self._impact_coeff = kwargs.get("impact_coeff", 0.0)
 
+        # Obstacles avoidance
+        self._obstacle_avoidance_coeff = kwargs.get("obstacle_avoidance_coeff", 0.0)
+        self._obstacle_margin = kwargs.get("obstacle_margin", 0.0)
+        self._obstacle_avoidance_sharp = kwargs.get("obstacle_avoidance_sharp", 0.0)
+        self._goal_class = kwargs.get("goal_class", "GoalChangingRandomRootVelocity")
+
         # Initialize joint limits and nominal positions
         self._limited_joints = np.array(model.jnt_limited, dtype=bool)
         self._limited_joints_qpos_id = model.jnt_qposadr[np.where(self._limited_joints)]
@@ -573,6 +579,7 @@ class CrispBoosterLocomotionReward(Reward):
             "tracking/tracking_reward_angvel": 0.,
             "tracking/joint_qpos_reward": 0.,
             "tracking/feet_swing_reward": 0.,
+            "penalties/obstacle_avoidance_penalty": 0.,
             "penalties/joint_deviation_l1_penalty": 0.,
             "penalties/base_height_reward": 0.,
             "penalties/orientation_reward": 0.,
@@ -655,7 +662,8 @@ class CrispBoosterLocomotionReward(Reward):
 
         # Get current states
         reward_state = carry.reward_state
-        goal_state = getattr(carry.observation_states, "GoalChangingRandomRootVelocity")
+        # goal_state = getattr(carry.observation_states, "GoalChangingRandomRootVelocity")
+        goal_state = getattr(carry.observation_states, self._goal_name)
 
         # Extract global pose and velocity information
         global_pose_root = data.qpos[self._free_joint_qpos_ind]
@@ -902,6 +910,31 @@ class CrispBoosterLocomotionReward(Reward):
         # Symmetry air reward (currently unused)
         symmetry_air_reward = 0.0
 
+        # ==================== OBSTACLES AVOIDANCE ====================
+        obstacle_avoidance_penalty = 0.0
+        if self._goal_class in ["GoalVelocityAndObstacles"] and self._obstacle_avoidance_coeff > 0.0:
+            # Get obstacle data from the goal state
+            obstacle_pos = goal_state.obstacle_positions  # Shape: (num_obstacles, 2)
+            obstacle_radii = goal_state.obstacle_radii    # Shape: (num_obstacles,)
+            
+            # Get current feet positions (we only care about the xy plane)
+            left_foot_pos_xy = data.site_xpos[self._left_foot_site_id][:2]
+            right_foot_pos_xy = data.site_xpos[self._right_foot_site_id][:2]
+
+            # Calculate distances from each foot to every obstacle center
+            # Using broadcasting for efficiency
+            dist_left = backend.linalg.norm(left_foot_pos_xy - obstacle_pos, axis=1)
+            dist_right = backend.linalg.norm(right_foot_pos_xy - obstacle_pos, axis=1)
+
+            # Calculate a cost based on proximity. The cost is high when distance is close to the radius.
+            # We use a margin to penalize getting close, not just colliding.
+            margin = self._obstacle_margin
+            cost_left = backend.exp(- 0.5 * self._obstacle_avoidance_sharp * (dist_left - obstacle_radii - margin))
+            cost_right = backend.exp(- 0.5 * self._obstacle_avoidance_sharp * (dist_right - obstacle_radii - margin))
+
+            # Sum the costs for both feet. The penalty is the sum of costs over all obstacles.
+            obstacle_avoidance_penalty = backend.sum(cost_left) + backend.sum(cost_right)
+
         # ==================== SCALE REWARDS BY COEFFICIENTS ====================
         
         survival_reward *= (self._survival * env.dt)
@@ -932,6 +965,7 @@ class CrispBoosterLocomotionReward(Reward):
         air_time_reward *= (self._air_time_coeff * env.dt)
         no_fly_reward *= (self._no_fly_coeff * env.dt)
         impact_reward *= (self._impact_coeff * env.dt)
+        obstacle_avoidance_penalty *= (self._obstacle_avoidance_coeff * env.dt)
 
         # ==================== COMBINE REWARDS ====================
         
@@ -947,7 +981,8 @@ class CrispBoosterLocomotionReward(Reward):
             joint_position_limit_reward + low_gains_reward + feet_slip_reward + 
             feet_yaw_diff_reward + feet_yaw_mean_reward + feet_roll_reward +
             feet_distance_reward + air_time_reward + no_fly_reward + impact_reward + 
-            joint_deviation_l1_penalty
+            joint_deviation_l1_penalty +
+            obstacle_avoidance_penalty
         )
         
         total_reward = survival_reward + tracking_reward + penalty_rewards
@@ -971,6 +1006,7 @@ class CrispBoosterLocomotionReward(Reward):
             "tracking/tracking_reward_linvel_x": tracking_reward_linvel_x,
             "tracking/tracking_reward_linvel_y": tracking_reward_linvel_y,
             "tracking/tracking_reward_angvel": tracking_reward_angvel,
+            "penalties/obstacle_avoidance_penalty": obstacle_avoidance_penalty,
             "tracking/joint_qpos_reward": joint_qpos_reward,
             "tracking/feet_swing_reward": feet_swing_reward,
             "penalties/base_height_reward": base_height_reward,

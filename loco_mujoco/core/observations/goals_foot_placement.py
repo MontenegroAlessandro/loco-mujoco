@@ -1,4 +1,5 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any, Union
+from types import ModuleType
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -6,6 +7,8 @@ import mujoco
 from jax.scipy.spatial.transform import Rotation as jnp_R
 from scipy.spatial.transform import Rotation as np_R
 from flax import struct
+from mujoco import MjSpec, MjModel, MjData
+from mujoco.mjx import Model, Data
 
 from loco_mujoco.core.observations.visualizer import FootPlacementVisualizer, DoubleFootPlacementVisualizer
 
@@ -19,7 +22,7 @@ from loco_mujoco.core.utils.mujoco import (
     mj_jntname2qposid, mj_jntname2qvelid
 )
 
-from loco_mujoco.core.observations.goals import Goal
+from loco_mujoco.core.observations.goals import Goal, GoalChangingRandomRootVelocity
 
 @struct.dataclass
 class GoalRandomFootPlacementState:
@@ -999,3 +1002,215 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
     def has_visual(self) -> bool:
         """Visualization could be added later (e.g., a sphere at the target)."""
         return True
+    
+@struct.dataclass
+class GoalVelocityAndObstaclesState:
+    # Inheriting from the ones of the GoalRandomRootVelocityAndFrequencyState 
+    goal_vel_x: float
+    goal_vel_y: float
+    goal_vel_yaw: float
+    goal_height: float
+    gait_frequency: float
+    # New terms for the obstacles
+    obstacle_positions: jax.Array  # (num_obstacles, 2) for (x, y), in the WORLD frame
+    obstacle_radii: jax.Array      # (num_obstacles,)
+
+class GoalVelocityAndObstacles(GoalChangingRandomRootVelocity):
+    """
+    Extends GoalChangingRandomRootVelocity to include obstacles generation.
+    - Spawns random cylindrical obstacles at the start of an episode (... they can be resampled or they can move)
+    - Provides a height map observation representing the terrain in front of the robot
+    - The final observation is [velocity_goal(6), height_map(N*M)]
+    """
+    def __init__(
+        self,
+        info_props: Dict,
+        # Heightmap parameters
+        heightmap_grid_size: Tuple[int, int] = (16, 5),  # (rows, cols)
+        heightmap_resolution: float = 0.1,  # meters per grid cell
+        heightmap_offset: Tuple[float, float] = (0.3, 0.0), # (x, y) offset from robot base
+        # Obstacle parameters
+        num_obstacles: int = 10,
+        obstacle_radius_range: List[float] = [0.1, 0.3],
+        spawn_area_dims: Tuple[float, float] = (10.0, 5.0), # (width, height) in front
+        **kwargs # make sure to pass what is needed by the goal we are inheriting from
+    ):   
+        # Initialize internal vars
+        self.heightmap_grid_size = heightmap_grid_size
+        self.heightmap_resolution = heightmap_resolution
+        self.heightmap_offset = jnp.array(heightmap_offset)
+        self.num_obstacles = num_obstacles
+        self.obstacle_radius_range = obstacle_radius_range
+        self.spawn_area_dims = spawn_area_dims
+
+        # Create the local grid points for the heightmap sensor (once)
+        rows, cols = self.heightmap_grid_size
+        x_coords = jnp.linspace(0, (rows - 1) * self.heightmap_resolution, rows) + self.heightmap_offset[0]
+        y_coords = jnp.linspace(-(cols - 1)/2 * self.heightmap_resolution, (cols - 1)/2 * self.heightmap_resolution, cols) + self.heightmap_offset[1]
+        self._local_grid_x, self._local_grid_y = jnp.meshgrid(x_coords, y_coords, indexing='ij')
+        self._local_grid_points = jnp.stack([self._local_grid_x.flatten(), self._local_grid_y.flatten()], axis=1)
+
+        # Initialize the parent class
+        kwargs["n_visual_geoms"] = kwargs.get("n_visual_geoms", 0) + self.num_obstacles
+        super().__init__(info_props, **kwargs)    
+    
+    def init_state(
+        self,
+        env: Any,
+        key: jax.random.PRNGKey,
+        model: Union[MjModel, Model],
+        data: Union[MjData, Data],
+        backend: ModuleType
+    ) -> GoalVelocityAndObstaclesState:
+        """Initializes the state with zero velocity and no obstacles."""
+        return GoalVelocityAndObstaclesState(
+            goal_vel_x=0.0, goal_vel_y=0.0, goal_vel_yaw=0.0,
+            goal_height=0.68, gait_frequency=0.0,
+            obstacle_positions=backend.zeros((self.num_obstacles, 2)),
+            obstacle_radii=backend.zeros((self.num_obstacles,))
+        )
+    
+    def reset_state(
+        self,
+        env: Any,
+        model: Union[MjModel, Model],
+        data: Union[MjData, Data],
+        carry: Any,
+        backend: ModuleType
+    ) -> Tuple[Union[MjData, Any], Any]:
+        """Resets velocity commands (from parent) and spawns new obstacles."""
+        # Call the reset of the velocity goal
+        data, carry = super().reset_state(env, model, data, carry, backend)
+        key = carry.key
+        
+        # Sample new obstacle positions and radii in the world frame
+        # Obstacles spawn in a rectangular area in front of the robot's starting position
+        start_pos = data.qpos[:2] # Robot's initial (x, y)
+        
+        if backend == np:
+            key, subkey1, subkey2 = (None, None, None) 
+            rand_fn = np.random.uniform
+        else:
+            key, subkey1, subkey2 = jax.random.split(key, 3)
+            rand_fn = jax.random.uniform
+
+        # Sample positions
+        min_spawn = start_pos + np.array([0, -self.spawn_area_dims[1] / 2])
+        max_spawn = start_pos + np.array([self.spawn_area_dims[0], self.spawn_area_dims[1] / 2])
+        obstacle_positions = rand_fn(subkey1, shape=(self.num_obstacles, 2), minval=min_spawn, maxval=max_spawn)
+        
+        # Sample radii
+        obstacle_radii = rand_fn(subkey2, shape=(self.num_obstacles,), minval=self.obstacle_radius_range[0], maxval=self.obstacle_radius_range[1])
+
+        # Update the state in the carry object
+        goal_state_parent = getattr(carry.observation_states, self.name)
+        new_goal_state = GoalVelocityAndObstaclesState(
+            goal_vel_x=goal_state_parent.goal_vel_x,
+            goal_vel_y=goal_state_parent.goal_vel_y,
+            goal_vel_yaw=goal_state_parent.goal_vel_yaw,
+            goal_height=goal_state_parent.goal_height,
+            gait_frequency=goal_state_parent.gait_frequency,
+            obstacle_positions=obstacle_positions,
+            obstacle_radii=obstacle_radii
+        )
+        observation_states = carry.observation_states.replace(**{self.name: new_goal_state})
+        
+        return data, carry.replace(key=key, observation_states=observation_states)
+    
+    def get_obs_and_update_state(
+        self,
+        env: Any,
+        model: Union[MjModel, Model],
+        data: Union[MjData, Data],
+        carry: Any,
+        backend: ModuleType
+    ) -> Tuple[Union[np.ndarray, jnp.ndarray], Any]:
+        """Generates the velocity goal + the heightmap observation."""
+        # Get the standard velocity goal observation from the parent class
+        velocity_obs, carry = super().get_obs_and_update_state(env, model, data, carry, backend)
+        state = getattr(carry.observation_states, self.name)
+
+        # Get robot's current pose from `data`
+        root_pos = data.qpos[:2]
+        root_quat_mj = data.qpos[3:7]
+        R = jnp_R if backend == jnp else np_R
+        # We only care about yaw for the 2D heightmap
+        root_yaw = R.from_quat(quat_scalarfirst2scalarlast(root_quat_mj)).as_euler('xyz')[2]
+
+        # Transform local grid points to world frame
+        c, s = backend.cos(root_yaw), backend.sin(root_yaw)
+        rot_mat = backend.array([[c, -s], [s, c]])
+        world_grid_points = root_pos + self._local_grid_points @ rot_mat.T
+
+        # Sense the obstacles: check if grid points are inside any obstacle
+        # Use broadcasting to compute distances efficiently
+        # distances shape: (num_grid_points, num_obstacles)
+        distances = backend.linalg.norm(world_grid_points[:, None, :] - state.obstacle_positions, axis=2)
+        
+        # is_inside shape: (num_grid_points, num_obstacles)
+        is_inside = distances < state.obstacle_radii
+
+        # For each grid point, is it inside ANY obstacle?
+        # occupied shape: (num_grid_points,)
+        occupied = backend.any(is_inside, axis=1)
+
+        # Create the height map: 1.0 for obstacle, 0.0 for free space
+        heightmap = backend.where(occupied, 1.0, 0.0)
+
+        # Concatenate velocity goal and flattened heightmap
+        final_obs = backend.concatenate([velocity_obs, heightmap])
+
+        # Update visuals for obstacles (parent class handles velocity arrow)
+        if self.visualize_goal:
+            carry = self.set_visuals(
+                velocity_obs, env, model, data, carry, self._root_body_id,
+                self._free_jnt_qpos_id, self.visual_geoms_idx, backend
+            )
+
+        return final_obs, carry
+    
+    def set_visuals(self, goal: Union[np.ndarray, jnp.ndarray], env: Any, model: Union[MjModel, Model], data: Union[MjData, Data], carry: Any, root_body_id: int, free_jnt_qposid: Union[np.ndarray, jnp.ndarray], visual_geoms_idx: List[int], backend: ModuleType) -> Any:
+        """Draws the velocity arrow (via parent) and the cylindrical obstacles."""
+        # Call parent to draw the velocity arrow
+        # The parent uses the first N geoms, we use the rest.
+        parent_geoms = self._arrow_n_visual_geoms
+        carry = super().set_visuals(goal, env, model, data, carry, root_body_id, free_jnt_qposid, visual_geoms_idx[:parent_geoms], backend)
+        
+        # Draw the obstacles
+        state = getattr(carry.observation_states, self.name)
+        obstacle_geoms_idx = visual_geoms_idx[parent_geoms:]
+        
+        if backend == jnp:
+            geom_pos = carry.user_scene.geoms.pos
+            geom_size = carry.user_scene.geoms.size
+            geom_type = carry.user_scene.geoms.type
+            geom_rgba = carry.user_scene.geoms.rgba
+
+            for i in range(self.num_obstacles):
+                idx = obstacle_geoms_idx[i]
+                pos3d = jnp.array([state.obstacle_positions[i, 0], state.obstacle_positions[i, 1], 0.0])
+                size3d = jnp.array([state.obstacle_radii[i], state.obstacle_radii[i], 0.5]) # radius, radius, height
+                geom_pos = geom_pos.at[idx].set(pos3d)
+                geom_size = geom_size.at[idx].set(size3d)
+                geom_type = geom_type.at[idx].set(int(mujoco.mjtGeom.mjGEOM_CYLINDER))
+                geom_rgba = geom_rgba.at[idx].set(jnp.array([0.8, 0.2, 0.2, 0.7])) # Red, semi-transparent
+            
+            new_geoms = carry.user_scene.geoms.replace(pos=geom_pos, size=geom_size, type=geom_type, rgba=geom_rgba)
+        else: # NumPy backend
+            for i in range(self.num_obstacles):
+                idx = obstacle_geoms_idx[i]
+                pos3d = np.array([state.obstacle_positions[i, 0], state.obstacle_positions[i, 1], 0.0])
+                size3d = np.array([state.obstacle_radii[i], state.obstacle_radii[i], 0.5])
+                carry.user_scene.geoms.pos[idx] = pos3d
+                carry.user_scene.geoms.size[idx] = size3d
+                carry.user_scene.geoms.type[idx] = int(mujoco.mjtGeom.mjGEOM_CYLINDER)
+                carry.user_scene.geoms.rgba[idx] = np.array([0.8, 0.2, 0.2, 0.7])
+            new_geoms = carry.user_scene.geoms
+
+        new_user_scene = carry.user_scene.replace(geoms=new_geoms)
+        return carry.replace(user_scene=new_user_scene)
+
+    @property
+    def dim(self) -> int:
+        """The dimension is the parent's dimension plus the size of the heightmap."""
+        return super().dim + (self.heightmap_grid_size[0] * self.heightmap_grid_size[1])
