@@ -231,11 +231,11 @@ class ResidualMiddleHierarchicalActorCritic(nn.Module):
     
     @nn.compact
     def __call__(self, x):
-        # normalize
-        x = RunningMeanStd()(x)
-
         # get high level proposal
         hl_action_proposal = self.get_hl_action_proposal(x)
+
+        # normalize
+        x = RunningMeanStd()(x)
 
         # call the actor net
         actor_obs = x if self.actor_obs_ind is None else x[..., self.actor_obs_ind]
@@ -250,8 +250,8 @@ class ResidualMiddleHierarchicalActorCritic(nn.Module):
 
         # call the critic net
         critic_obs = x if self.critic_obs_ind is None else x[..., self.critic_obs_ind]
-        critic_obs = jnp.concatatenate([critic_obs, hl_action_proposal], axis=-1)
-        value = self.hl_critic(critic_obs)
+        critic_obs = jnp.concatenate([critic_obs, hl_action_proposal], axis=-1)
+        value = self.r_critic(critic_obs)
 
         return pi, jnp.squeeze(value, axis=-1)
     

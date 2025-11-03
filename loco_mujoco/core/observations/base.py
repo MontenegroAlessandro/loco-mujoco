@@ -156,7 +156,7 @@ class ObservationContainer(UserDict):
         obs_ind_group = self.get_obs_ind_by_group(group_name)
         return obs[..., obs_ind_group]
 
-    def get_obs_ind_by_group(self, group_name: str = None):
+    def old_get_obs_ind_by_group(self, group_name: str = None):
         """
         Get the indices of the observations by group name.
 
@@ -169,6 +169,53 @@ class ObservationContainer(UserDict):
         """
         obs_ind_group = [obs.obs_ind for obs in self.values() if group_name in obs.group]
         return np.concatenate(obs_ind_group) if len(obs_ind_group) > 0 else np.array([])
+    
+    def get_obs_ind_by_group(self, group_name: Union[str, List[str]] = None):
+        """
+        Extension of the old method to handle subgroups of observation too.
+        Now we can handle list of strings and not only strings.
+        This is needed for splitting the goal generation when using hierarchical nets.
+        """
+        if group_name is None:
+            # If no group is specified, return all indices
+            all_indices = [obs.obs_ind for obs in self.values()]
+            return np.concatenate(all_indices) if len(all_indices) > 0 else np.array([], dtype=int)
+
+        if isinstance(group_name, str): # backward compatibility witht the old method
+            group_names = [group_name]
+        
+        all_indices = []
+        for name in group_names:
+            main_group_name = name
+            sub_group_name = None
+            
+            if "." in name:
+                main_group_name, sub_group_name = name.split(".", 1)
+
+            found_match = False
+            for obs in self.values():
+                if main_group_name in obs.group:
+                    found_match = True
+                    if sub_group_name:
+                        # Handle sub-group query
+                        if hasattr(obs, "obs_subgroups") and sub_group_name in obs.obs_subgroups:
+                            local_indices = obs.obs_subgroups[sub_group_name]
+                            global_start_index = obs.obs_ind[0]
+                            all_indices.append(global_start_index + local_indices)
+                        else:
+                            # Main group found, but requested sub-group doesn't exist
+                            pass # Or raise error:
+                            # raise ValueError(f"Observation module '{main_group_name}' has no sub-group '{sub_group_name}'.")
+                    else:
+                        # Handle main group query (no sub-group)
+                        all_indices.append(obs.obs_ind)
+            
+            if not found_match:
+                # Or raise error:
+                # raise ValueError(f"Observation group '{main_group_name}' not found.")
+                pass
+
+        return np.concatenate(all_indices).astype(int) if len(all_indices) > 0 else np.array([], dtype=int)
 
     def get_randomizable_obs_indices(self):
         """

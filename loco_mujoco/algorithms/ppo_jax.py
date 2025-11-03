@@ -144,7 +144,7 @@ class PPOJax(JaxRLAlgorithmBase):
                 ll_params=frozen_ll_params,
                 ll_obs_ind=ll_obs_ind
             )
-        elif is_hierarchical:
+        elif is_middle_residual:
             if "ll_policy_path" not in config.experiment:
                 raise ValueError("Config must set 'll_policy_path' for residual hierarchical training.")
             if "hl_policy_path" not in config.experiment:

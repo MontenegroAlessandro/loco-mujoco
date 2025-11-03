@@ -1060,6 +1060,17 @@ class GoalVelocityAndObstacles(GoalChangingRandomRootVelocity):
         # kwargs["n_visual_geoms"] = kwargs.get("n_visual_geoms", 0) + self.num_obstacles
         super().__init__(info_props, **kwargs)    
         self.n_visual_geoms = self.n_visual_geoms + self.num_obstacles + n_grid_geoms
+
+        # Logic for separating the observations
+        # access to the super velocity dimension
+        self.velocity_dim = super().dim
+        # access to the height map dimension
+        self.hm_dim = self.heightmap_grid_size[0] * self.heightmap_grid_size[1]
+        # define sub-groups indices
+        self.obs_subgroups = {
+            "velocity": jnp.arange(0, self.velocity_dim),
+            "height_map": jnp.arange(self.velocity_dim, self.velocity_dim + self.hm_dim)
+        }
     
     def init_state(
         self,
