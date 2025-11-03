@@ -912,7 +912,7 @@ class CrispBoosterLocomotionReward(Reward):
 
         # ==================== OBSTACLES AVOIDANCE ====================
         obstacle_avoidance_penalty = 0.0
-        if self._goal_class in ["GoalVelocityAndObstacles"] and self._obstacle_avoidance_coeff > 0.0:
+        if self._goal_class in ["GoalVelocityAndObstacles"] and self._obstacle_avoidance_coeff != 0.0:
             # Get obstacle data from the goal state
             obstacle_pos = goal_state.obstacle_positions  # Shape: (num_obstacles, 2)
             obstacle_radii = goal_state.obstacle_radii    # Shape: (num_obstacles,)
