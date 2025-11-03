@@ -165,6 +165,112 @@ class HierarchicalActorCritic(nn.Module):
         value = self.hl_critic(critic_obs)
 
         return pi, jnp.squeeze(value, axis=-1)
+    
+
+class ResidualMiddleHierarchicalActorCritic(nn.Module):
+    # Residual config
+    r_action_dim: int
+    hidden_layer_dims: Sequence[int] = (1024, 512)
+    activation: str = "tanh"
+    init_std: float = 1.0
+    learnable_std: bool = True
+    actor_obs_ind: jnp.ndarray = None
+    critic_obs_ind: jnp.ndarray = None
+    # HL config
+    hl_apply_fn: Callable = None
+    hl_params: Any = None
+    hl_obs_ind: jnp.ndarray = None
+    # LL config
+    ll_apply_fn: Callable = None
+    ll_params: Any = None
+    ll_obs_ind: jnp.ndarray = None
+    
+    def setup(self):
+        # check on the low level policy
+        if self.ll_apply_fn is None or self.ll_params is None:
+            raise ValueError("Frozen ll_apply_fn and ll_params must be provided.")
+
+        # check on the high level policy
+        if self.hl_apply_fn is None or self.hl_params is None:
+            raise ValueError("Frozen hl_apply_fn and hl_params must be provided.")
+        
+        # get the activation function
+        self.activation_fn = get_activation_fn(self.activation)
+
+        # build the nets for the actor and the critic
+        self.r_actor = FullyConnectedNet(
+            hidden_layer_dims=self.hidden_layer_dims,
+            output_dim=self.r_action_dim,
+            activation=self.activation,
+            output_activation=None,
+            use_running_mean_stand=False,
+            squeeze_output=False
+        )
+
+        self.r_critic = FullyConnectedNet(
+            hidden_layer_dims=self.hidden_layer_dims,
+            output_dim=1,
+            activation=self.activation,
+            output_activation=None,
+            use_running_mean_stand=False, 
+            squeeze_output=True
+        )
+    
+    def get_hl_action_proposal(self, obs: jnp.ndarray) -> jnp.ndarray:
+        # get the observation vector for the hl policy
+        hl_obs = obs[..., self.hl_obs_ind] if self.hl_obs_ind is not None else jnp.array([])
+
+        # call the hl policy
+        hl_dict = {'params': self.hl_params}
+        hl_pi, _ = self.hl_apply_fn(hl_dict, hl_obs)
+
+        # extract the mean of the high level policy
+        hl_proposed_action = hl_pi.mean()
+
+        return jax.lax.stop_gradient(hl_proposed_action)
+    
+    @nn.compact
+    def __call__(self, x):
+        # normalize
+        x = RunningMeanStd()(x)
+
+        # get high level proposal
+        hl_action_proposal = self.get_hl_action_proposal(x)
+
+        # call the actor net
+        actor_obs = x if self.actor_obs_ind is None else x[..., self.actor_obs_ind]
+        actor_obs = jnp.concatenate([actor_obs, hl_action_proposal], axis=-1)
+        r_action_mean = self.r_actor(actor_obs)
+
+        actor_logstd = self.param("log_std", nn.initializers.constant(jnp.log(self.init_std)), (self.r_action_dim,))
+        if not self.learnable_std:
+            actor_logstd = jax.lax.stop_gradient(actor_logstd)
+
+        pi = distrax.MultivariateNormalDiag(r_action_mean, jnp.exp(actor_logstd))
+
+        # call the critic net
+        critic_obs = x if self.critic_obs_ind is None else x[..., self.critic_obs_ind]
+        critic_obs = jnp.concatatenate([critic_obs, hl_action_proposal], axis=-1)
+        value = self.hl_critic(critic_obs)
+
+        return pi, jnp.squeeze(value, axis=-1)
+    
+    def get_final_action(self, obs: jnp.ndarray, r_action: jnp.ndarray) -> jnp.ndarray:
+        # get the high level proposal 
+        hl_action_proposal = self.get_hl_action_proposal(obs)
+
+        # correct the action
+        corrected_action = hl_action_proposal + r_action
+
+        # get low level observation
+        static_ll_obs = obs[..., self.ll_obs_ind] if self.ll_obs_ind is not None else jnp.array([])
+        ll_obs = jnp.concatenate([static_ll_obs, corrected_action])
+        
+        # get the LL action
+        ll_pi, _ = self.ll_apply_fn({'params': self.ll_params}, ll_obs)
+        final_action = ll_pi.mean()
+
+        return final_action
 
 class RunningMeanStd(nn.Module):
     """Layer that maintains running mean and variance for input normalization."""

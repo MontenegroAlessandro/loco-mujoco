@@ -14,7 +14,7 @@ import optax
 
 from loco_mujoco.algorithms import (
     JaxRLAlgorithmBase, AgentConfBase, AgentStateBase, ActorCritic, Transition, TrainState, TrainStateBuffer, 
-    MetricHandlerTransition, AdaptiveLRState, HierarchicalActorCritic
+    MetricHandlerTransition, AdaptiveLRState, HierarchicalActorCritic, ResidualMiddleHierarchicalActorCritic
 )
 import importlib
 from loco_mujoco.core.wrappers import RichLogWrapper, NStepWrapper, RichLogEnvState, VecEnv, NormalizeVecReward, SummaryRichMetrics
@@ -81,6 +81,7 @@ class PPOJax(JaxRLAlgorithmBase):
 
         # INIT NETWORK
         is_hierarchical = config.experiment.get("hierarchical", False)
+        is_middle_residual = config.experiment.get("middle_residual", False)
 
         hidden_layers = config.experiment.hidden_layers \
             if isinstance(config.experiment.hidden_layers, (list, ListConfig)) \
@@ -142,6 +143,58 @@ class PPOJax(JaxRLAlgorithmBase):
                 ll_apply_fn=ll_apply_fn,
                 ll_params=frozen_ll_params,
                 ll_obs_ind=ll_obs_ind
+            )
+        elif is_hierarchical:
+            if "ll_policy_path" not in config.experiment:
+                raise ValueError("Config must set 'll_policy_path' for residual hierarchical training.")
+            if "hl_policy_path" not in config.experiment:
+                raise ValueError("Config must set 'hl_policy_path' for residual hierarchical training.")
+            
+            # load LL stuff
+            ll_agent_conf, ll_agent_state = PPOJax.load_agent(config.experiment.ll_policy_path)
+            frozen_ll_params = ll_agent_state.train_state.params
+            ll_apply_fn = ll_agent_conf.network.apply
+
+            # load HL stuff
+            hl_agent_conf, hl_agent_state = PPOJax.load_agent(config.experiment.hl_policy_path)
+            frozen_hl_params = hl_agent_state.train_state.params
+            hl_apply_fn = hl_agent_conf.network.apply
+
+            # load observation indices
+            if "ll_obs_group" in config.experiment and config.experiment.ll_obs_group is not None:
+                ll_obs_ind = env.obs_container.get_obs_ind_by_group(config.experiment.ll_obs_group)
+            else:
+                ll_obs_ind = None
+            
+            if "hl_obs_group" in config.experiment and config.experiment.hl_obs_group is not None:
+                hl_obs_ind = env.obs_container.get_obs_ind_by_group(config.experiment.hl_obs_group)
+            else:
+                hl_obs_ind = None # This will use the full obs for HL
+            
+            # get action dimensions
+            if hasattr(hl_agent_conf.network, "hl_action_dim"):
+                residual_action_dim = hl_agent_conf.network.hl_action_dim
+            elif hasattr(hl_agent_conf.network, "action_dim"):
+                residual_action_dim = hl_agent_conf.network.action_dim
+            else:
+                raise ValueError("Could not determine action_dim from the loaded frozen HL policy.")
+            
+            # instantiate the net
+            network = ResidualMiddleHierarchicalActorCritic(
+                r_action_dim=residual_action_dim,
+                activation=config.experiment.activation,
+                init_std=config.experiment.init_std,
+                learnable_std=config.experiment.learnable_std,
+                hidden_layer_dims=hidden_layers,
+                # max_residual=config.experiment.get("max_residual", 0.1), # Add to config
+                actor_obs_ind=actor_obs_ind,  
+                critic_obs_ind=critic_obs_ind,
+                ll_apply_fn=ll_apply_fn,
+                ll_params=frozen_ll_params,
+                ll_obs_ind=ll_obs_ind,
+                hl_apply_fn=hl_apply_fn,
+                hl_params=frozen_hl_params,
+                hl_obs_ind=hl_obs_ind
             )
         else:
             network = ActorCritic(
