@@ -111,24 +111,30 @@ class PPOJax(JaxRLAlgorithmBase):
             else:
                 ll_obs_ind = None
             
+            if "ll_critic_obs_group" in config.experiment and config.experiment.ll_critic_obs_group is not None:
+                ll_critic_obs_ind = env.obs_container.get_obs_ind_by_group(config.experiment.ll_critic_obs_group)
+            else:
+                ll_critic_obs_ind = None
+            
             if "ll_action_goal_module" not in config.experiment or "ll_action_goal_class" not in config.experiment:
                 raise ValueError("Hierarchical config must specify 'll_action_goal_module' and 'll_action_goal_class'.")
                 
             # Load the frozen LL policy
             ll_agent_conf, ll_agent_state = PPOJax.load_agent(config.experiment.ll_policy_path)
             frozen_ll_params = ll_agent_state.train_state.params
+            frozen_ll_run_stats = ll_agent_state.train_state.run_stats
             ll_apply_fn = ll_agent_conf.network.apply
 
             # Get the action dimensionality for the HL from the Goal used to train the LL
             try:
-                module_path = config.experiment.hl_action_goal_module
-                class_name = config.experiment.hl_action_goal_class
+                module_path = config.experiment.ll_action_goal_module
+                class_name = config.experiment.ll_action_goal_class
                 goal_module = importlib.import_module(module_path)
                 GoalClass = getattr(goal_module, class_name)
             except (ImportError, AttributeError) as e:
                 raise ValueError(f"Could not import or find goal class '{class_name}' from module '{module_path}'.") from e
             goal_params = config.experiment.get("hl_action_goal_params", {})
-            info_props = env.info.info_props
+            info_props = env._get_all_info_properties()
             ref_goal = GoalClass(info_props, **goal_params)
             action_dim = ref_goal.dim
 
@@ -141,8 +147,10 @@ class PPOJax(JaxRLAlgorithmBase):
                 actor_obs_ind=actor_obs_ind,
                 critic_obs_ind=critic_obs_ind,
                 ll_apply_fn=ll_apply_fn,
+                ll_critic_obs_ind=ll_critic_obs_ind,
                 ll_params=frozen_ll_params,
-                ll_obs_ind=ll_obs_ind
+                ll_obs_ind=ll_obs_ind,
+                ll_run_stats=frozen_ll_run_stats
             )
         elif is_middle_residual:
             if "ll_policy_path" not in config.experiment:

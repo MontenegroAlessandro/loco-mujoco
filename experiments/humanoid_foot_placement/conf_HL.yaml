@@ -122,26 +122,26 @@ experiment:
       - type: ProjectedGravityVector
         obs_name: q_root_proj
         xml_name: root
-        group: prioritized
+        group: [prioritized, low_level_critic]
         allow_randomization: false
       - type: JointPosArray
         obs_name: joint_positions
-        group: prioritized
+        group: [prioritized, low_level_critic]
         allow_randomization: false
         xml_names: ${robot_joints_to_consider}
       - type: FreeJointVel
         obs_name: dq_root
         xml_name: root
-        group: prioritized
+        group: [prioritized, low_level_critic]
         allow_randomization: false
       - type: JointVelArray
         obs_name: joint_velocities
         xml_names: ${robot_joints_to_consider}
-        group: prioritized
+        group: [prioritized, low_level_critic]
         allow_randomization: false
       - type: LastAction
         obs_name: last_action
-        group: prioritized
+        group: [prioritized, low_level_critic]
         allow_randomization: false
 
       # Actor observations (unprivileged)
@@ -393,9 +393,11 @@ experiment:
   critic_obs_group: prioritized
   # low level controller parameters
   ll_obs_group: low_level_controller
+  ll_critic_obs_group: low_level_critic
   ll_policy_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/2025-10-23/16-30-45/PPOJax_saved.pkl
   ll_action_goal_module: loco_mujoco.core.observations.goals_foot_placement
   ll_action_goal_class: GoalDoubleFootPlacement
+  hierarchical: true
   # common PPO stuff
   hidden_layers: [512, 256, 128]
   lr: 1e-5

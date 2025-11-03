@@ -380,6 +380,7 @@ experiment:
 
   actor_obs_group: [goal.height_map]
   critic_obs_group: [goal.height_map]
+  middle_residual: true
   # low level controller parameters
   ll_obs_group: [policies]
   ll_policy_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/2025-10-23/16-30-45/PPOJax_saved.pkl
@@ -387,7 +388,7 @@ experiment:
   ll_action_goal_class: GoalDoubleFootPlacement # maybe not needed
   # high level controller parameters
   hl_obs_group: [policies, goal.velocity]
-  hl_policy_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/...
+  hl_policy_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/2025-10-29/10-09-02/PPOJax_saved.pkl
   hl_action_goal_module: loco_mujoco.core.observations.goals # maybe not needed
   hl_action_goal_class: GoalChangingRandomRootVelocity # maybe not needed
   # common PPO stuff

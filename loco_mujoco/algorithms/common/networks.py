@@ -101,10 +101,12 @@ class HierarchicalActorCritic(nn.Module):
     ll_apply_fn: Callable = None
     ll_params: Any = None
     ll_obs_ind: jnp.ndarray = None
+    ll_run_stats: Any = None
+    ll_critic_obs_ind: jnp.ndarray = None
 
     def setup(self):
-        if self.ll_apply_fn is None or self.ll_params is None:
-            raise ValueError("Frozen ll_apply_fn and ll_params must be provided.")
+        if self.ll_apply_fn is None or self.ll_params is None or self.ll_run_stats is None or self.ll_critic_obs_ind is None:
+            raise ValueError("Frozen ll_apply_fn and ll_params and ll_run_stats must be provided.")
         
         self.activation_fn = get_activation_fn(self.activation)
 
@@ -123,7 +125,7 @@ class HierarchicalActorCritic(nn.Module):
             activation=self.activation,
             output_activation=None,
             use_running_mean_stand=False, 
-            squeeze_output=True
+            squeeze_output=False
         )
     
     def get_final_action(self, obs: jnp.ndarray, hl_action: jnp.ndarray) -> jnp.ndarray:
@@ -132,12 +134,13 @@ class HierarchicalActorCritic(nn.Module):
         """
         # Get the observation thought for the LL policy
         static_ll_obs = obs[..., self.ll_obs_ind] if self.ll_obs_ind is not None else jnp.array([])
+        static_ll_obs_critic = obs[..., self.ll_critic_obs_ind] if self.ll_critic_obs_ind is not None else jnp.array([])
         # Combine the observations coming from the environment with what specified by the HL policy
-        ll_obs = jnp.concatenate([static_ll_obs, hl_action])
+        ll_obs = jnp.concatenate([static_ll_obs_critic, static_ll_obs, hl_action], axis=-1)
         
         # Get the LL policy's output distribution 
         # NOTE: it might be deterministic or stochastic
-        ll_pi, _ = self.ll_apply_fn({'params': self.ll_params}, ll_obs)
+        ll_pi, _ = self.ll_apply_fn({'params': self.ll_params, 'run_stats': self.ll_run_stats}, ll_obs)
         
         # Return the mean of the distribution for a deterministic action
         final_action = ll_pi.mean()
@@ -285,31 +288,34 @@ class RunningMeanStd(nn.Module):
         var = self.variable('run_stats', 'var', lambda: jnp.ones(x.shape[-1]))
         count = self.variable('run_stats', 'count', lambda: jnp.array(1e-6))
 
-        # Compute batch mean and variance
-        batch_mean = jnp.mean(x, axis=0)
-        batch_var = jnp.var(x, axis=0) + 1e-6  # Add epsilon for numerical stability
-        batch_count = x.shape[0]
+        if self.is_mutable_collection('run_stats'):
+            # Compute batch mean and variance
+            batch_mean = jnp.mean(x, axis=0)
+            batch_var = jnp.var(x, axis=0) + 1e-6  # Add epsilon for numerical stability
+            batch_count = x.shape[0]
 
-        # Update counts
-        updated_count = count.value + batch_count
+            # Update counts
+            updated_count = count.value + batch_count
 
-        # Numerically stable mean and variance update
-        delta = batch_mean - mean.value
-        new_mean = mean.value + delta * batch_count / updated_count
+            # Numerically stable mean and variance update
+            delta = batch_mean - mean.value
+            new_mean = mean.value + delta * batch_count / updated_count
 
-        # Compute the new variance using Welford's method
-        m_a = var.value * count.value
-        m_b = batch_var * batch_count
-        M2 = m_a + m_b + jnp.square(delta) * count.value * batch_count / updated_count
-        new_var = M2 / updated_count
+            # Compute the new variance using Welford's method
+            m_a = var.value * count.value
+            m_b = batch_var * batch_count
+            M2 = m_a + m_b + jnp.square(delta) * count.value * batch_count / updated_count
+            new_var = M2 / updated_count
 
-        # Normalize input
-        normalized_x = (x - new_mean) / jnp.sqrt(new_var + 1e-8)
+            # Normalize input
+            normalized_x = (x - new_mean) / jnp.sqrt(new_var + 1e-8)
 
-        # Update state variables
-        mean.value = new_mean
-        var.value = new_var
-        count.value = updated_count
+            # Update state variables
+            mean.value = new_mean
+            var.value = new_var
+            count.value = updated_count
+        else:
+            normalized_x = (x - mean.value) / jnp.sqrt(var.value + 1e-8)
 
         return jnp.squeeze(normalized_x)
 

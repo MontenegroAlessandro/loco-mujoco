@@ -183,6 +183,8 @@ class ObservationContainer(UserDict):
 
         if isinstance(group_name, str): # backward compatibility witht the old method
             group_names = [group_name]
+        else:
+            group_names = group_name
         
         all_indices = []
         for name in group_names:
