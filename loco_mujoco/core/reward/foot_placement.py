@@ -836,6 +836,10 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         # Goal info
         swing_foot_idx = goal_state.swing_foot_idx
         if self._goal_name in ["GoalDoubleFootPlacement", "GoalFootPlacementFromVelocity"]:
+            gait_process = goal_state.gait_process
+
+            gait_process = 2 * backend.clip(gait_process + backend.where(gait_process < 0.5, 0.5, 0), 0.5, 1)
+
             left_target_pos = goal_state.left_foot_target_pos[:2] # just (x,y)
             left_target_orn = goal_state.left_foot_target_orn
             right_target_pos = goal_state.right_foot_target_pos[:2] # just (x,y)
@@ -864,11 +868,11 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
                 lambda: (rpos_err_sq, rorn_err, lpos_err_sq, lorn_err)
             )
 
-            swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq)
-            stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq)
+            swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq * gait_process)
+            stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq * gait_process)
 
-            swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * swing_orn_error) 
-            stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error)
+            swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * swing_orn_error * gait_process) 
+            stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error * gait_process)
         else:
             swing_target_pos = goal_state.swing_target_pos[:2] # just (x,y)
             swing_target_orn = goal_state.swing_target_orn

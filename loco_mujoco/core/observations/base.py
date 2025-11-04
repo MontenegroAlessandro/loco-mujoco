@@ -156,7 +156,7 @@ class ObservationContainer(UserDict):
         obs_ind_group = self.get_obs_ind_by_group(group_name)
         return obs[..., obs_ind_group]
 
-    def old_get_obs_ind_by_group(self, group_name: str = None):
+    def get_obs_ind_by_group(self, group_name: str = None):
         """
         Get the indices of the observations by group name.
 
@@ -170,7 +170,7 @@ class ObservationContainer(UserDict):
         obs_ind_group = [obs.obs_ind for obs in self.values() if group_name in obs.group]
         return np.concatenate(obs_ind_group) if len(obs_ind_group) > 0 else np.array([])
     
-    def get_obs_ind_by_group(self, group_name: Union[str, List[str]] = None):
+    def new_get_obs_ind_by_group(self, group_name: Union[str, List[str]] = None):
         """
         Extension of the old method to handle subgroups of observation too.
         Now we can handle list of strings and not only strings.

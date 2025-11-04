@@ -307,9 +307,10 @@ class PPOJax(JaxRLAlgorithmBase):
                 log_prob = pi.log_prob(action)
 
                 # select the final action (for compatibility with the hierarchical agent)
-                final_action = network.apply(
-                    {'params': train_state.params},last_obs,action, method=network.get_final_action
-                )
+                # final_action = network.apply(
+                #     {'params': train_state.params},last_obs,action, method=network.get_final_action
+                # )
+                final_action = network.get_final_action(last_obs,action)
 
                 # STEP ENV
                 # obsv, reward, absorbing, done, info, env_state = env.step(env_state, action)
@@ -518,9 +519,10 @@ class PPOJax(JaxRLAlgorithmBase):
                     train_state = train_state.replace(run_stats=updates['run_stats'])  # update stats
                     action = pi.sample(seed=_rng)
 
-                    final_action = network.apply(
-                        {'params': train_state.params},last_obs,action, method=network.get_final_action
-                    )
+                    # final_action = network.apply(
+                    #     {'params': train_state.params},last_obs,action, method=network.get_final_action
+                    # )
+                    final_action = network.get_final_action(last_obs, action)
 
                     # STEP ENV
                     # obsv, reward, absorbing, done, info, env_state = env.step(env_state, action)
@@ -626,9 +628,10 @@ class PPOJax(JaxRLAlgorithmBase):
             pi, _ = y
             a = pi.sample(seed=_rng)
 
-            final_action = agent_conf.network.apply(
-                {'params': ts.params}, obs, a, method=agent_conf.network.get_final_action
-            )
+            # final_action = agent_conf.network.apply(
+            #     {'params': ts.params}, obs, a, method=agent_conf.network.get_final_action
+            # )
+            final_action = agent_conf.network.get_final_action(obs, a)
             # return a, ts
             return final_action, ts
 

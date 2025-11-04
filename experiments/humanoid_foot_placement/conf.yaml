@@ -32,7 +32,7 @@ experiment:
       yaw_range_deg: [-10, 10]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0]
-      feet_swing_period: 0.2
+      # feet_swing_period: 0.2
       # desired height to maintain
       goal_height: 0.68
       # observation group
@@ -76,7 +76,7 @@ experiment:
       # penalties
       joint_deviation_l1_coeff: -0.3
       base_height_target: 0.68
-      base_height_coeff: -10.
+      base_height_coeff: -5 # -10.
       orientation_coeff: -5.
       joint_torque_coeff: -2.e-4
       torque_tiredness_coeff: 0.0

@@ -132,6 +132,30 @@ class HierarchicalActorCritic(nn.Module):
         """
         Computes the final action using the frozen LL policy.
         """
+        # pre-process the action
+        hl_action = jnp.atleast_2d(hl_action)
+        num_actions = hl_action.shape[1]
+
+        # Clip all others to [-1, 1]
+        if num_actions > 2:
+            hl_action = hl_action.at[:, :-2].set(jnp.clip(hl_action[:, :-2], -1, 1))
+
+        # z = 0
+        hl_action = hl_action.at[:, 2].set(0.0)
+        hl_action = hl_action.at[:, 9].set(0.0)
+        
+        hl_action = hl_action.at[:, 3].set(1.0)
+        hl_action = hl_action.at[:, 4:7].set(0.0)
+
+        hl_action = hl_action.at[:, 10].set(1.0)
+        hl_action = hl_action.at[:, 11:14].set(0.0)
+
+        # Set last element to 1
+        hl_action = hl_action.at[:, -1].set(1.0)
+
+        # Clip second-to-last element to [0, 1]
+        hl_action = hl_action.at[:, -2].set(jnp.clip(hl_action[:, -2], 0, 1))
+
         # Get the observation thought for the LL policy
         static_ll_obs = obs[..., self.ll_obs_ind] if self.ll_obs_ind is not None else jnp.array([])
         static_ll_obs_critic = obs[..., self.ll_critic_obs_ind] if self.ll_critic_obs_ind is not None else jnp.array([])

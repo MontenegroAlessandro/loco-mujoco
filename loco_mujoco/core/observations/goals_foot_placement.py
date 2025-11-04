@@ -701,7 +701,13 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             maxval=self.gait_frequency_range[1]
         )
 
-        distance_range = backend.array(self.xy_distance_range)
+        # distance_range = backend.array(self.xy_distance_range)
+        distance_range = backend.array(
+            [
+                self.xy_distance_range[0],
+                backend.min(self.xy_distance_range[1], (self.xy_distance_range[1] * self.gait_frequency_range[0]) / gait_frequency)
+            ]
+        )
         angle_range_rad = backend.array(self.angle_range_rad)
 
         # Sample the initial goal
@@ -996,7 +1002,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
 
     @property
     def dim(self) -> int:
-        return 16 # let's see... if also the one hot then 16
+        return 16 
 
     @property
     def has_visual(self) -> bool:
