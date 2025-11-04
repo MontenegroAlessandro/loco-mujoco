@@ -705,7 +705,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         distance_range = backend.array(
             [
                 self.xy_distance_range[0],
-                backend.min(self.xy_distance_range[1], (self.xy_distance_range[1] * self.gait_frequency_range[0]) / gait_frequency)
+                backend.minimum(self.xy_distance_range[1], (self.xy_distance_range[1] * self.gait_frequency_range[0]) / gait_frequency)
             ]
         )
         angle_range_rad = backend.array(self.angle_range_rad)
@@ -731,7 +731,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         observation_states = carry.observation_states.replace(**{self.name: goal_state})
         return data, carry.replace(key=key, observation_states=observation_states)
 
-    def sample_goal(self, data, carry, backend, initial_gait, gait_frequency, distance_range, angle_range_rad):
+    def sample_goal(self, data, carry, backend, initial_gait, gait_frequency, distance_range, angle_range_rad, reset = False):
         """Sample a new random foot placement goal for a random foot in any direction."""
         R = jnp_R if backend == jnp else np_R
         key = carry.key
@@ -825,34 +825,46 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
 
         # Replace the info for the left or right foot (the stance foot has its current position and orientations as targets)
         if backend == np:
-            if swing_foot_idx == 0:
-                state = state.replace(
-                    left_foot_target_pos=target_pos,
-                    left_foot_target_orn=target_orn,
-                    right_foot_target_pos=stance_foot_pos,
-                    right_foot_target_orn=stance_foot_orn
-                )
+            if not reset: 
+                if swing_foot_idx == 0:
+                    state = state.replace(
+                        left_foot_target_pos=target_pos,
+                        left_foot_target_orn=target_orn,
+                    )
+                else:
+                    state = state.replace(
+                        right_foot_target_pos=target_pos,
+                        right_foot_target_orn=target_orn,
+                    )
             else:
-                state = state.replace(
-                    right_foot_target_pos=target_pos,
-                    right_foot_target_orn=target_orn,
-                    left_foot_target_pos=stance_foot_pos,
-                    left_foot_target_orn=stance_foot_orn
-                )
+                if swing_foot_idx == 0:
+                    state = state.replace(
+                        left_foot_target_pos=target_pos,
+                        left_foot_target_orn=target_orn,
+                        right_foot_target_pos=stance_foot_pos,
+                        right_foot_target_orn=stance_foot_orn
+                    )
+                else:
+                    state = state.replace(
+                        right_foot_target_pos=target_pos,
+                        right_foot_target_orn=target_orn,
+                        left_foot_target_pos=stance_foot_pos,
+                        left_foot_target_orn=stance_foot_orn
+                    )
         else:
             state = jax.lax.cond(
                 (swing_foot_idx == 0),
                 lambda s: s.replace(
                     left_foot_target_pos=target_pos,
                     left_foot_target_orn=target_orn,
-                    right_foot_target_pos=stance_foot_pos,
-                    right_foot_target_orn=stance_foot_orn
+                    # right_foot_target_pos=stance_foot_pos,
+                    # right_foot_target_orn=stance_foot_orn
                 ),
                 lambda s: s.replace(
                     right_foot_target_pos=target_pos,
                     right_foot_target_orn=target_orn,
-                    left_foot_target_pos=stance_foot_pos,
-                    left_foot_target_orn=stance_foot_orn
+                    # left_foot_target_pos=stance_foot_pos,
+                    # left_foot_target_orn=stance_foot_orn
                 ),
                 operand=state
             )
