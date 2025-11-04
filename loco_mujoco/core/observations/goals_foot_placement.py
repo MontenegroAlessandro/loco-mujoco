@@ -852,20 +852,40 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                         left_foot_target_orn=stance_foot_orn
                     )
         else:
+            def normal_step_update(s):
+                return jax.lax.cond(
+                    (swing_foot_idx == 0),
+                    lambda s_inner: s_inner.replace(
+                        left_foot_target_pos=target_pos,
+                        left_foot_target_orn=target_orn
+                    ),
+                    lambda s_inner: s_inner.replace(
+                        right_foot_target_pos=target_pos,
+                        right_foot_target_orn=target_orn
+                    ),
+                    operand=s
+                )
+            def reset_step_update(s):
+                return jax.lax.cond(
+                    (swing_foot_idx == 0), 
+                    lambda s_inner: s_inner.replace(
+                        left_foot_target_pos=target_pos,
+                        left_foot_target_orn=target_orn,
+                        right_foot_target_pos=stance_foot_pos, 
+                        right_foot_target_orn=stance_foot_orn
+                    ),
+                    lambda s_inner: s_inner.replace( 
+                        right_foot_target_pos=target_pos,
+                        right_foot_target_orn=target_orn,
+                        left_foot_target_pos=stance_foot_pos, 
+                        left_foot_target_orn=stance_foot_orn
+                    ),
+                    operand=s
+                )
             state = jax.lax.cond(
-                (swing_foot_idx == 0),
-                lambda s: s.replace(
-                    left_foot_target_pos=target_pos,
-                    left_foot_target_orn=target_orn,
-                    # right_foot_target_pos=stance_foot_pos,
-                    # right_foot_target_orn=stance_foot_orn
-                ),
-                lambda s: s.replace(
-                    right_foot_target_pos=target_pos,
-                    right_foot_target_orn=target_orn,
-                    # left_foot_target_pos=stance_foot_pos,
-                    # left_foot_target_orn=stance_foot_orn
-                ),
+                reset,
+                reset_step_update,  
+                normal_step_update, 
                 operand=state
             )
 
