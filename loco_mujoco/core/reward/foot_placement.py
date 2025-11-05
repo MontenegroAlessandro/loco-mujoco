@@ -840,25 +840,45 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
 
             gait_process = 2 * backend.clip(gait_process + backend.where(gait_process < 0.5, 0.5, 0), 0.5, 1)
 
-            left_target_pos = goal_state.left_foot_target_pos[:2] # just (x,y)
+            # Retrieve targets
+            # left_target_pos = goal_state.left_foot_target_pos[:2] # just (x,y)
+            left_target_pos = goal_state.left_foot_target_pos # (x,y,z)
             left_target_orn = goal_state.left_foot_target_orn
-            right_target_pos = goal_state.right_foot_target_pos[:2] # just (x,y)
+            # right_target_pos = goal_state.right_foot_target_pos[:2] # just (x,y)
+            right_target_pos = goal_state.right_foot_target_pos # (x,y,z)
             right_target_orn = goal_state.right_foot_target_orn
 
             # Current pose
-            left_pos = data.site_xpos[self._left_foot_site_id][:2] # just (x,y)
+            # left_pos = data.site_xpos[self._left_foot_site_id][:2] # just (x,y)
+            left_pos = data.site_xpos[self._left_foot_site_id] # (x,y,z)
             left_orn = R.from_matrix(data.site_xmat[self._left_foot_site_id].reshape(3, 3)).as_quat(scalar_first=True)
-            right_pos = data.site_xpos[self._right_foot_site_id][:2] # just (x,y)
+            # right_pos = data.site_xpos[self._right_foot_site_id][:2] # just (x,y)
+            right_pos = data.site_xpos[self._right_foot_site_id] # (x,y,z)
             right_orn = R.from_matrix(data.site_xmat[self._right_foot_site_id].reshape(3, 3)).as_quat(scalar_first=True)
 
-            # Swing-foot tracking (pos + orn)
+            # Position tracking error
             lpos_err_sq = backend.sum(backend.square(left_pos - left_target_pos))
-            ldot_q = backend.clip(backend.sum(left_target_orn * left_orn), -1.0, 1.0)
-            lorn_err = 1.0 - backend.square(ldot_q)
+            # ldot_q = backend.clip(backend.sum(left_target_orn * left_orn), -1.0, 1.0)
+            # lorn_err = 1.0 - backend.square(ldot_q)
 
             rpos_err_sq = backend.sum(backend.square(right_pos - right_target_pos))
-            rdot_q = backend.clip(backend.sum(right_target_orn * right_orn), -1.0, 1.0)
-            rorn_err = 1.0 - backend.square(rdot_q)
+            # rdot_q = backend.clip(backend.sum(right_target_orn * right_orn), -1.0, 1.0)
+            # rorn_err = 1.0 - backend.square(rdot_q)
+
+            # Orientation tracking error
+            # NOTE: we are going to consider just the yaw misalignment, since we accept the possibility of having 
+            # NOTE: uneven terrains
+            # target yaws
+            l_targ_yaw = (R.from_quat(quat_scalarfirst2scalarlast(left_target_orn))).as_euler('xyz')[2]
+            r_targ_yaw = (R.from_quat(quat_scalarfirst2scalarlast(right_target_orn))).as_euler('xyz')[2]
+            # current feet yaws
+            l_cur_yaw = (R.from_quat(quat_scalarfirst2scalarlast(left_orn))).as_euler('xyz')[2]
+            r_cur_yaw = R.from_quat(quat_scalarfirst2scalarlast(right_orn)).as_euler('xyz')[2]
+            # get the yaw error
+            l_yaw_err = (l_targ_yaw - l_cur_yaw + backend.pi) % (2 * backend.pi) - backend.pi
+            lorn_err = backend.square(l_yaw_err)
+            r_yaw_err = (r_targ_yaw - r_cur_yaw + backend.pi) % (2 * backend.pi) - backend.pi
+            rorn_err = backend.square(r_yaw_err)
 
             # discrimate left and right foot basing on the swing idx
             swing_left = (swing_foot_idx == 0)
@@ -874,16 +894,19 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * swing_orn_error * gait_process) 
             stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error * gait_process)
         else:
-            swing_target_pos = goal_state.swing_target_pos[:2] # just (x,y)
+            # swing_target_pos = goal_state.swing_target_pos[:2] # just (x,y)
+            swing_target_pos = goal_state.swing_target_pos # (x,y,z)
             swing_target_orn = goal_state.swing_target_orn
 
             # Foot IDs
             swing_site_id = jax.lax.select((swing_foot_idx == 1), self._right_foot_site_id, self._left_foot_site_id)
 
             # Current pose
-            swing_pos = data.site_xpos[swing_site_id][:2] # just (x,y)
+            # swing_pos = data.site_xpos[swing_site_id][:2] # just (x,y)
+            swing_pos = data.site_xpos[swing_site_id] # (x,y,z)
             swing_orn = R.from_matrix(data.site_xmat[swing_site_id].reshape(3, 3)).as_quat(scalar_first=True)
 
+            # FIXME: track only the yaw and also the z!
             # Swing-foot tracking (pos + orn)
             pos_err_sq = backend.sum(backend.square(swing_pos - swing_target_pos))
             dot_q = backend.clip(backend.sum(swing_target_orn * swing_orn), -1.0, 1.0)
