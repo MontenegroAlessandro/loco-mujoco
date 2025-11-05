@@ -204,3 +204,12 @@ class Terrain(StatefulObject):
         else:
             setattr(model, attribute, value)
         return model
+    
+    def get_height_at_xy(
+            self, 
+            terrain_state: Any, 
+            xy_pos: Union[np.ndarray, jnp.ndarray], 
+            backend: ModuleType
+        ) -> Any:
+        # to be implemneted by inheritign classes
+        return 0
