@@ -785,7 +785,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # Compute the targets
             target_pos_pre_z = swing_foot_pos + step_vec_local
             target_pos_xy = target_pos_pre_z[:2]
-            target_z_from_terrain = env.terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
+            target_z_from_terrain = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
             target_pos = target_pos_pre_z.at[2].set(target_z_from_terrain)
             target_orn = R.from_euler('z', target_yaw).as_quat(scalar_first=True)
         else:
@@ -805,7 +805,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # target_pos = stance_foot_pos + step_vec_world
             target_pos_pre_z = stance_foot_pos + step_vec_local
             target_pos_xy = target_pos_pre_z[:2]
-            target_z_from_terrain = env.terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
+            target_z_from_terrain = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
             target_pos = target_pos_pre_z.at[2].set(target_z_from_terrain)
 
             # Generate Orientation Target

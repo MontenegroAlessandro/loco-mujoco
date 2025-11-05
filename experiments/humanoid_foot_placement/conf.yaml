@@ -16,7 +16,7 @@ experiment:
 
     terrain_type: StonesHolesTerrain
     terrain_params: 
-      patch_size: 0.3
+      patch_size: 0.4
       height_range: [-0.1, 0.1]
       inner_platform_size_in_meters: 1
 

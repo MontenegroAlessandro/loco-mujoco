@@ -79,12 +79,12 @@ class StonesHolesTerrain(DynamicTerrain):
         self._free_jnt_qpos_id = np.array(mj_jntname2qposid(root_free_joint_xml_name, env._model))
 
     def init_state(
-        self, env: Any,
-        key: Any,
-        model: Union[MjModel, Model],
-        data: Union[MjData, Data],
-        backend: ModuleType
-    ) -> StonesHolesTerrainState:
+            self, env: Any,
+            key: Any,
+            model: Union[MjModel, Model],
+            data: Union[MjData, Data],
+            backend: ModuleType
+        ) -> StonesHolesTerrainState:
         """Initialize the state of the stepping stones terrain."""
         assert_backend_is_supported(backend)
         return StonesHolesTerrainState(
@@ -151,8 +151,22 @@ class StonesHolesTerrain(DynamicTerrain):
         )
         
         # Upsample to full hfield resolution using jnp.repeat
-        height_field = jnp.repeat(low_res_grid, self.patch_size_pixels, axis=0)
-        height_field = jnp.repeat(height_field, self.patch_size_pixels, axis=1)
+        height_field_small = jnp.repeat(low_res_grid, self.patch_size_pixels, axis=0)
+        height_field_small = jnp.repeat(height_field_small, self.patch_size_pixels, axis=1)
+        # NOTE: this could be smaller than expected, depending on the stones areas
+        height_field = jnp.zeros((self.hfield_length, self.hfield_length)) # 80x80 array
+        h_small, w_small = height_field_small.shape
+        height_field = height_field.at[:h_small, :w_small].set(height_field_small)
+
+        pad_x = self.hfield_length - h_small
+        pad_y = self.hfield_length - w_small
+        # fill bottom rows
+        if pad_x > 0:
+            height_field = height_field.at[h_small:, :w_small].set(height_field_small[-1:, :])
+        # fill right columns using the last filled column
+        if pad_y > 0:
+            last_filled_column = height_field[:, w_small-1:w_small]
+            height_field = height_field.at[:, w_small:].set(last_filled_column)
 
         # Cut out the flat starting platform
         height_field = height_field.at[self.x1:self.x2, self.y1:self.y2].set(0.0)
@@ -168,8 +182,20 @@ class StonesHolesTerrain(DynamicTerrain):
         )
         
         # Upsample to full hfield resolution using np.repeat
-        height_field = np.repeat(low_res_grid, self.patch_size_pixels, axis=0)
-        height_field = np.repeat(height_field, self.patch_size_pixels, axis=1)
+        height_field_small = np.repeat(low_res_grid, self.patch_size_pixels, axis=0)
+        height_field_small = np.repeat(height_field_small, self.patch_size_pixels, axis=1)
+        # NOTE: this could be smaller than expected, depending on the stones areas
+        height_field = np.zeros((self.hfield_length, self.hfield_length)) # 80x80 array
+        h_small, w_small = height_field_small.shape
+        height_field = height_field[:h_small, :w_small] = height_field_small
+
+        pad_x = self.hfield_length - h_small
+        pad_y = self.hfield_length - w_small
+        if pad_x > 0:
+            height_field = height_field[h_small:, :w_small] = height_field_small[-1:, :]
+        if pad_y > 0:
+            last_filled_column = height_field[:, w_small-1:w_small]
+            height_field = height_field[:, w_small:] = last_filled_column 
 
         # Cut out the flat starting platform
         height_field[self.x1:self.x2, self.y1:self.y2] = 0.0
