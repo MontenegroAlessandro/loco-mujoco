@@ -398,6 +398,7 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
 
         # Sample the initial goal
         goal_state = self.sample_goal(
+            env=env,
             data=data,
             carry=carry.replace(key=subkey3),
             backend=backend,
@@ -408,7 +409,7 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
         observation_states = carry.observation_states.replace(**{self.name: goal_state})
         return data, carry.replace(key=key, observation_states=observation_states)
 
-    def sample_goal(self, data, carry, backend, initial_gait, gait_frequency):
+    def sample_goal(self, env, data, carry, backend, initial_gait, gait_frequency):
         """Sample a new random foot placement goal for a random foot in any direction."""
         R = jnp_R if backend == jnp else np_R
         key = carry.key
@@ -490,12 +491,12 @@ class GoalRandomChangingFootPlacement(Goal, FootPlacementVisualizer):
         resample_goal = (swing_foot_idx != state.swing_foot_idx)
         if backend == np:
             if resample_goal:
-                new_goal = self.sample_goal(data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency)
+                new_goal = self.sample_goal(env=env, data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency)
                 state = new_goal
         else:
             state = jax.lax.cond(
                 resample_goal,
-                lambda s: self.sample_goal(data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency),
+                lambda s: self.sample_goal(env=env, data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency),
                 lambda s: s,
                 operand=state
             )
@@ -606,7 +607,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             left_foot_site_name: str = "left_foot",
             right_foot_site_name: str = "right_foot",
             xy_distance_range: List[float] = [0.2, 0.4],
-            z_height_range: List[float] = [0.05, 0.15],
+            # z_height_range: List[float] = [0.05, 0.15],
             angle_range_deg: List[float] = [-180.0, 180.0],
             yaw_range_deg: List[float] = [-15.0, 15.0],
             goal_height: float = 0.68,
@@ -619,7 +620,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         self.foot_site_names = [left_foot_site_name, right_foot_site_name]
         self.xy_distance_range = xy_distance_range
-        self.z_height_range = z_height_range
+        # self.z_height_range = z_height_range
         self.angle_range_rad = [np.deg2rad(angle_range_deg[0]), np.deg2rad(angle_range_deg[1])]
         self.yaw_range_rad = [np.deg2rad(yaw_range_deg[0]), np.deg2rad(yaw_range_deg[1])]
         self.goal_height = goal_height
@@ -712,6 +713,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
 
         # Sample the initial goal
         goal_state = self.sample_goal(
+            env=env, 
             data=data,
             carry=carry.replace(key=subkey3),
             backend=backend,
@@ -731,7 +733,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         observation_states = carry.observation_states.replace(**{self.name: goal_state})
         return data, carry.replace(key=key, observation_states=observation_states)
 
-    def sample_goal(self, data, carry, backend, initial_gait, gait_frequency, distance_range, angle_range_rad, reset = False):
+    def sample_goal(self, env, data, carry, backend, initial_gait, gait_frequency, distance_range, angle_range_rad, reset = False):
         """Sample a new random foot placement goal for a random foot in any direction."""
         R = jnp_R if backend == jnp else np_R
         key = carry.key
@@ -776,20 +778,20 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # consider if we have to sample a goal according to a walking scheme
         if self.walking_scheme_indices.size > 0:
             idx = jax.lax.dynamic_index_in_dim(self.walking_scheme_indices, state.walking_scheme_idx, keepdims=False)
-            step_vec_local, step_height, target_yaw = self.sample_from_scheme(
+            step_vec_local, _, target_yaw = self.sample_from_scheme(
                 idx=idx, swing_is_left=(swing_foot_idx == 0), backend=backend, displacement=distance
             )
 
             # Compute the targets
-            target_pos = swing_foot_pos + step_vec_local
-            target_pos = target_pos.at[2].set(swing_foot_pos[2] + step_height)
+            target_pos_pre_z = swing_foot_pos + step_vec_local
+            target_pos_xy = target_pos_pre_z[:2]
+            target_z_from_terrain = env.terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
+            target_pos = target_pos_pre_z.at[2].set(target_z_from_terrain)
             target_orn = R.from_euler('z', target_yaw).as_quat(scalar_first=True)
         else:
             # step direction
             angle = jax.random.uniform(subkey2, minval=angle_range_rad[0], maxval=angle_range_rad[1])
             lateral_sign = jnp.where(stance_is_right, 1, -1)
-            # target height 
-            target_z_offset = 0 # FIXME jax.random.uniform(subkey3, minval=self.z_height_range[0], maxval=self.z_height_range[1])
             # step vector to be added to the stance foot coordinates
             step_vec_local = backend.array(
                 [distance * backend.cos(angle), distance * backend.sin(angle) * lateral_sign, 0.0]
@@ -801,8 +803,10 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # root_rot = R.from_quat(root_quat_scipy)
             # step_vec_world = root_rot.apply(step_vec_local)
             # target_pos = stance_foot_pos + step_vec_world
-            target_pos = stance_foot_pos + step_vec_local
-            target_pos = target_pos.at[2].set(stance_foot_pos[2] + target_z_offset)
+            target_pos_pre_z = stance_foot_pos + step_vec_local
+            target_pos_xy = target_pos_pre_z[:2]
+            target_z_from_terrain = env.terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
+            target_pos = target_pos_pre_z.at[2].set(target_z_from_terrain)
 
             # Generate Orientation Target
             key, subkey4 = jax.random.split(key)
@@ -932,7 +936,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         if backend == np:
             if resample_goal:
                 new_goal = self.sample_goal(
-                    data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency,
+                    env=env, data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency,
                     distance_range=state.distance_range, angle_range_rad=state.angle_range_rad
                 )
                 state = new_goal
@@ -940,7 +944,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             state = jax.lax.cond(
                 resample_goal,
                 lambda s: self.sample_goal(
-                    data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency,
+                    env=env, data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency,
                     distance_range=state.distance_range, angle_range_rad=state.angle_range_rad
                 ),
                 lambda s: s,

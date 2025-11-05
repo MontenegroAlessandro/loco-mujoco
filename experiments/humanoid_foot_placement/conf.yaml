@@ -14,6 +14,12 @@ experiment:
     env_name: MjxBoosterT1
     horizon: 1000
 
+    terrain_type: StonesHolesTerrain
+    terrain_params: 
+      patch_size: 0.3
+      height_range: [-0.1, 0.1]
+      inner_platform_size_in_meters: 1
+
     terminal_state_type: HeightBasedTerminalStateHandler
 
     goal_type: GoalDoubleFootPlacement # GoalRandomChangingFootPlacement # GoalRandomFootPlacement
@@ -23,16 +29,13 @@ experiment:
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.2, 0.55]
-      # Range for the target foot height [min, max] from the ground
-      z_height_range: [0.0, 0.0]
+      xy_distance_range: [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
       angle_range_deg: [45, 135] # x in front, y left (then mirrored for the right foot)
       # Range for randomizing the target foot yaw relative to the body
       yaw_range_deg: [-10, 10]
       # gait frequency target
-      gait_frequency_range: [0.8, 2.0]
-      # feet_swing_period: 0.2
+      gait_frequency_range: [1.0, 1.0] # [0.8, 2.0]
       # desired height to maintain
       goal_height: 0.68
       # observation group
