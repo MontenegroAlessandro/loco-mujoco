@@ -187,7 +187,7 @@ class StonesHolesTerrain(DynamicTerrain):
         # NOTE: this could be smaller than expected, depending on the stones areas
         height_field = np.zeros((self.hfield_length, self.hfield_length)) # 80x80 array
         h_small, w_small = height_field_small.shape
-        height_field = height_field[:h_small, :w_small] = height_field_small
+        height_field[:h_small, :w_small] = height_field_small
 
         pad_x = self.hfield_length - h_small
         pad_y = self.hfield_length - w_small

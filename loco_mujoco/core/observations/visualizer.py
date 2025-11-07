@@ -346,6 +346,12 @@ class DoubleFootPlacementVisualizer:
         right_pos = goal_state.right_foot_target_pos 
         right_orn = goal_state.right_foot_target_orn 
         # swing_one_hot = jax.nn.one_hot(goal_state.swing_foot_idx, 2)
+        
+        # take the movement direction yaw
+        mov_dir_yaw = goal_state.movement_direction
+        dir_x = backend.cos(mov_dir_yaw)
+        dir_y = backend.sin(mov_dir_yaw)
+        direction_vector = backend.array([dir_x, dir_y, 0])
 
         # Convert quaternions to rotation matrices
         left_mat = R.from_quat(quat_scalarfirst2scalarlast(left_orn)).as_matrix().reshape(-1)

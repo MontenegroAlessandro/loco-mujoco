@@ -14,11 +14,11 @@ experiment:
     env_name: MjxBoosterT1
     horizon: 1000
 
-    terrain_type: StonesHolesTerrain
-    terrain_params: 
-      patch_size: 0.4
-      height_range: [-0.1, 0.1]
-      inner_platform_size_in_meters: 1
+    # terrain_type: StonesHolesTerrain
+    # terrain_params: 
+    #   patch_size: 0.5
+    #   height_range: [-0.05, 0.05]
+    #   inner_platform_size_in_meters: 0.5
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
@@ -31,13 +31,17 @@ experiment:
       # Range for the random step length [min, max] in meters
       xy_distance_range: [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [45, 135] # x in front, y left (then mirrored for the right foot)
+      angle_range_deg: [20, 90] # [20, 160] # x in front, y left (then mirrored for the right foot)
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-10, 10]
+      yaw_range_deg: [-30, 30]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] # [0.8, 2.0]
+      # gait height
+      gait_height: 0.05 # 0.2
       # desired height to maintain
       goal_height: 0.68
+      # direction range in deg
+      direction_range_deg: [0, 360]
       # observation group
       group: [prioritized, policy]
 
@@ -59,6 +63,9 @@ experiment:
       sharp_orn: 100 # 10
       stance_sharp_pos: 100
       stance_sharp_orn: 100 
+      # gait
+      gait_height_sharp: 1
+      gait_height_coeff: 1
       # other tracking rewards
       tracking_nominal_joint_pos_exp: 4
       tracking_nominal_joint_pos_coeff: 0
@@ -446,7 +453,8 @@ experiment:
     num_steps: 100
     num_envs: 100
     num: 10 # set to 0 to disable validation
-
+  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/2025-11-04/18-05-53/PPOJax_saved.pkl
+  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/2025-11-06/17-18-40/PPOJax_saved.pkl
 
 robot_joints_to_consider:
   - AAHead_yaw

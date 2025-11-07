@@ -590,11 +590,13 @@ class GoalDoubleFootPlacementState:
     goal_height: float                  # the desired height to maintain (for booster is 0.68)
     gait_frequency: float               # the desired gait frequency (1.0 is normal, 2.0 is very fast)     
     gait_process: float                 # \in [0,1] s.t. left \in [0,0.5) and right \in [0.5,1]
+    gait_height: float                  # desired height of the steps
     walking_scheme_idx: int
     gait_horizon: int
     gait_counter: int
     angle_range_rad: List[float]
     distance_range: List[float]
+    movement_direction: float           # angle in rad defining the movement direction
 
 class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
     """
@@ -606,26 +608,33 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             info_props: Dict,
             left_foot_site_name: str = "left_foot",
             right_foot_site_name: str = "right_foot",
+            # canonical FP target generation
             xy_distance_range: List[float] = [0.2, 0.4],
-            # z_height_range: List[float] = [0.05, 0.15],
             angle_range_deg: List[float] = [-180.0, 180.0],
             yaw_range_deg: List[float] = [-15.0, 15.0],
             goal_height: float = 0.68,
             feet_distance: float = 0.2,
+            # gait information
             gait_frequency_range: List[float] = [1.0, 2.0],
+            gait_height: float = 0.1,
+            # walking schemes
             walking_schemes: List[str] = [],
             gait_horizon: int = 1,
+            # movement direction
+            direction_range_deg: list[float] = [0.0, 0.0],
             **kwargs
         ):
         
         self.foot_site_names = [left_foot_site_name, right_foot_site_name]
         self.xy_distance_range = xy_distance_range
         # self.z_height_range = z_height_range
-        self.angle_range_rad = [np.deg2rad(angle_range_deg[0]), np.deg2rad(angle_range_deg[1])]
-        self.yaw_range_rad = [np.deg2rad(yaw_range_deg[0]), np.deg2rad(yaw_range_deg[1])]
+        self.angle_range_rad = [jnp.deg2rad(angle_range_deg[0]), jnp.deg2rad(angle_range_deg[1])]
+        self.yaw_range_rad = [jnp.deg2rad(yaw_range_deg[0]), jnp.deg2rad(yaw_range_deg[1])]
         self.goal_height = goal_height
+        self.gait_height = gait_height
         self.gait_frequency_range = gait_frequency_range
         self.feet_distance = feet_distance
+        self.direnction_range_rad = [jnp.deg2rad(direction_range_deg[0]), jnp.deg2rad(direction_range_deg[1])]
         
         self._foot_site_ids = [-1, -1]
         self._root_joint_name = info_props["root_free_joint_xml_name"]
@@ -677,13 +686,16 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # gait info
             gait_frequency=1.0,
             gait_process=0.0,
+            gait_height=0.1,
             # changing walking scheme info
             walking_scheme_idx=0,
             gait_horizon=self.gait_horizon,
             gait_counter=0,
             # ranges
             angle_range_rad=self.angle_range_rad,
-            distance_range=self.xy_distance_range
+            distance_range=self.xy_distance_range,
+            # movement direction
+            movement_direction=0.0
         )
     
     def reset_state(self, env, model, data, carry, backend):
@@ -692,7 +704,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         key = carry.key
 
         # Sample the random starting phase of the gait
-        key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
+        key, subkey1, subkey2, subkey3, subkey4 = jax.random.split(key, 5)
         gp0 = jax.random.randint(subkey1, shape=(), minval=0, maxval=2) / 2
 
         # sample the gait frequency
@@ -702,7 +714,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             maxval=self.gait_frequency_range[1]
         )
 
-        # distance_range = backend.array(self.xy_distance_range)
+        # adjust the distance range base on the selected gait
         distance_range = backend.array(
             [
                 self.xy_distance_range[0],
@@ -710,17 +722,26 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             ]
         )
         angle_range_rad = backend.array(self.angle_range_rad)
+        
+        # sample the movement direction
+        movement_direction = jax.random.uniform(
+            subkey3,
+            shape=(),
+            minval=self.direnction_range_rad[0],
+            maxval=self.direnction_range_rad[1],
+        )
 
         # Sample the initial goal
         goal_state = self.sample_goal(
             env=env, 
             data=data,
-            carry=carry.replace(key=subkey3),
+            carry=carry.replace(key=subkey4),
             backend=backend,
             initial_gait=gp0,
             gait_frequency=gait_frequency,
             distance_range=distance_range,
-            angle_range_rad=angle_range_rad
+            angle_range_rad=angle_range_rad,
+            movement_direction=movement_direction
         )
         
         # gait counter information
@@ -733,7 +754,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         observation_states = carry.observation_states.replace(**{self.name: goal_state})
         return data, carry.replace(key=key, observation_states=observation_states)
 
-    def sample_goal(self, env, data, carry, backend, initial_gait, gait_frequency, distance_range, angle_range_rad, reset = False):
+    def sample_goal(self, env, data, carry, backend, initial_gait, gait_frequency, distance_range, angle_range_rad, reset = False, movement_direction=0.0):
         """Sample a new random foot placement goal for a random foot in any direction."""
         R = jnp_R if backend == jnp else np_R
         key = carry.key
@@ -759,16 +780,17 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             self._foot_site_id_right,
             self._foot_site_id_left
         )
+        
+        # deifne th emovement direction
+        mov_dir_rot = R.from_euler('z', movement_direction)
 
         # stance foot posiiton in the WORLD
         stance_foot_pos = data.site_xpos[stance_foot_site_id]
-        stance_foot_orn = R.from_matrix(data.site_xmat[stance_foot_site_id].reshape(3, 3)).as_quat(scalar_first=True)
+        # foot orientation in the world
+        stance_foot_orn_mat = data.site_xmat[stance_foot_site_id].reshape(3, 3)
+        stance_foot_orn = R.from_matrix(stance_foot_orn_mat).as_quat(scalar_first=True)
+        stance_foot_yaw_rot = R.from_euler('z', R.as_euler('xyz', R.from_matrix(stance_foot_orn_mat))[2]) # take the rotation considering the yaw only part
         swing_foot_pos = data.site_xpos[swing_foot_site_id]
-        swing_foot_orn = R.from_matrix(data.site_xmat[swing_foot_site_id].reshape(3, 3)).as_quat(scalar_first=True)
-
-        # orientation of the body in the WORLD (needed to compute the right angles), to be converted into (x,y,z,w)
-        root_quat_mj = jnp.array(data.qpos)[self._root_qpos_ids[3:7]]
-        root_quat_scipy = quat_scalarfirst2scalarlast(root_quat_mj)
 
         # Generate Position Target
         key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
@@ -787,10 +809,12 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             target_pos_xy = target_pos_pre_z[:2]
             target_z_from_terrain = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
             target_pos = target_pos_pre_z.at[2].set(target_z_from_terrain)
-            target_orn = R.from_euler('z', target_yaw).as_quat(scalar_first=True)
+            target_orn = R.from_euler('z', target_yaw).as_quat(scalar_first=True) * R.from_matrix(stance_foot_orn_mat)
         else:
             # step direction
-            angle = jax.random.uniform(subkey2, minval=angle_range_rad[0], maxval=angle_range_rad[1])
+            # NOTE: angle_rand is an offset w.r.t. the direction
+            angle_rand = jax.random.uniform(subkey2, minval=angle_range_rad[0], maxval=angle_range_rad[1]) # sample a random yaw
+            angle = R.as_euler('xyz', R.from_euler('z', angle_rand) * mov_dir_rot)[2] # apply as offset w.r.t. direction (if 0 is as in the first version)
             lateral_sign = jnp.where(stance_is_right, 1, -1)
             # step vector to be added to the stance foot coordinates
             step_vec_local = backend.array(
@@ -800,9 +824,6 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # NOTE: one would naturally make the rotation to the world frame, but actually the orientation is the one of
             # NOTE: the torso (that moves quite a lot), so it makes more sense to keep the step in local frame. 
             # NOTE: The stuff to do would be to consider the waist instead of the torso.
-            # root_rot = R.from_quat(root_quat_scipy)
-            # step_vec_world = root_rot.apply(step_vec_local)
-            # target_pos = stance_foot_pos + step_vec_world
             target_pos_pre_z = stance_foot_pos + step_vec_local
             target_pos_xy = target_pos_pre_z[:2]
             target_z_from_terrain = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
@@ -812,9 +833,9 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             key, subkey4 = jax.random.split(key)
             # sample the yaw relative to the current stance foot yaw
             rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1]) * lateral_sign
-            # NOTE: if one wants to consider the relative yaw w.r.t. the stance foot, one should compose the rotations
-            # target_orn_rot = R.from_euler('z', rand_yaw) * R.from_quat(root_quat_scipy) # ... add stance rotation !
-            target_orn_rot = R.from_euler('z', rand_yaw)
+            # target_orn_rot = R.from_euler('z', rand_yaw) * R.from_matrix(stance_foot_orn_mat)
+            # target_orn_rot = R.from_euler('z', rand_yaw) * stance_foot_yaw_rot
+            target_orn_rot = R.from_euler('z', rand_yaw) * mov_dir_rot
             target_orn = target_orn_rot.as_quat(scalar_first=True)
 
         # replace the information we already know we can substitute
@@ -822,9 +843,11 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             swing_foot_idx=swing_foot_idx,
             goal_height=self.goal_height,
             gait_frequency=gait_frequency,
+            gait_height=self.gait_height,
             gait_process=gp,
             distance_range=distance_range,
-            angle_range_rad=angle_range_rad
+            angle_range_rad=angle_range_rad,
+            movement_direction=movement_direction
         )
 
         # Replace the info for the left or right foot (the stance foot has its current position and orientations as targets)

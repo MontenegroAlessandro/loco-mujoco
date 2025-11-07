@@ -75,11 +75,14 @@ def experiment(config: DictConfig):
 
         # get initial agent configuration
         agent_conf = PPOJax.init_agent_conf(env, config)
+        agent_state = None
+        if "resume_from_path" in config.experiment:
+            agent_conf, agent_state = PPOJax.load_agent(config.experiment.resume_from_path)
 
         # build training function
         # train_fn = PPOJax.build_train_fn(env, agent_conf)
 
-        train_fn = PPOJax.build_train_fn(env, agent_conf, mh=mh, wandb_run=run)
+        train_fn = PPOJax.build_train_fn(env, agent_conf, agent_state=agent_state, mh=mh, wandb_run=run)
 
         # jit and vmap training function
         train_fn = jax.jit(jax.vmap(train_fn)) if config.experiment.n_seeds > 1 else jax.jit(train_fn)
