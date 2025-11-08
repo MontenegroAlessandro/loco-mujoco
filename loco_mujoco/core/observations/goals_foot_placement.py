@@ -634,7 +634,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.gait_height = gait_height
         self.gait_frequency_range = gait_frequency_range
         self.feet_distance = feet_distance
-        self.direnction_range_rad = [jnp.deg2rad(direction_range_deg[0]), jnp.deg2rad(direction_range_deg[1])]
+        self.direction_range_rad = [jnp.deg2rad(direction_range_deg[0]), jnp.deg2rad(direction_range_deg[1])]
         
         self._foot_site_ids = [-1, -1]
         self._root_joint_name = info_props["root_free_joint_xml_name"]
@@ -702,10 +702,28 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         """Reset the goal state by sampling a new random foot placement goal."""
         R = jnp_R if backend == jnp else np_R
         key = carry.key
+        key, subkey1, subkey2, subkey3, subkey4 = jax.random.split(key, 5)
+
+        # sample the movement direction
+        movement_direction = jax.random.uniform(
+            subkey3,
+            shape=(),
+            minval=self.direction_range_rad[0],
+            maxval=self.direction_range_rad[1],
+        )
 
         # Sample the random starting phase of the gait
-        key, subkey1, subkey2, subkey3, subkey4 = jax.random.split(key, 5)
-        gp0 = jax.random.randint(subkey1, shape=(), minval=0, maxval=2) / 2
+        rand_gp0 = jax.random.randint(subkey1, shape=(), minval=0, maxval=2) / 2
+        cond_0_180 = (movement_direction > 0) & (movement_direction < 180)
+        cond_180_360 = (movement_direction > 180) & (movement_direction < 360)
+        cond_boundaries = (movement_direction == 0) | (movement_direction == 180) | (movement_direction == 360)
+        gp0 = jnp.where(
+            cond_0_180, 0.0,
+            jnp.where(
+                cond_180_360, 0.5,
+                jnp.where(cond_boundaries, rand_gp0, 0.0)
+            )
+        )
 
         # sample the gait frequency
         gait_frequency = jax.random.uniform(
@@ -723,14 +741,6 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         )
         angle_range_rad = backend.array(self.angle_range_rad)
         
-        # sample the movement direction
-        movement_direction = jax.random.uniform(
-            subkey3,
-            shape=(),
-            minval=self.direnction_range_rad[0],
-            maxval=self.direnction_range_rad[1],
-        )
-
         # Sample the initial goal
         goal_state = self.sample_goal(
             env=env, 
@@ -754,7 +764,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         observation_states = carry.observation_states.replace(**{self.name: goal_state})
         return data, carry.replace(key=key, observation_states=observation_states)
 
-    def sample_goal(self, env, data, carry, backend, initial_gait, gait_frequency, distance_range, angle_range_rad, reset = False, movement_direction=0.0):
+    def sample_goal(self, env, data, carry, backend, initial_gait, gait_frequency, distance_range, angle_range_rad, reset = False, movement_direction = 0.0):
         """Sample a new random foot placement goal for a random foot in any direction."""
         R = jnp_R if backend == jnp else np_R
         key = carry.key
@@ -789,13 +799,16 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # foot orientation in the world
         stance_foot_orn_mat = data.site_xmat[stance_foot_site_id].reshape(3, 3)
         stance_foot_orn = R.from_matrix(stance_foot_orn_mat).as_quat(scalar_first=True)
-        stance_foot_yaw_rot = R.from_euler('z', R.as_euler('xyz', R.from_matrix(stance_foot_orn_mat))[2]) # take the rotation considering the yaw only part
+        # stance_foot_yaw_rot = R.from_euler('z', R.as_euler('xyz', R.from_matrix(stance_foot_orn_mat))[2]) # take the rotation considering the yaw only part
         swing_foot_pos = data.site_xpos[swing_foot_site_id]
 
         # Generate Position Target
         key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
         # how far to step
         distance = jax.random.uniform(subkey1, minval=distance_range[0], maxval=distance_range[1])
+        
+        # keep safe angles
+        safe_angles = [backend.deg2rad(20), backend.deg2rad(90)]
 
         # consider if we have to sample a goal according to a walking scheme
         if self.walking_scheme_indices.size > 0:
@@ -814,7 +827,10 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # step direction
             # NOTE: angle_rand is an offset w.r.t. the direction
             angle_rand = jax.random.uniform(subkey2, minval=angle_range_rad[0], maxval=angle_range_rad[1]) # sample a random yaw
-            angle = R.as_euler('xyz', R.from_euler('z', angle_rand) * mov_dir_rot)[2] # apply as offset w.r.t. direction (if 0 is as in the first version)
+            angle = (R.from_euler('z', angle_rand) * mov_dir_rot).as_euler('xyz')[2] # apply as offset w.r.t. direction (if 0 is as in the first version)
+            # clip the angle to be in the safe zone for direction movement
+            angle = backend.clip(angle, safe_angles[0], safe_angles[1])
+            # variable for checking whther to reverse the sign of y
             lateral_sign = jnp.where(stance_is_right, 1, -1)
             # step vector to be added to the stance foot coordinates
             step_vec_local = backend.array(
@@ -833,9 +849,10 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             key, subkey4 = jax.random.split(key)
             # sample the yaw relative to the current stance foot yaw
             rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1]) * lateral_sign
-            # target_orn_rot = R.from_euler('z', rand_yaw) * R.from_matrix(stance_foot_orn_mat)
-            # target_orn_rot = R.from_euler('z', rand_yaw) * stance_foot_yaw_rot
-            target_orn_rot = R.from_euler('z', rand_yaw) * mov_dir_rot
+            angle_yaw = (R.from_euler('z', rand_yaw) * mov_dir_rot).as_euler('xyz')[2]
+            # keep the angle in the safe range
+            angle_yaw - backend.clip(angle_yaw, safe_angles[0], safe_angles[1])
+            target_orn_rot = R.from_euler('z', angle_yaw)
             target_orn = target_orn_rot.as_quat(scalar_first=True)
 
         # replace the information we already know we can substitute
@@ -960,7 +977,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             if resample_goal:
                 new_goal = self.sample_goal(
                     env=env, data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency,
-                    distance_range=state.distance_range, angle_range_rad=state.angle_range_rad
+                    distance_range=state.distance_range, angle_range_rad=state.angle_range_rad, movement_direction=state.movement_direction
                 )
                 state = new_goal
         else:
@@ -968,7 +985,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 resample_goal,
                 lambda s: self.sample_goal(
                     env=env, data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency,
-                    distance_range=state.distance_range, angle_range_rad=state.angle_range_rad
+                    distance_range=state.distance_range, angle_range_rad=state.angle_range_rad, movement_direction=state.movement_direction
                 ),
                 lambda s: s,
                 operand=state
