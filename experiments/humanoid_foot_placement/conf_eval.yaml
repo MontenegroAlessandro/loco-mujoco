@@ -7,13 +7,16 @@ wandb:
   note: ""
 
 experiment:
-  agent_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/2025-11-07/12-21-09/PPOJax_saved.pkl
+  agent_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/2025-11-10/14-34-30/PPOJax_saved.pkl 
   task_factory:
     name: RLFactory
     params: {}
   env_params:
     env_name: MjxBoosterT1
     horizon: 1000
+
+    terrain_type: ParkourTerrain
+    terrain_params: {}
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
