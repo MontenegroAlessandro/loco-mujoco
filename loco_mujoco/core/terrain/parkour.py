@@ -16,13 +16,13 @@ from loco_mujoco.core.utils.backend import assert_backend_is_supported
 
 
 @struct.dataclass
-class ParkourTerrainState:
+class ComplexObstaclesTerrainState:
     """State for the complex obstacles terrain."""
     height_field_raw: Union[np.ndarray, jax.Array] # The raw, scaled hfield data for MuJoCo (80x80 flattened).
     height_field_unscaled: Union[np.ndarray, jax.Array] # The unscaled heightmap in meters (80x80).
 
 
-class ParkourTerrain(DynamicTerrain):
+class ComplexObstaclesTerrain(DynamicTerrain):
     """
     Dynamic terrain that generates complex obstacle courses in one of 3 directions.
     Scenarios:
@@ -124,10 +124,10 @@ class ParkourTerrain(DynamicTerrain):
             model: Union[MjModel, Model],
             data: Union[MjData, Data],
             backend: ModuleType
-        ) -> ParkourTerrainState:
+        ) -> ComplexObstaclesTerrainState:
         """Initialize the state of the complex obstacles terrain."""
         assert_backend_is_supported(backend)
-        return ParkourTerrainState(
+        return ComplexObstaclesTerrainState(
             height_field_raw=backend.zeros(self.hfield_length * self.hfield_length),
             height_field_unscaled=backend.zeros((self.hfield_length, self.hfield_length))
         )
@@ -192,7 +192,7 @@ class ParkourTerrain(DynamicTerrain):
         height_field_raw = self.isaac_hf_to_mujoco_hf(height_field_unscaled, backend)
         
         # Store in state
-        terrain_state = ParkourTerrainState(
+        terrain_state = ComplexObstaclesTerrainState(
             height_field_raw=height_field_raw,
             height_field_unscaled=height_field_unscaled
         )
@@ -230,58 +230,82 @@ class ParkourTerrain(DynamicTerrain):
         """JAX: Stairs (up) -> Slope (down)"""
         hf = jnp.zeros((self.hfield_length, self.hfield_length))
         
-        # 1. Generate Stairs (Up)
+        # Create coordinate grids
+        i_coords = jnp.arange(self.hfield_length)[:, jnp.newaxis]
+        j_coords = jnp.arange(self.hfield_length)[jnp.newaxis, :]
+
+        # --- 1. Generate Stairs (Up) ---
         def stair_body(i, hf_and_i):
             hf, current_i = hf_and_i
             current_height = (i + 1) * self.stair_height
             next_i = current_i + self.stair_depth_px
-            # Clip indices to prevent out-of-bounds
+            
             idx_start = jnp.clip(current_i, 0, self.hfield_length)
             idx_end = jnp.clip(next_i, 0, self.hfield_length)
-            hf = hf.at[idx_start:idx_end, self.start_j_px:self.end_j_px].set(current_height)
+            
+            # Create a mask for the current stair
+            mask = (i_coords >= idx_start) & (i_coords < idx_end) & \
+                   (j_coords >= self.start_j_px) & (j_coords < self.end_j_px)
+            
+            # Use jnp.where to apply the height
+            hf = jnp.where(mask, current_height, hf)
+            
             return (hf, next_i)
         
         (hf, slope_start_i) = jax.lax.fori_loop(
             0, self.num_stairs, stair_body, (hf, self.start_i_px)
         )
         
-        # 2. Generate Slope (Down)
+        # --- 2. Generate Slope (Down) ---
         slope_end_i = slope_start_i + self.slope_length_px
         peak_height = self.num_stairs * self.stair_height
         
-        # Create a linear ramp from peak_height to 0.0
-        x = jnp.linspace(peak_height, 0.0, self.slope_length_px)
-        ramp = x[:, jnp.newaxis] # Broadcast across width
-        
-        # Clip indices
         idx_start = jnp.clip(slope_start_i, 0, self.hfield_length)
         idx_end = jnp.clip(slope_end_i, 0, self.hfield_length)
-        # Adjust ramp length if clipped
-        ramp = ramp[:(idx_end - idx_start), :] 
         
-        hf = hf.at[idx_start:idx_end, self.start_j_px:self.end_j_px].set(ramp)
+        # Create a linear ramp *value* for each coordinate
+        # We need to handle division by zero if slope_length_px is 0 or idx_start==idx_end
+        safe_length_px = jnp.maximum(1, self.slope_length_px)
+        # Calculate percentage along the slope
+        ramp_pct = (i_coords - idx_start) / safe_length_px
+        ramp_values = peak_height * (1.0 - ramp_pct) # Ramp down from peak
+        
+        # Create a mask for the slope area
+        mask = (i_coords >= idx_start) & (i_coords < idx_end) & \
+               (j_coords >= self.start_j_px) & (j_coords < self.end_j_px)
+        
+        hf = jnp.where(mask, ramp_values, hf)
+        
         return hf
 
     def _jnp_scenario_2(self, key: Any) -> jnp.ndarray:
         """JAX: Slope (up) -> Stairs (down)"""
         hf = jnp.zeros((self.hfield_length, self.hfield_length))
 
-        # 1. Generate Slope (Up)
+        # Create coordinate grids
+        i_coords = jnp.arange(self.hfield_length)[:, jnp.newaxis]
+        j_coords = jnp.arange(self.hfield_length)[jnp.newaxis, :]
+
+        # --- 1. Generate Slope (Up) ---
         slope_start_i = self.start_i_px
         slope_end_i = slope_start_i + self.slope_length_px
         peak_height = self.slope_height
         
-        x = jnp.linspace(0.0, peak_height, self.slope_length_px)
-        ramp = x[:, jnp.newaxis]
-        
-        # Clip indices
         idx_start = jnp.clip(slope_start_i, 0, self.hfield_length)
         idx_end = jnp.clip(slope_end_i, 0, self.hfield_length)
-        ramp = ramp[:(idx_end - idx_start), :]
         
-        hf = hf.at[idx_start:idx_end, self.start_j_px:self.end_j_px].set(ramp)
+        # Create a linear ramp *value* for each coordinate
+        safe_length_px = jnp.maximum(1, self.slope_length_px)
+        ramp_pct = (i_coords - idx_start) / safe_length_px
+        ramp_values = peak_height * ramp_pct # Ramp up from 0
         
-        # 2. Generate Stairs (Down)
+        # Create a mask for the slope area
+        mask = (i_coords >= idx_start) & (i_coords < idx_end) & \
+               (j_coords >= self.start_j_px) & (j_coords < self.end_j_px)
+        
+        hf = jnp.where(mask, ramp_values, hf)
+        
+        # --- 2. Generate Stairs (Down) ---
         def stair_body(i, hf_and_i):
             hf, current_i = hf_and_i
             # Height decreases
@@ -291,7 +315,11 @@ class ParkourTerrain(DynamicTerrain):
             idx_start = jnp.clip(current_i, 0, self.hfield_length)
             idx_end = jnp.clip(next_i, 0, self.hfield_length)
             
-            hf = hf.at[idx_start:idx_end, self.start_j_px:self.end_j_px].set(current_height)
+            # Create a mask for the current stair
+            mask = (i_coords >= idx_start) & (i_coords < idx_end) & \
+                   (j_coords >= self.start_j_px) & (j_coords < self.end_j_px)
+            
+            hf = jnp.where(mask, current_height, hf)
             return (hf, next_i)
 
         (hf, _) = jax.lax.fori_loop(
@@ -303,26 +331,39 @@ class ParkourTerrain(DynamicTerrain):
         """JAX: Step (up) -> Flat -> Hole (step down)"""
         hf = jnp.zeros((self.hfield_length, self.hfield_length))
 
-        # 1. Generate Step (Up)
+        # Create coordinate grids
+        i_coords = jnp.arange(self.hfield_length)[:, jnp.newaxis]
+        j_coords = jnp.arange(self.hfield_length)[jnp.newaxis, :]
+
+        # --- 1. Generate Step (Up) ---
         step_start_i = self.start_i_px
         step_end_i = step_start_i + self.obstacle_length_px
         idx_start = jnp.clip(step_start_i, 0, self.hfield_length)
         idx_end = jnp.clip(step_end_i, 0, self.hfield_length)
-        hf = hf.at[idx_start:idx_end, self.start_j_px:self.end_j_px].set(self.step_height)
         
-        # 2. Generate Flat Platform
+        mask_step = (i_coords >= idx_start) & (i_coords < idx_end) & \
+                    (j_coords >= self.start_j_px) & (j_coords < self.end_j_px)
+        hf = jnp.where(mask_step, self.step_height, hf)
+        
+        # --- 2. Generate Flat Platform ---
         platform_start_i = step_end_i
         platform_end_i = platform_start_i + self.step_platform_length_px
         idx_start = jnp.clip(platform_start_i, 0, self.hfield_length)
         idx_end = jnp.clip(platform_end_i, 0, self.hfield_length)
-        hf = hf.at[idx_start:idx_end, self.start_j_px:self.end_j_px].set(self.step_height)
 
-        # 3. Generate Hole (Down)
+        mask_platform = (i_coords >= idx_start) & (i_coords < idx_end) & \
+                        (j_coords >= self.start_j_px) & (j_coords < self.end_j_px)
+        hf = jnp.where(mask_platform, self.step_height, hf)
+
+        # --- 3. Generate Hole (Down) ---
         hole_start_i = platform_end_i
         hole_end_i = hole_start_i + self.obstacle_length_px
         idx_start = jnp.clip(hole_start_i, 0, self.hfield_length)
         idx_end = jnp.clip(hole_end_i, 0, self.hfield_length)
-        hf = hf.at[idx_start:idx_end, self.start_j_px:self.end_j_px].set(self.hole_depth)
+        
+        mask_hole = (i_coords >= idx_start) & (i_coords < idx_end) & \
+                    (j_coords >= self.start_j_px) & (j_coords < self.end_j_px)
+        hf = jnp.where(mask_hole, self.hole_depth, hf)
         
         return hf
 
@@ -451,7 +492,7 @@ class ParkourTerrain(DynamicTerrain):
 
     def get_height_at_xy(
             self, 
-            terrain_state: ParkourTerrainState, 
+            terrain_state: ComplexObstaclesTerrainState, 
             xy_pos: Union[np.ndarray, jnp.ndarray], 
             backend: ModuleType
         ) -> Union[float, jax.Array]:
