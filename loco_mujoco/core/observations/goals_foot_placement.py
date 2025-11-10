@@ -651,6 +651,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         scheme_map = {"forward": 0, "backward": 1, "left": 2, "right": 3, "stand": 4}
         self.walking_scheme_indices = jnp.array([scheme_map[w] for w in walking_schemes]) if walking_schemes else jnp.array([], dtype=jnp.int32)
         self.walking_schemes_len = len(walking_schemes)
+        # local safe range for foot placement computation
+        self.local_angle_range_rad = [jnp.deg2rad(20.0), jnp.deg2rad(160)]
 
         DoubleFootPlacementVisualizer.__init__(self)
         n_visual_geoms = self._n_visual_geoms if kwargs.get("visualize_goal") else 0
@@ -711,16 +713,17 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             minval=self.direction_range_rad[0],
             maxval=self.direction_range_rad[1],
         )
+        movement_direction = self.wrap_to_pi(movement_direction, backend)
 
         # Sample the random starting phase of the gait
         rand_gp0 = jax.random.randint(subkey1, shape=(), minval=0, maxval=2) / 2
-        cond_0_180 = (movement_direction > 0) & (movement_direction < 180)
-        cond_180_360 = (movement_direction > 180) & (movement_direction < 360)
-        cond_boundaries = (movement_direction == 0) | (movement_direction == 180) | (movement_direction == 360)
+        cond_left = (movement_direction > 0) & (movement_direction < backend.pi)
+        cond_right = (movement_direction > -backend.pi) & (movement_direction < 0)
+        cond_boundaries = (movement_direction == 0) | (movement_direction == backend.pi) | (movement_direction == -backend.pi)
         gp0 = jnp.where(
-            cond_0_180, 0.0,
+            cond_left, 0.0,
             jnp.where(
-                cond_180_360, 0.5,
+                cond_right, 0.5,
                 jnp.where(cond_boundaries, rand_gp0, 0.0)
             )
         )
@@ -751,7 +754,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             gait_frequency=gait_frequency,
             distance_range=distance_range,
             angle_range_rad=angle_range_rad,
-            movement_direction=movement_direction
+            movement_direction=movement_direction,
+            reset=True
         )
         
         # gait counter information
@@ -763,6 +767,11 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
 
         observation_states = carry.observation_states.replace(**{self.name: goal_state})
         return data, carry.replace(key=key, observation_states=observation_states)
+
+    @staticmethod
+    def wrap_to_pi(angle, backend):
+        """Wrap any angle (in rad) to be in [-pi, pi]"""
+        return (angle + backend.pi) % (2 * backend.pi) - backend.pi
 
     def sample_goal(self, env, data, carry, backend, initial_gait, gait_frequency, distance_range, angle_range_rad, reset = False, movement_direction = 0.0):
         """Sample a new random foot placement goal for a random foot in any direction."""
@@ -791,7 +800,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             self._foot_site_id_left
         )
         
-        # deifne th emovement direction
+        # deifne the movement direction
         mov_dir_rot = R.from_euler('z', movement_direction)
 
         # stance foot posiiton in the WORLD
@@ -799,6 +808,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # foot orientation in the world
         stance_foot_orn_mat = data.site_xmat[stance_foot_site_id].reshape(3, 3)
         stance_foot_orn = R.from_matrix(stance_foot_orn_mat).as_quat(scalar_first=True)
+        current_stance_yaw = R.from_matrix(stance_foot_orn_mat).as_euler('xyz')[2]
         # stance_foot_yaw_rot = R.from_euler('z', R.as_euler('xyz', R.from_matrix(stance_foot_orn_mat))[2]) # take the rotation considering the yaw only part
         swing_foot_pos = data.site_xpos[swing_foot_site_id]
 
@@ -806,9 +816,6 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
         # how far to step
         distance = jax.random.uniform(subkey1, minval=distance_range[0], maxval=distance_range[1])
-        
-        # keep safe angles
-        safe_angles = [backend.deg2rad(20), backend.deg2rad(90)]
 
         # consider if we have to sample a goal according to a walking scheme
         if self.walking_scheme_indices.size > 0:
@@ -824,17 +831,34 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             target_pos = target_pos_pre_z.at[2].set(target_z_from_terrain)
             target_orn = R.from_euler('z', target_yaw).as_quat(scalar_first=True) * R.from_matrix(stance_foot_orn_mat)
         else:
-            # step direction
-            # NOTE: angle_rand is an offset w.r.t. the direction
-            angle_rand = jax.random.uniform(subkey2, minval=angle_range_rad[0], maxval=angle_range_rad[1]) # sample a random yaw
-            angle = (R.from_euler('z', angle_rand) * mov_dir_rot).as_euler('xyz')[2] # apply as offset w.r.t. direction (if 0 is as in the first version)
-            # clip the angle to be in the safe zone for direction movement
-            angle = backend.clip(angle, safe_angles[0], safe_angles[1])
-            # variable for checking whther to reverse the sign of y
-            lateral_sign = jnp.where(stance_is_right, 1, -1)
+            # FOOT PLACEMENT TARGET
+            # define safe areas
+            min_local_angle = self.local_angle_range_rad[0]
+            max_local_angle = self.local_angle_range_rad[1]
+            # deifne the sign of the resulting angle based on the foot to swing 
+            lateral_sign = jnp.where(stance_is_right, 1, -1) 
+            # sample the random offset to add to the movement direction
+            angle_rand = lateral_sign * jax.random.uniform(subkey2, minval=angle_range_rad[0], maxval=angle_range_rad[1]) 
+            # compute the unclipped world angle
+            angle = (R.from_euler('z', angle_rand) * mov_dir_rot).as_euler('xyz')[2]
+            # convert the unclipped world angle into the stance foot frame
+            local_step_angle = self.wrap_to_pi(angle - current_stance_yaw, backend)
+            # deifne precise clip bounds
+            local_clip_min = backend.where(stance_is_right, min_local_angle, -max_local_angle)
+            local_clip_max = backend.where(stance_is_right, max_local_angle, -min_local_angle)
+            # clip the angle
+            clipped_local_angle = backend.clip(
+                local_step_angle,
+                local_clip_min,
+                local_clip_max
+            )
+            # convert into the world
+            final_world_angle = current_stance_yaw + clipped_local_angle
+            
             # step vector to be added to the stance foot coordinates
             step_vec_local = backend.array(
-                [distance * backend.cos(angle), distance * backend.sin(angle) * lateral_sign, 0.0]
+                # [distance * backend.cos(angle), distance * backend.abs(backend.sin(angle)) * lateral_sign, 0.0]
+                [distance * backend.cos(final_world_angle), distance * backend.sin(final_world_angle), 0.0]
             )
             # compute the WORLD coordinates of the displacement
             # NOTE: one would naturally make the rotation to the world frame, but actually the orientation is the one of
@@ -845,14 +869,18 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             target_z_from_terrain = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
             target_pos = target_pos_pre_z.at[2].set(target_z_from_terrain)
 
-            # Generate Orientation Target
+            # FOOT ORIENTATION TARGET
             key, subkey4 = jax.random.split(key)
             # sample the yaw relative to the current stance foot yaw
-            rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1]) * lateral_sign
+            rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1])
             angle_yaw = (R.from_euler('z', rand_yaw) * mov_dir_rot).as_euler('xyz')[2]
             # keep the angle in the safe range
-            angle_yaw - backend.clip(angle_yaw, safe_angles[0], safe_angles[1])
-            target_orn_rot = R.from_euler('z', angle_yaw)
+            yaw_displacement = self.wrap_to_pi(angle_yaw - current_stance_yaw, backend)
+            clipped_abs_displacement = backend.clip(backend.abs(yaw_displacement), 0, backend.pi / 2)
+            clipped_yaw_displacement = backend.sign(yaw_displacement) * clipped_abs_displacement
+            # compute final yaw
+            final_yaw = current_stance_yaw + clipped_yaw_displacement
+            target_orn_rot = R.from_euler('z', final_yaw)
             target_orn = target_orn_rot.as_quat(scalar_first=True)
 
         # replace the information we already know we can substitute

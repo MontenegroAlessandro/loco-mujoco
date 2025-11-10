@@ -31,17 +31,17 @@ experiment:
       # Range for the random step length [min, max] in meters
       xy_distance_range: [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [20, 90] # [20, 160] # x in front, y left (then mirrored for the right foot)
+      angle_range_deg: [20, 90] 
       # Range for randomizing the target foot yaw relative to the body
       yaw_range_deg: [-30, 30]
       # gait frequency target
-      gait_frequency_range: [1.0, 1.0] # [0.8, 2.0]
+      gait_frequency_range: [1.0, 1.0] 
       # gait height
-      gait_height: 0.05 # 0.2
+      gait_height: 0.05 
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
-      direction_range_deg: [0, 360]
+      direction_range_deg: [-180, 180]
       # observation group
       group: [prioritized, policy]
 
