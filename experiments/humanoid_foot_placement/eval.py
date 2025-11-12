@@ -61,6 +61,8 @@ def experiment(config: DictConfig):
     # create env
     config.experiment.env_params["headless"] = False
     env = factory.make(**config.experiment.env_params, **config.experiment.task_factory.params)
+    
+    env.create_observation_summary()
 
     # get initial agent configuration
     path = config.experiment.agent_path
@@ -74,7 +76,7 @@ def experiment(config: DictConfig):
         agent_state, 
         deterministic=True, 
         n_steps=1000, 
-        n_envs=20, 
+        n_envs=1, 
         record=True,
         train_state_seed=0
     )

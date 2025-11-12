@@ -1117,24 +1117,28 @@ class Mujoco:
 
         html += "</body></html>"
 
-        # Save to file if specified
         if filename:
             with open(filename, "w", encoding="utf-8") as f:
                 f.write(html)
+            print(f"✅ Observation summary saved locally to: {filename}")
 
-        # Upload HTML
-        files = {"file": ("file.html", html, "text/html")}
-        headers = {"User-Agent": "curl/7.68.0"}
-        res = requests.post("https://0x0.st", files=files, headers=headers)
+            if open_in_browser:
+                # Open the LOCAL file, not a URL
+                webbrowser.open(filename)
+                
+            return filename  # Return the local filename and STOP execution here.
 
-        if res.status_code == 200:
+        # If no filename was provided, proceed with the upload logic.
+        res = requests.post("https://paste.rs", data=html.encode('utf-8'))
+
+        if 200 <= res.status_code < 300:
             url = res.text.strip()
             print(f"✅ Uploaded Observation summary to: {url}")
             if open_in_browser:
                 webbrowser.open(url)
             return url
         else:
-            raise Exception(f"❌ Upload failed: {res.status_code} - {res.text}")
+            raise Exception(f"❌ Upload failed to paste.rs: {res.status_code} - {res.text}")
 
     @staticmethod
     def parse_observation_spec(obs_spec: List[Dict]) -> List[ObservationType]:

@@ -621,7 +621,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             walking_schemes: List[str] = [],
             gait_horizon: int = 1,
             # movement direction
-            direction_range_deg: list[float] = [0.0, 0.0],
+            direction_range_deg: List[float] = [0.0, 0.0],
+            change_direction_range_deg: List[float] = [0.0, 0.0],
             **kwargs
         ):
         
@@ -635,6 +636,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.gait_frequency_range = gait_frequency_range
         self.feet_distance = feet_distance
         self.direction_range_rad = [jnp.deg2rad(direction_range_deg[0]), jnp.deg2rad(direction_range_deg[1])]
+        self.change_direction_range_rad = [jnp.deg2rad(change_direction_range_deg[0]), jnp.deg2rad(change_direction_range_deg[1])]
         
         self._foot_site_ids = [-1, -1]
         self._root_joint_name = info_props["root_free_joint_xml_name"]
@@ -800,9 +802,16 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             self._foot_site_id_left
         )
         
-        # deifne the movement direction
-        mov_dir_rot = R.from_euler('z', movement_direction)
+        # define the movement direction
+        key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
+        rand_direction_change = jax.random.uniform(
+            subkey3, minval=self.change_direction_range_rad[0], maxval=self.change_direction_range_rad[1]
+        )
+        rand_direction_change = jax.lax.select(reset, 0.0, rand_direction_change) # if reset do not change the direction
+        mov_dir_rot = R.from_euler('z', rand_direction_change) * R.from_euler('z', movement_direction)
+        movement_direction = mov_dir_rot.as_euler('xyz')[2]
 
+        # Generate Position Target
         # stance foot posiiton in the WORLD
         stance_foot_pos = data.site_xpos[stance_foot_site_id]
         # foot orientation in the world
@@ -812,8 +821,6 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # stance_foot_yaw_rot = R.from_euler('z', R.as_euler('xyz', R.from_matrix(stance_foot_orn_mat))[2]) # take the rotation considering the yaw only part
         swing_foot_pos = data.site_xpos[swing_foot_site_id]
 
-        # Generate Position Target
-        key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
         # how far to step
         distance = jax.random.uniform(subkey1, minval=distance_range[0], maxval=distance_range[1])
 
@@ -1070,14 +1077,50 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         swing_one_hot = jax.nn.one_hot(state.swing_foot_idx, 2)
 
         # Concatenate the observation
-        observation = backend.concatenate([
-            left_pos_offset_local, # left info pos
-            left_local_target_offset_orn, # left info orn
-            right_pos_offset_local, # right info pos
-            right_local_target_offset_orn, # right info orn
-            backend.array([gp, state.gait_frequency]), # gait process info
-            # swing_one_hot
-        ])
+        # observation = backend.concatenate([
+        #     left_pos_offset_local, # left info pos
+        #     left_local_target_offset_orn, # left info orn
+        #     right_pos_offset_local, # right info pos
+        #     right_local_target_offset_orn, # right info orn
+        #     backend.array([gp, state.gait_frequency]), # gait process info
+        #     # swing_one_hot
+        # ])
+        
+        # FIXME: start
+        # get the stance foot positions and orientations
+        stance_pos, stance_orn, swing_pos_target, swing_orn_target, stance_pos_target, stance_orn_target = jax.lax.cond(
+            (swing_foot_idx == 0),
+            lambda _: (right_pos_w, R.from_matrix(right_mat_w), state.left_foot_target_pos, state.left_foot_target_orn, state.right_foot_target_pos, state.right_foot_target_orn),
+            lambda _: (left_pos_w, R.from_matrix(left_mat_w), state.right_foot_target_pos, state.right_foot_target_orn, state.left_foot_target_pos, state.left_foot_target_orn),
+            operand=0
+        )
+        # offset wrt the stance foot of the swing foot
+        pos_offset = stance_orn.apply(swing_pos_target - stance_pos, inverse=True)
+        orn_offset = (stance_orn.inv() * R.from_quat(quat_scalarfirst2scalarlast(swing_orn_target))).as_quat(scalar_first=True)
+        sign = jnp.where(orn_offset[0] < 0, -1.0, 1.0)
+        orn_offset = orn_offset * sign
+        # offset wrt the stance foot of the stance foot
+        hold_pos = stance_orn.apply(stance_pos_target - stance_pos, inverse=True) # backend.zeros(3, dtype=backend.float32)
+        hold_orn = (stance_orn.inv() * R.from_quat(quat_scalarfirst2scalarlast(stance_orn_target))).as_quat(scalar_first=True) # backend.array([1,0,0,0], dtype=backend.float32)
+        sign = jnp.where(hold_orn[0] < 0, -1.0, 1.0)
+        hold_orn = hold_orn * sign
+        left_pos_targ, left_orn_targ, right_pos_targ, right_orn_targ = jax.lax.cond(
+            (swing_foot_idx == 0),
+            lambda _: (pos_offset, orn_offset, hold_pos, hold_orn),
+            lambda _: (hold_pos, hold_orn, pos_offset, orn_offset),
+            operand=0
+        )
+        observation = backend.concatenate(
+            [
+                left_pos_targ,
+                left_orn_targ,
+                right_pos_targ,
+                right_orn_targ,
+                backend.array([backend.cos(2 * backend.pi * gp) * (state.gait_frequency > 1.0e-8),
+                backend.sin(2 * backend.pi * gp) * (state.gait_frequency > 1.0e-8)])
+            ]
+        )
+        # FIXME: end
 
         # make the gait process progress
         gp = backend.fmod(gp + env.dt * state.gait_frequency, 1.0)

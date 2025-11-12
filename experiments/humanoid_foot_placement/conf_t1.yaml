@@ -1,9 +1,34 @@
 defaults:
   - override hydra/job_logging: default
+  # - override hydra/launcher: pegasus_cluster # comment out when running locally
   - _self_
 
+
+# hydra:
+#   mode: MULTIRUN
+#   job_logging: {}
+#   hydra_logging: {}
+#   sweeper:
+#     params:
+#       wandb.note: "feet roll sweep"
+
+#       experiment.env_params.reward_params.action_rate_coeff: -1.0
+#       experiment.env_params.reward_params.survival: 0.25  
+#       experiment.env_params.reward_params.tracking_w_sum_linvel_x: 1.5
+#       experiment.env_params.reward_params.tracking_w_sum_linvel_y: 1.5
+#       experiment.env_params.reward_params.tracking_w_sum_angvel: 1.0
+#       experiment.env_params.reward_params.feet_swing_coeff: 6.0
+#       experiment.env_params.reward_params.feet_yaw_diff_coeff: -1.0
+#       experiment.env_params.reward_params.feet_yaw_mean_coeff: -1.0
+#       experiment.env_params.reward_params.feet_roll_coeff: -4.0
+#       experiment.env_params.reward_params.joint_vel_coeff: -9.e-4 
+
+#       experiment.env_params.control_params.clip_actions: 1.0
+
+
+
 wandb:
-  project: "BoosterT1 Foot Placement HL"
+  project: "BoosterT1"
   note: ""
 
 experiment:
@@ -25,10 +50,11 @@ experiment:
       min_height: 0.67
       resample_rate: 0.004
       still_proportion: 0.1
-      gait_frequency_range: [1.0, 1.0] # [1.0, 2.0]
+      gait_frequency_range: [1.0, 2.0] # Hz
       visualize_goal: true
       group: [prioritized, policy]
 
+    
     headless: true
 
     reward_type: CrispBoosterLocomotionReward
@@ -36,11 +62,11 @@ experiment:
       survival: 0.25
       # tracking rewards
       tracking_w_exp_linvel_x: 4.0
-      tracking_w_sum_linvel_x: 1.5 # 1.0
+      tracking_w_sum_linvel_x: 1.0
       tracking_w_exp_linvel_y: 4.0
-      tracking_w_sum_linvel_y: 1.5 # 1.0
+      tracking_w_sum_linvel_y: 1.0
       tracking_w_exp_angvel: 4.0
-      tracking_w_sum_angvel: 1.0 # 0.5
+      tracking_w_sum_angvel: 0.5
       tracking_nominal_joint_pos_exp: 4
       tracking_nominal_joint_pos_coeff: 0
       tracking_nominal_joint_pos_names: 
@@ -67,18 +93,18 @@ experiment:
       energy_coeff: -2.e-3
       z_vel_coeff: -0.0
       roll_pitch_vel_coeff: -0.2
-      joint_vel_coeff: -9.e-4 # -1.e-4
+      joint_vel_coeff: -1.e-4
       joint_acc_coeff: -1.e-7
       root_acc_coeff: -1.e-4
       action_rate_coeff: -1.
       joint_position_limit_scale: 0.98
       joint_position_limit_coeff: -1.
       feet_slip_coeff: -0.1
-      feet_yaw_diff_coeff: 0.0 # -1.0 # -0.5
-      feet_yaw_mean_coeff: 0.0 # -1.0 # -0.5
-      feet_roll_coeff: -4.0 # -0.1
+      feet_yaw_diff_coeff: -0.5
+      feet_yaw_mean_coeff: -0.5
+      feet_roll_coeff: -0.1
       feet_distance_target: 0.2
-      feet_swing_coeff: 6 # 3.
+      feet_swing_coeff: 3.
       feet_swing_period: 0.2
       feet_distance_coeff: 0.0
       # extra regularization / penalties
@@ -122,65 +148,65 @@ experiment:
       - type: ProjectedGravityVector
         obs_name: q_root_proj
         xml_name: root
-        group: [prioritized, low_level_critic]
+        group: prioritized
         allow_randomization: false
       - type: JointPosArray
         obs_name: joint_positions
-        group: [prioritized, low_level_critic]
+        group: prioritized
         allow_randomization: false
         xml_names: ${robot_joints_to_consider}
       - type: FreeJointVel
         obs_name: dq_root
         xml_name: root
-        group: [prioritized, low_level_critic]
+        group: prioritized
         allow_randomization: false
       - type: JointVelArray
         obs_name: joint_velocities
         xml_names: ${robot_joints_to_consider}
-        group: [prioritized, low_level_critic]
+        group: prioritized
         allow_randomization: false
       - type: LastAction
         obs_name: last_action
-        group: [prioritized, low_level_critic]
+        group: prioritized
         allow_randomization: false
 
       # Actor observations (unprivileged)
       - type: ProjectedGravityVector
         obs_name: q_root_pi
         xml_name: root
-        group: [policy, low_level_controller]
+        group: policy
         allow_randomization: true
       - type: JointPosArray
         obs_name: joint_positions_pi
-        group: [policy, low_level_controller]
+        group: policy
         allow_randomization: true
         xml_names: ${robot_joints_to_consider}
       - type: EntryFromFreeJointVel
         obs_name: dq_root_pi_r
         xml_name: root
         entry_index: 3
-        group: [policy, low_level_controller]
+        group: policy
         allow_randomization: true
       - type: EntryFromFreeJointVel
         obs_name: dq_root_pi_p
         xml_name: root
         entry_index: 4
-        group: [policy, low_level_controller]
+        group: policy
         allow_randomization: true
       - type: EntryFromFreeJointVel
         obs_name: dq_root_pi_y
         xml_name: root
         entry_index: 5
-        group: [policy, low_level_controller]
+        group: policy
         allow_randomization: true
       - type: JointVelArray
         obs_name: joint_velocities_pi
         xml_names: ${robot_joints_to_consider}
-        group: [policy, low_level_controller]
+        group: policy
         allow_randomization: true
       - type: LastAction
         obs_name: last_action_pi
-        group: [policy, low_level_controller]
+        group: policy
         allow_randomization: false
 
     control_type: PDControl
@@ -287,10 +313,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 300e6
+      total_timesteps: 1200e6
       num_curriculum_steps: 1
       num_environments: 8192
-      num_total_timesteps: 300e6
+      num_total_timesteps: 1200e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -383,7 +409,7 @@ experiment:
       filter_action_alpha: 0.0
 
       # Kicking
-      kick_robots: false
+      kick_robots: true
       kick_min_vel: 0.2
       kick_max_vel: 0.6 # m/s
       kick_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 kick per second
@@ -391,14 +417,6 @@ experiment:
 
   actor_obs_group: policy
   critic_obs_group: prioritized
-  # low level controller parameters
-  ll_obs_group: low_level_controller
-  ll_critic_obs_group: low_level_critic
-  ll_policy_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/t1_fh_tracker.pkl # 2025-10-23/16-30-45/PPOJax_saved.pkl
-  ll_action_goal_module: loco_mujoco.core.observations.goals_foot_placement
-  ll_action_goal_class: GoalDoubleFootPlacement
-  hierarchical: true
-  # common PPO stuff
   hidden_layers: [512, 256, 128]
   lr: 1e-5
   adaptive_lr: true       # The main flag to enable/disable the feature
@@ -410,7 +428,7 @@ experiment:
   len_obs_history: 1
   num_envs: 8192
   num_steps: 50
-  total_timesteps: 300e6
+  total_timesteps: 1200e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995

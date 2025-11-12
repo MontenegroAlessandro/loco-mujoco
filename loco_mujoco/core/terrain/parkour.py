@@ -16,13 +16,15 @@ from loco_mujoco.core.utils.backend import assert_backend_is_supported
 
 
 @struct.dataclass
-class ComplexObstaclesTerrainState:
+class ParkourTerrainState:
     """State for the complex obstacles terrain."""
-    height_field_raw: Union[np.ndarray, jax.Array] # The raw, scaled hfield data for MuJoCo (80x80 flattened).
-    height_field_unscaled: Union[np.ndarray, jax.Array] # The unscaled heightmap in meters (80x80).
+    geom_pos: Union[np.ndarray, jax.Array]
+    geom_quat: Union[np.ndarray, jax.Array]
+    geom_size: Union[np.ndarray, jax.Array]
+    geom_rgba: Union[np.ndarray, jax.Array]
 
 
-class ComplexObstaclesTerrain(DynamicTerrain):
+class ParkourTerrain(DynamicTerrain):
     """
     Dynamic terrain that generates complex obstacle courses in one of 3 directions.
     Scenarios:
@@ -31,23 +33,22 @@ class ComplexObstaclesTerrain(DynamicTerrain):
     3. Step (up) -> Flat -> Hole (step down)
     """
 
-    viewer_needs_to_update_hfield: bool = True
+    viewer_needs_to_update_hfield: bool = False # the following class is based on geoms and not on heightfield
 
     def __init__(
         self, env: Any,
-        inner_platform_size_in_meters: float = 1.0,
-        obstacle_start_distance: float = 0.5,
-        obstacle_width: float = 1.0,
-        # Scenario 1 & 2 (Stairs/Slope)
+        n_obstacle_geoms: int = 50,
+        inner_platform_size_in_meters: float = 1,
+        obstacle_start_distance: float = 1,
+        obstacle_width: float = 1,
+        # variables for slopes and stairs
         stair_height: float = 0.1,
         stair_depth: float = 0.3,
         num_stairs: int = 4,
-        slope_length: float = 2.0,
-        # Scenario 3 (Step/Hole)
-        step_height: float = 0.15,
-        step_platform_length: float = 1.0,
-        hole_depth: float = -0.15,
-        obstacle_length: float = 0.5, # Length of the step/hole itself
+        slope_length: float = 2,
+        # variables for the step
+        step_height: float = 0.1,
+        step_platform_length: float = 1,
         **kwargs: Any
     ):
         """
@@ -55,6 +56,7 @@ class ComplexObstaclesTerrain(DynamicTerrain):
 
         Args:
             env (Any): The environment instance.
+            n_obstacle_geoms (int): number of geoms to be considered as new obstacles
             inner_platform_size_in_meters (float): Size of the flat starting platform.
             obstacle_start_distance (float): Min distance from platform edge to obstacle.
             obstacle_width (float): Width of all obstacles in meters.
@@ -64,40 +66,28 @@ class ComplexObstaclesTerrain(DynamicTerrain):
             slope_length (float): Length of the slope.
             step_height (float): Height of the step in scenario 3.
             step_platform_length (float): Length of the flat area after the step.
-            hole_depth (float): Depth of the hole in scenario 3 (should be negative).
-            obstacle_length (float): Length of the step-up and step-down sections.
             **kwargs (Any): Additional arguments for initialization.
         """
         super().__init__(env, **kwargs)
 
         self.inner_platform_size_in_meters = inner_platform_size_in_meters
         
-        # --- Terrain Generation Parameters ---
+        # Terrain Generation Parameters 
         self.obstacle_start_distance = obstacle_start_distance
         self.obstacle_width = obstacle_width
-        # Scenario 1 & 2
+        # stairs and slopes
         self.stair_height = stair_height
         self.stair_depth = stair_depth
         self.num_stairs = num_stairs
         self.slope_length = slope_length
-        self.slope_height = stair_height * num_stairs # Ensure slope/stairs match
-        # Scenario 3
+        self.slope_height = stair_height * num_stairs
+        # steps
         self.step_height = step_height
         self.step_platform_length = step_platform_length
-        self.hole_depth = hole_depth
-        self.obstacle_length = obstacle_length
-        # --- End Terrain Params ---
 
-        # Hfield parameters (copied from StonesHolesTerrain)
-        self.hfield_size = (4, 4, 30.0, 0.125) # (half_x, half_y, z_scale, sample_space)
-        self.hfield_length = 80 # hfield resolution (pixels)
-        self.hfield_half_length_in_meters = self.hfield_size[0]
-        self.max_possible_height = self.hfield_size[2]
-        self.one_meter_length = int(self.hfield_length / (self.hfield_half_length_in_meters * 2))
-        self.hfield_half_length = self.hfield_length // 2
-        self.mujoco_height_scaling = self.max_possible_height
-
-        # Platform cutout (copied from StonesHolesTerrain)
+        # Platform cutout
+        # self.platform_half_size = 
+        
         platform_size = int(self.inner_platform_size_in_meters * self.one_meter_length)
         self.x1 = self.hfield_half_length - (platform_size // 2)
         self.y1 = self.hfield_half_length - (platform_size // 2)
@@ -124,10 +114,10 @@ class ComplexObstaclesTerrain(DynamicTerrain):
             model: Union[MjModel, Model],
             data: Union[MjData, Data],
             backend: ModuleType
-        ) -> ComplexObstaclesTerrainState:
+        ) -> ParkourTerrainState:
         """Initialize the state of the complex obstacles terrain."""
         assert_backend_is_supported(backend)
-        return ComplexObstaclesTerrainState(
+        return ParkourTerrainState(
             height_field_raw=backend.zeros(self.hfield_length * self.hfield_length),
             height_field_unscaled=backend.zeros((self.hfield_length, self.hfield_length))
         )
@@ -192,7 +182,7 @@ class ComplexObstaclesTerrain(DynamicTerrain):
         height_field_raw = self.isaac_hf_to_mujoco_hf(height_field_unscaled, backend)
         
         # Store in state
-        terrain_state = ComplexObstaclesTerrainState(
+        terrain_state = ParkourTerrainState(
             height_field_raw=height_field_raw,
             height_field_unscaled=height_field_unscaled
         )
@@ -492,7 +482,7 @@ class ComplexObstaclesTerrain(DynamicTerrain):
 
     def get_height_at_xy(
             self, 
-            terrain_state: ComplexObstaclesTerrainState, 
+            terrain_state: ParkourTerrainState, 
             xy_pos: Union[np.ndarray, jnp.ndarray], 
             backend: ModuleType
         ) -> Union[float, jax.Array]:
