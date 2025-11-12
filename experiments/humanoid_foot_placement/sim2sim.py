@@ -285,6 +285,8 @@ if __name__ == "__main__":
 
                 # Clip target_dof_pos to joint limits
                 target_dof_pos = np.clip(target_dof_pos, min_angles, max_angles)
+                target_dof_pos[3] = -1.2
+                target_dof_pos[7] = 1.2
 
                 target_dof_kps = kps.copy()
                 target_dof_kds = kds.copy()
