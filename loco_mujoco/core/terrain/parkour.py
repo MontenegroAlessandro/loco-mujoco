@@ -14,6 +14,14 @@ from loco_mujoco.core.terrain import DynamicTerrain
 from loco_mujoco.core.utils import mj_jntname2qposid
 from loco_mujoco.core.utils.backend import assert_backend_is_supported
 
+from jax.scipy.spatial.transform import Rotation as jnp_R
+from scipy.spatial.transform import Rotation as np_R
+from loco_mujoco.core.utils.math import (
+    calculate_relative_site_quatities,
+    quat_scalarfirst2scalarlast,
+    quat_scalarlast2scalarfirst
+)
+
 
 @struct.dataclass
 class ParkourTerrainState:
@@ -68,8 +76,21 @@ class ParkourTerrain(DynamicTerrain):
             step_platform_length (float): Length of the flat area after the step.
             **kwargs (Any): Additional arguments for initialization.
         """
+        # store geom pool parameters
+        self.n_obstacle_geoms = n_obstacle_geoms
+        self._geom_name_prefix = "obstacle_geom_"
+        self._geom_names = [f"{self._geom_name_prefix}{i}" for i in range(self.n_obstacle_geoms)]
+        self._compile_time_size = jnp.array([0.001, 0.001, 0.001])
+        self._hidden_pos = jnp.array([0.0, 0.0, -10.0])
+        self._hidden_quat = jnp.array([1.0, 0.0, 0.0, 0.0])
+        self._hidden_size = jnp.array([0.0, 0.0, 0.0])
+        self._default_rgba = jnp.array([0.4, 0.5, 0.6, 1.0])
+        self._floor_height = 0.0
+        
+        # super class initialization
         super().__init__(env, **kwargs)
 
+        # central flat stage
         self.inner_platform_size_in_meters = inner_platform_size_in_meters
         
         # Terrain Generation Parameters 
@@ -86,27 +107,14 @@ class ParkourTerrain(DynamicTerrain):
         self.step_platform_length = step_platform_length
 
         # Platform cutout
-        # self.platform_half_size = 
+        self.platform_half_size = self.inner_platform_size_in_meters / 2.0 
         
-        platform_size = int(self.inner_platform_size_in_meters * self.one_meter_length)
-        self.x1 = self.hfield_half_length - (platform_size // 2)
-        self.y1 = self.hfield_half_length - (platform_size // 2)
-        self.x2 = self.hfield_half_length + (platform_size // 2)
-        self.y2 = self.hfield_half_length + (platform_size // 2)
-        
-        # Pre-calculate pixel dimensions for generation functions
-        self.obstacle_width_px = int(self.obstacle_width * self.one_meter_length)
-        self.start_i_px = self.hfield_half_length + int(self.obstacle_start_distance * self.one_meter_length)
-        self.start_j_px = self.hfield_half_length - (self.obstacle_width_px // 2)
-        self.end_j_px = self.start_j_px + self.obstacle_width_px
-        
-        self.stair_depth_px = int(self.stair_depth * self.one_meter_length)
-        self.slope_length_px = int(self.slope_length * self.one_meter_length)
-        self.obstacle_length_px = int(self.obstacle_length * self.one_meter_length)
-        self.step_platform_length_px = int(self.step_platform_length * self.one_meter_length)
-        
-        root_free_joint_xml_name = env.root_free_joint_xml_name
+        # pre-compute world dimensions
+        self.start_x = self.platform_half_size + self.obstacle_start_distance
+        self.center_y = 0.0
+        root_free_joint_xml_name = env.root_free_joint_xml_name 
         self._free_jnt_qpos_id = np.array(mj_jntname2qposid(root_free_joint_xml_name, env._model))
+        self._geom_ids = np.array([mujoco.mj_name2id(env._model, mujoco.mjtObj.mjOBJ_GEOM, name) for name in self._geom_names])
 
     def init_state(
             self, env: Any,
@@ -116,29 +124,61 @@ class ParkourTerrain(DynamicTerrain):
             backend: ModuleType
         ) -> ParkourTerrainState:
         """Initialize the state of the complex obstacles terrain."""
+        # check if the backend is supported
         assert_backend_is_supported(backend)
+        
+        # get the geoms ids
+        if backend == jnp:
+            geom_ids = jnp.array(
+                [mujoco.mj_name2id(env._model, mujoco.mjtObj.mjOBJ_GEOM, name) for name in self._geom_names]
+            )
+            self._geom_ids = geom_ids # class variable switched to jax backend
+        else:
+            geom_ids = self._geom_ids
+            
+        # initialize the geoms to a hidden state
+        init_pos = backend.tile(self._hidden_pos, (self.n_obstacle_geoms, 1))
+        init_quat = backend.tile(self._hidden_quat, (self.n_obstacle_geoms, 1))
+        init_size = backend.tile(self._hidden_size, (self.n_obstacle_geoms, 1))
+        init_rgba = backend.tile(self._default_rgba, (self.n_obstacle_geoms, 1))
+        
+        # return the state
         return ParkourTerrainState(
-            height_field_raw=backend.zeros(self.hfield_length * self.hfield_length),
-            height_field_unscaled=backend.zeros((self.hfield_length, self.hfield_length))
+            geom_pos=init_pos,
+            geom_quat=init_quat,
+            geom_size=init_size,
+            geom_rgba=init_rgba
         )
 
     def modify_spec(self, spec: MjSpec) -> MjSpec:
-        """Modify the simulation specification (Identical to RoughTerrain)."""
-        file_name = Path(__file__).resolve().parent.parent.parent / "models" / "common" / "default_hfield_80.png"
-        spec.add_hfield(name='complex_obstacles_terrain', size=self.hfield_size, file=str(file_name))
-        for i, field in enumerate(spec.hfields):
-            if field.name == 'complex_obstacles_terrain':
-                self.hfield_id = i
-                break
-
+        # delete the initial floor
         for g in spec.geoms:
-            if g.name == 'floor':
+            if g.name == "floor":
                 g.delete()
                 break
-
+        
+        # add a new flat terrain
         wb = spec.worldbody
-        wb.add_geom(name='floor', type=mujoco.mjtGeom.mjGEOM_HFIELD, hfieldname='complex_obstacles_terrain', group=2,
-                    pos=(0, 0, -0.06), material="MatPlane", rgba=(0.8, 0.9, 0.8, 1))
+        wb.add_geom(
+            name="floor",
+            type=mujoco.mjtGeom.mjGEOM_PLANE,
+            size=(4.0, 4.0, 1.0), # 8m x 8m plane
+            pos=(0, 0, self._floor_height),
+            material="MatPlane",
+            group=2
+        )
+        
+        # add the new geoms for the obstacles
+        for name in self._geom_names:
+            wb.add_geom(
+                name=name,
+                type=mujoco.mjtGeom.mjGEOM_BOX,
+                size=self._compile_time_size, # self._hidden_size,
+                pos=self._hidden_pos,
+                material="MatPlane",
+                group=2
+            )
+        
         return spec
 
     def reset(
@@ -146,8 +186,17 @@ class ParkourTerrain(DynamicTerrain):
             model: Union[MjModel, Model], data: Union[MjData, Data], carry: Any,
             backend: ModuleType
         ) -> Tuple[Union[MjData, Data], Any]:
-        """Reset the terrain by generating a new random scenario in a random direction."""
+        # check if the backend is supported
         assert_backend_is_supported(backend)
+        
+        # import rotation module
+        R = jnp_R if backend == jnp else np_R
+        
+        # initialize position arrays
+        geom_pos = backend.tile(self._hidden_pos, (self.n_obstacle_geoms, 1))
+        geom_quat = backend.tile(self._hidden_quat, (self.n_obstacle_geoms, 1))
+        geom_size = backend.tile(self._hidden_size, (self.n_obstacle_geoms, 1))
+        geom_rgba = backend.tile(self._default_rgba, (self.n_obstacle_geoms, 1))
         
         # Generate the unscaled heightmap
         if backend == jnp:
@@ -157,9 +206,10 @@ class ParkourTerrain(DynamicTerrain):
             scenario_idx = jax.random.randint(subkey_scenario, shape=(), minval=0, maxval=3)
             # Sample direction (0=front, 1=left, 2=right)
             direction_idx = jax.random.randint(subkey_direction, shape=(), minval=0, maxval=3)
-            
-            height_field_unscaled = self._jnp_generate_terrain(
-                subkey_gen, scenario_idx, direction_idx
+            # generate geoms
+            geom_pos, geom_quat, geom_size, geom_rgba = self._jnp_generate_geoms(
+                subkey_gen, scenario_idx, direction_idx,
+                geom_pos, geom_quat, geom_size, geom_rgba
             )
             carry = carry.replace(key=key)
         else:
@@ -168,317 +218,298 @@ class ParkourTerrain(DynamicTerrain):
             # Sample direction (0=front, 1=left, 2=right)
             direction_idx = np.random.randint(0, 3)
             
-            height_field_unscaled = self._np_generate_terrain(
-                scenario_idx, direction_idx
+            geom_pos, geom_quat, geom_size, geom_rgba = self._np_generate_geoms(
+                scenario_idx, direction_idx,
+                geom_pos, geom_quat, geom_size, geom_rgba
             )
-
-        # Cut out the flat starting platform (applied after rotation)
-        if backend == jnp:
-            height_field_unscaled = height_field_unscaled.at[self.x1:self.x2, self.y1:self.y2].set(0.0)
-        else:
-            height_field_unscaled[self.x1:self.x2, self.y1:self.y2] = 0.0
-
-        # Convert to MuJoCo-scaled format
-        height_field_raw = self.isaac_hf_to_mujoco_hf(height_field_unscaled, backend)
         
         # Store in state
         terrain_state = ParkourTerrainState(
-            height_field_raw=height_field_raw,
-            height_field_unscaled=height_field_unscaled
+            geom_pos=geom_pos,
+            geom_quat=geom_quat,
+            geom_size=geom_size,
+            geom_rgba=geom_rgba
         )
         carry = carry.replace(terrain_state=terrain_state)
 
         return data, carry
 
-    # --- JAX Generation ---
-
-    def _jnp_generate_terrain(self, key: Any, scenario_idx: jax.Array, direction_idx: jax.Array) -> jnp.ndarray:
+    def _jnp_generate_geoms(
+        self, key: Any, scenario_idx: jax.Array, direction_idx: jax.Array, pos, quat, size, rgba) -> jnp.ndarray:
         """Generates, rotates, and places the chosen JAX terrain scenario."""
+        R = jnp_R
         
-        # 1. Generate the base scenario (always in +x direction)
-        scenario_field = jax.lax.switch(
+        # Generate the base scenario (always in +x direction)
+        pos, quat, size, rgba = jax.lax.switch(
             scenario_idx,
-            [self._jnp_scenario_1, self._jnp_scenario_2, self._jnp_scenario_3],
-            key
+            [
+                lambda p,q,s,r: self._jnp_scenario_1(p,q,s,r),
+                lambda p,q,s,r: self._jnp_scenario_2(p,q,s,r),
+                lambda p,q,s,r: self._jnp_scenario_3(p,q,s,r)
+            ],
+            pos, quat, size, rgba
         )
         
-        # 2. Rotate the field based on the chosen direction
+        # Rotate the field based on the chosen direction
         # direction_idx: 0=front(no-op), 1=left(rot90), 2=right(rot-90)
-        final_field = jax.lax.switch(
+        yaw_angle = jax.lax.switch(
             direction_idx,
             [
-                lambda x: x,                     # 0: Front
-                lambda x: jnp.rot90(x, k=1),     # 1: Left
-                lambda x: jnp.rot90(x, k=-1)     # 2: Right
-            ],
-            scenario_field
+                lambda: 0.0,
+                lambda: jnp.pi / 2.0,   # left
+                lambda: -jnp.pi / 2.0   # right
+            ]
         )
+        scene_rot = R.from_euler('z', yaw_angle)
         
-        return final_field
+        # apply the rotation to the geoms that are active (i.e., the ones with a size != 0)
+        is_active = (size[:, 0] > 0)
+        
+        rotated_pos = scene_rot.apply(pos)
+        pos = jnp.where(is_active[:, jnp.newaxis], rotated_pos, pos)
+        
+        rotated_quat = (R.from_quat(quat_scalarfirst2scalarlast(quat)) * scene_rot).as_quat(scalar_first=True)
+        quat = jnp.where(is_active[:, jnp.newaxis], rotated_quat, quat)
+        
+        return pos, quat, size, rgba
 
-    def _jnp_scenario_1(self, key: Any) -> jnp.ndarray:
+    def _jnp_scenario_1(self, pos, quat, size, rgba) -> jnp.ndarray:
         """JAX: Stairs (up) -> Slope (down)"""
-        hf = jnp.zeros((self.hfield_length, self.hfield_length))
+        R = jnp_R
         
-        # Create coordinate grids
-        i_coords = jnp.arange(self.hfield_length)[:, jnp.newaxis]
-        j_coords = jnp.arange(self.hfield_length)[jnp.newaxis, :]
-
-        # --- 1. Generate Stairs (Up) ---
-        def stair_body(i, hf_and_i):
-            hf, current_i = hf_and_i
-            current_height = (i + 1) * self.stair_height
-            next_i = current_i + self.stair_depth_px
-            
-            idx_start = jnp.clip(current_i, 0, self.hfield_length)
-            idx_end = jnp.clip(next_i, 0, self.hfield_length)
-            
-            # Create a mask for the current stair
-            mask = (i_coords >= idx_start) & (i_coords < idx_end) & \
-                   (j_coords >= self.start_j_px) & (j_coords < self.end_j_px)
-            
-            # Use jnp.where to apply the height
-            hf = jnp.where(mask, current_height, hf)
-            
-            return (hf, next_i)
+        # generate stairs up
+        box_half_size = jnp.array([self.stair_depth/2.0, self.obstacle_width/2.0, self.stair_height/2.0])
+        start_x_pos = self.start_x + self.stair_depth/2.0
         
-        (hf, slope_start_i) = jax.lax.fori_loop(
-            0, self.num_stairs, stair_body, (hf, self.start_i_px)
+        def stair_body(i, state):
+            # unpack the state
+            pos, quat, size, rgba = state
+            
+            # position of the center of the stair box
+            x_pos = start_x_pos + i * self.stair_depth
+            y_pos = self.center_y
+            z_pos = self._floor_height + (i + 0.5) * self.stair_height
+            
+            pos = pos.at[i].set(jnp.array([x_pos, y_pos, z_pos]))
+            quat = quat.at[i].set(self._hidden_quat)
+            size = size.at[i].set(box_half_size)
+            
+            return (pos, quat, size, rgba)
+        
+        (pos, quat, size, rgba) = jax.lax.fori_loop(
+            0, self.num_stairs, stair_body, (pos, quat, size, rgba)
         )
         
-        # --- 2. Generate Slope (Down) ---
-        slope_end_i = slope_start_i + self.slope_length_px
+        # generate slope down
+        slope_i = self.num_stairs
         peak_height = self.num_stairs * self.stair_height
         
-        idx_start = jnp.clip(slope_start_i, 0, self.hfield_length)
-        idx_end = jnp.clip(slope_end_i, 0, self.hfield_length)
+        slope_half_size = jnp.array([self.slope_length / 2.0, self.obstacle_width / 2.0, 0.01])
         
-        # Create a linear ramp *value* for each coordinate
-        # We need to handle division by zero if slope_length_px is 0 or idx_start==idx_end
-        safe_length_px = jnp.maximum(1, self.slope_length_px)
-        # Calculate percentage along the slope
-        ramp_pct = (i_coords - idx_start) / safe_length_px
-        ramp_values = peak_height * (1.0 - ramp_pct) # Ramp down from peak
+        pitch_angle = -jnp.arctan2(peak_height, self.slope_length)
+        slope_rot_quat = R.from_euler('z', pitch_angle).as_quat(scalar_first=True)
         
-        # Create a mask for the slope area
-        mask = (i_coords >= idx_start) & (i_coords < idx_end) & \
-               (j_coords >= self.start_j_px) & (j_coords < self.end_j_px)
+        x_start = self.start_x + self.num_stairs * self.stair_depth
+        z_start = self._floor_height + peak_height
+        x_center = x_start + (self.slope_length / 2.0) * jnp.cos(pitch_angle)
+        y_center = self.center_y
+        z_center = z_start + (self.slope_length / 2.0) * jnp.sin(pitch_angle)
         
-        hf = jnp.where(mask, ramp_values, hf)
+        pos = pos.at[slope_i].set(jnp.array([x_center, y_center, z_center]))
+        quat = quat.at[slope_i].set(slope_rot_quat)
+        size = size.at[slope_i].set(slope_half_size.at[2].set(0.05))
         
-        return hf
+        return pos, quat, size, rgba
 
-    def _jnp_scenario_2(self, key: Any) -> jnp.ndarray:
-        """JAX: Slope (up) -> Stairs (down)"""
-        hf = jnp.zeros((self.hfield_length, self.hfield_length))
-
-        # Create coordinate grids
-        i_coords = jnp.arange(self.hfield_length)[:, jnp.newaxis]
-        j_coords = jnp.arange(self.hfield_length)[jnp.newaxis, :]
-
-        # --- 1. Generate Slope (Up) ---
-        slope_start_i = self.start_i_px
-        slope_end_i = slope_start_i + self.slope_length_px
+    def _jnp_scenario_2(self, pos, quat, size, rgba) -> jnp.ndarray:
+        R = jnp_R
+        
+        # slope up then stairs down
+        # generate the slope
+        slope_i = 0
         peak_height = self.slope_height
         
-        idx_start = jnp.clip(slope_start_i, 0, self.hfield_length)
-        idx_end = jnp.clip(slope_end_i, 0, self.hfield_length)
+        slope_half_size = jnp.array([self.slope_length / 2.0, self.obstacle_width / 2.0, 0.05])
         
-        # Create a linear ramp *value* for each coordinate
-        safe_length_px = jnp.maximum(1, self.slope_length_px)
-        ramp_pct = (i_coords - idx_start) / safe_length_px
-        ramp_values = peak_height * ramp_pct # Ramp up from 0
+        pitch_angle = -jnp.arctan2(peak_height, self.slope_length)
+        slope_rot_quat = R.from_euler('z', pitch_angle).as_quat(scalar_first=True)
         
-        # Create a mask for the slope area
-        mask = (i_coords >= idx_start) & (i_coords < idx_end) & \
-               (j_coords >= self.start_j_px) & (j_coords < self.end_j_px)
+        x_start = self.start_x
+        z_start = self._floor_height
+        x_center = x_start + (self.slope_length / 2.0) * jnp.cos(pitch_angle)
+        y_center = self.center_y
+        z_center = z_start + (self.slope_length / 2.0) * jnp.sin(pitch_angle)
         
-        hf = jnp.where(mask, ramp_values, hf)
+        pos = pos.at[slope_i].set(jnp.array([x_center, y_center, z_center]))
+        quat = quat.at[slope_i].set(slope_rot_quat)
+        size = size.at[slope_i].set(slope_half_size)
         
-        # --- 2. Generate Stairs (Down) ---
-        def stair_body(i, hf_and_i):
-            hf, current_i = hf_and_i
-            # Height decreases
-            current_height = peak_height - (i * self.stair_height)
-            next_i = current_i + self.stair_depth_px
+        # generate stairs 
+        box_half_size = jnp.array([self.stair_depth/2.0, self.obstacle_width/2.0, self.stair_height/2.0])
+        stair_start_x = self.start_x + self.slope_length
+        
+        def stair_body(i, state):
+            # unpack the state
+            pos, quat, size, rgba = state
+            geom_idx = i + 1
             
-            idx_start = jnp.clip(current_i, 0, self.hfield_length)
-            idx_end = jnp.clip(next_i, 0, self.hfield_length)
+            # position of the center of the stair box
+            x_pos = stair_start_x + (i + 0.5) * self.stair_depth
+            y_pos = self.center_y
+            z_pos = self._floor_height + peak_height - (i + 0.5) * self.stair_height
             
-            # Create a mask for the current stair
-            mask = (i_coords >= idx_start) & (i_coords < idx_end) & \
-                   (j_coords >= self.start_j_px) & (j_coords < self.end_j_px)
+            pos = pos.at[geom_idx].set(jnp.array([x_pos, y_pos, z_pos]))
+            quat = quat.at[geom_idx].set(self._hidden_quat)
+            size = size.at[geom_idx].set(box_half_size)
             
-            hf = jnp.where(mask, current_height, hf)
-            return (hf, next_i)
-
-        (hf, _) = jax.lax.fori_loop(
-            0, self.num_stairs, stair_body, (hf, slope_end_i)
+            return (pos, quat, size, rgba)
+        
+        (pos, quat, size, rgba) = jax.lax.fori_loop(
+            0, self.num_stairs, stair_body, (pos, quat, size, rgba)
         )
-        return hf
         
-    def _jnp_scenario_3(self, key: Any) -> jnp.ndarray:
-        """JAX: Step (up) -> Flat -> Hole (step down)"""
-        hf = jnp.zeros((self.hfield_length, self.hfield_length))
-
-        # Create coordinate grids
-        i_coords = jnp.arange(self.hfield_length)[:, jnp.newaxis]
-        j_coords = jnp.arange(self.hfield_length)[jnp.newaxis, :]
-
-        # --- 1. Generate Step (Up) ---
-        step_start_i = self.start_i_px
-        step_end_i = step_start_i + self.obstacle_length_px
-        idx_start = jnp.clip(step_start_i, 0, self.hfield_length)
-        idx_end = jnp.clip(step_end_i, 0, self.hfield_length)
+        return pos, quat, size, rgba
+           
+    def _jnp_scenario_3(self, pos, quat, size, rgba) -> jnp.ndarray:
+        """JAX: Step (up) -> Flat -> step down"""
+        step_half_size = jnp.array([self.step_platform_length / 2.0, self.obstacle_width / 2.0, self.step_height / 2.0])
+        x_center = self.start_x + self.step_platform_length / 2.0
+        z_center = self._floor_height + self.step_height / 2.0
         
-        mask_step = (i_coords >= idx_start) & (i_coords < idx_end) & \
-                    (j_coords >= self.start_j_px) & (j_coords < self.end_j_px)
-        hf = jnp.where(mask_step, self.step_height, hf)
+        pos = pos.at[0].set(jnp.array([x_center, self.center_y, z_center]))
+        quat = quat.at[0].set(self._hidden_quat)
+        size = size.at[0].set(step_half_size)
         
-        # --- 2. Generate Flat Platform ---
-        platform_start_i = step_end_i
-        platform_end_i = platform_start_i + self.step_platform_length_px
-        idx_start = jnp.clip(platform_start_i, 0, self.hfield_length)
-        idx_end = jnp.clip(platform_end_i, 0, self.hfield_length)
+        return pos, quat, size, rgba
 
-        mask_platform = (i_coords >= idx_start) & (i_coords < idx_end) & \
-                        (j_coords >= self.start_j_px) & (j_coords < self.end_j_px)
-        hf = jnp.where(mask_platform, self.step_height, hf)
-
-        # --- 3. Generate Hole (Down) ---
-        hole_start_i = platform_end_i
-        hole_end_i = hole_start_i + self.obstacle_length_px
-        idx_start = jnp.clip(hole_start_i, 0, self.hfield_length)
-        idx_end = jnp.clip(hole_end_i, 0, self.hfield_length)
-        
-        mask_hole = (i_coords >= idx_start) & (i_coords < idx_end) & \
-                    (j_coords >= self.start_j_px) & (j_coords < self.end_j_px)
-        hf = jnp.where(mask_hole, self.hole_depth, hf)
-        
-        return hf
-
-    # --- NumPy Generation ---
-
-    def _np_generate_terrain(self, scenario_idx: int, direction_idx: int) -> np.ndarray:
-        """Generates, rotates, and places the chosen NumPy terrain scenario."""
-        
-        # 1. Generate the base scenario
+    def _np_generate_geoms(self, scenario_idx: int, direction_idx: int, pos, quat, size, rgba) -> np.ndarray:
+        R = np_R
+        """NumPy equivalent of _jnp_generate_geoms."""
+        # Generate the base scenario (always in +x direction)
         if scenario_idx == 0:
-            scenario_field = self._np_scenario_1()
+            pos, quat, size, rgba = self._np_scenario_1(pos, quat, size, rgba)
         elif scenario_idx == 1:
-            scenario_field = self._np_scenario_2()
-        else: # scenario_idx == 2
-            scenario_field = self._np_scenario_3()
-            
-        # 2. Rotate the field
-        if direction_idx == 0: # Front
-            final_field = scenario_field
-        elif direction_idx == 1: # Left
-            final_field = np.rot90(scenario_field, k=1)
-        else: # direction_idx == 2, Right
-            final_field = np.rot90(scenario_field, k=-1)
-            
-        return final_field
+            pos, quat, size, rgba = self._np_scenario_2(pos, quat, size, rgba)
+        else:
+            pos, quat, size, rgba = self._np_scenario_3(pos, quat, size, rgba)
 
-    def _np_scenario_1(self) -> np.ndarray:
-        """NumPy: Stairs (up) -> Slope (down)"""
-        hf = np.zeros((self.hfield_length, self.hfield_length))
-        
-        # 1. Generate Stairs (Up)
-        current_i = self.start_i_px
+        # Rotate the field based on the chosen direction
+        # direction_idx: 0=front(no-op), 1=left(rot90), 2=right(rot-90)
+        if direction_idx == 0:
+            yaw_angle = 0.0
+        elif direction_idx == 1:
+            yaw_angle = np.pi / 2.0
+        else:
+            yaw_angle = -np.pi / 2.0
+
+        scene_rot = R.from_euler('z', yaw_angle)
+
+        # apply the rotation to the geoms that are active (i.e., the ones with a size != 0)
+        is_active = (size[:, 0] > 0)
+
+        rotated_pos = scene_rot.apply(pos)
+        pos = np.where(is_active[:, np.newaxis], rotated_pos, pos)
+
+        # rotate quaternions and keep scalar-first ordering as in the rest of the code
+        rotated_quat = (R.from_quat(quat_scalarfirst2scalarlast(quat)) * scene_rot).as_quat(scalar_first=True)
+        quat = np.where(is_active[:, np.newaxis], rotated_quat, quat)
+
+        return pos, quat, size, rgba
+
+    def _np_scenario_1(self, pos, quat, size, rgba) -> np.ndarray:
+        R = np_R
+        """NumPy: Stairs (up) -> Slope (down) -- numpy equivalent of _jnp_scenario_1"""
+        # generate stairs up
+        box_half_size = np.array([self.stair_depth / 2.0, self.obstacle_width / 2.0, self.stair_height / 2.0])
+        start_x_pos = self.start_x + self.stair_depth / 2.0
+
+        hidden_quat_np = np.asarray(self._hidden_quat)
+
         for i in range(self.num_stairs):
-            current_height = (i + 1) * self.stair_height
-            next_i = current_i + self.stair_depth_px
-            # Clip indices
-            idx_start = np.clip(current_i, 0, self.hfield_length)
-            idx_end = np.clip(next_i, 0, self.hfield_length)
-            if idx_start >= idx_end: continue
-            
-            hf[idx_start:idx_end, self.start_j_px:self.end_j_px] = current_height
-            current_i = next_i
-        
-        slope_start_i = current_i
-        
-        # 2. Generate Slope (Down)
-        slope_end_i = slope_start_i + self.slope_length_px
+            x_pos = start_x_pos + i * self.stair_depth
+            y_pos = self.center_y
+            z_pos = self._floor_height + (i + 0.5) * self.stair_height
+
+            pos[i] = np.array([x_pos, y_pos, z_pos], dtype=pos.dtype)
+            quat[i] = hidden_quat_np
+            size[i] = box_half_size
+
+        # generate slope down
+        slope_i = self.num_stairs
         peak_height = self.num_stairs * self.stair_height
-        
-        x = np.linspace(peak_height, 0.0, self.slope_length_px)
-        ramp = x[:, np.newaxis]
-        
-        idx_start = np.clip(slope_start_i, 0, self.hfield_length)
-        idx_end = np.clip(slope_end_i, 0, self.hfield_length)
-        if idx_start >= idx_end: return hf
-        
-        ramp = ramp[:(idx_end - idx_start), :]
-        hf[idx_start:idx_end, self.start_j_px:self.end_j_px] = ramp
-        
-        return hf
 
-    def _np_scenario_2(self) -> np.ndarray:
-        """NumPy: Slope (up) -> Stairs (down)"""
-        hf = np.zeros((self.hfield_length, self.hfield_length))
-        
-        # 1. Generate Slope (Up)
-        slope_start_i = self.start_i_px
-        slope_end_i = slope_start_i + self.slope_length_px
+        slope_half_size = np.array([self.slope_length / 2.0, self.obstacle_width / 2.0, 0.01])
+        pitch_angle = -np.arctan2(peak_height, self.slope_length)
+        # keep scalar-first quaternion ordering
+        slope_rot_quat = R.from_euler('z', pitch_angle).as_quat(scalar_first=True)
+
+        x_start = self.start_x + self.num_stairs * self.stair_depth
+        z_start = self._floor_height + peak_height
+        x_center = x_start + (self.slope_length / 2.0) * np.cos(pitch_angle)
+        y_center = self.center_y
+        z_center = z_start + (self.slope_length / 2.0) * np.sin(pitch_angle)
+
+        pos[slope_i] = np.array([x_center, y_center, z_center], dtype=pos.dtype)
+        quat[slope_i] = slope_rot_quat
+        slope_size = slope_half_size.copy()
+        slope_size[2] = 0.05
+        size[slope_i] = slope_size
+
+        return pos, quat, size, rgba
+
+    def _np_scenario_2(self, pos, quat, size, rgba) -> np.ndarray:
+        R = np_R
+        """NumPy: Slope (up) -> Stairs (down) -- numpy equivalent of _jnp_scenario_2"""
+        # slope up
+        slope_i = 0
         peak_height = self.slope_height
-        
-        x = np.linspace(0.0, peak_height, self.slope_length_px)
-        ramp = x[:, np.newaxis]
-        
-        idx_start = np.clip(slope_start_i, 0, self.hfield_length)
-        idx_end = np.clip(slope_end_i, 0, self.hfield_length)
-        if idx_start < idx_end:
-            ramp = ramp[:(idx_end - idx_start), :]
-            hf[idx_start:idx_end, self.start_j_px:self.end_j_px] = ramp
-        
-        # 2. Generate Stairs (Down)
-        current_i = slope_end_i
+
+        slope_half_size = np.array([self.slope_length / 2.0, self.obstacle_width / 2.0, 0.05])
+
+        pitch_angle = -np.arctan2(peak_height, self.slope_length)
+        slope_rot_quat = R.from_euler('z', pitch_angle).as_quat(scalar_first=True)
+
+        x_start = self.start_x
+        z_start = self._floor_height
+        x_center = x_start + (self.slope_length / 2.0) * np.cos(pitch_angle)
+        y_center = self.center_y
+        z_center = z_start + (self.slope_length / 2.0) * np.sin(pitch_angle)
+
+        pos[slope_i] = np.array([x_center, y_center, z_center], dtype=pos.dtype)
+        quat[slope_i] = slope_rot_quat
+        size[slope_i] = slope_half_size
+
+        # generate stairs down
+        box_half_size = np.array([self.stair_depth / 2.0, self.obstacle_width / 2.0, self.stair_height / 2.0])
+        stair_start_x = self.start_x + self.slope_length
+
+        hidden_quat_np = np.asarray(self._hidden_quat)
+
         for i in range(self.num_stairs):
-            current_height = peak_height - (i * self.stair_height)
-            next_i = current_i + self.stair_depth_px
-            
-            idx_start = np.clip(current_i, 0, self.hfield_length)
-            idx_end = np.clip(next_i, 0, self.hfield_length)
-            if idx_start >= idx_end: continue
-            
-            hf[idx_start:idx_end, self.start_j_px:self.end_j_px] = current_height
-            current_i = next_i
-            
-        return hf
+            geom_idx = i + 1
+            x_pos = stair_start_x + (i + 0.5) * self.stair_depth
+            y_pos = self.center_y
+            z_pos = self._floor_height + peak_height - (i + 0.5) * self.stair_height
 
-    def _np_scenario_3(self) -> np.ndarray:
-        """NumPy: Step (up) -> Flat -> Hole (step down)"""
-        hf = np.zeros((self.hfield_length, self.hfield_length))
+            pos[geom_idx] = np.array([x_pos, y_pos, z_pos], dtype=pos.dtype)
+            quat[geom_idx] = hidden_quat_np
+            size[geom_idx] = box_half_size
 
-        # 1. Generate Step (Up)
-        step_start_i = self.start_i_px
-        step_end_i = step_start_i + self.obstacle_length_px
-        idx_start = np.clip(step_start_i, 0, self.hfield_length)
-        idx_end = np.clip(step_end_i, 0, self.hfield_length)
-        if idx_start < idx_end:
-            hf[idx_start:idx_end, self.start_j_px:self.end_j_px] = self.step_height
-        
-        # 2. Generate Flat Platform
-        platform_start_i = step_end_i
-        platform_end_i = platform_start_i + self.step_platform_length_px
-        idx_start = np.clip(platform_start_i, 0, self.hfield_length)
-        idx_end = np.clip(platform_end_i, 0, self.hfield_length)
-        if idx_start < idx_end:
-            hf[idx_start:idx_end, self.start_j_px:self.end_j_px] = self.step_height
+        return pos, quat, size, rgba
 
-        # 3. Generate Hole (Down)
-        hole_start_i = platform_end_i
-        hole_end_i = hole_start_i + self.obstacle_length_px
-        idx_start = np.clip(hole_start_i, 0, self.hfield_length)
-        idx_end = np.clip(hole_end_i, 0, self.hfield_length)
-        if idx_start < idx_end:
-            hf[idx_start:idx_end, self.start_j_px:self.end_j_px] = self.hole_depth
-            
-        return hf
+    def _np_scenario_3(self, pos, quat, size, rgba) -> np.ndarray:
+        """NumPy: Step (up) -> Flat -> step down -- numpy equivalent of _jnp_scenario_3"""
+        step_half_size = np.array([self.step_platform_length / 2.0,
+                                   self.obstacle_width / 2.0,
+                                   self.step_height / 2.0])
+        x_center = self.start_x + self.step_platform_length / 2.0
+        z_center = self._floor_height + self.step_height / 2.0
 
-    # --- Standard Methods (Copied from StonesHolesTerrain) ---
+        pos[0] = np.array([x_center, self.center_y, z_center], dtype=pos.dtype)
+        quat[0] = np.asarray(self._hidden_quat)
+        size[0] = step_half_size
+
+        return pos, quat, size, rgba
 
     def get_height_at_xy(
             self, 
@@ -487,31 +518,104 @@ class ParkourTerrain(DynamicTerrain):
             backend: ModuleType
         ) -> Union[float, jax.Array]:
         """
-        Get the terrain height (in meters) at a specific world (x, y) coordinate.
+        Get the terrain height (in meters) at a specific world (x, y) coordinate
+        by checking against all active geoms.
         """
         assert_backend_is_supported(backend)
+        R = jnp_R if backend == jnp else np_R
         
-        height_map = terrain_state.height_field_unscaled
+        # Start with the base floor height
+        max_height = backend.full_like(xy_pos[0], self._floor_height)
+        
+        geom_pos = terrain_state.geom_pos
+        geom_quat = terrain_state.geom_quat
+        geom_size = terrain_state.geom_size
 
-        i = (xy_pos[0] + self.hfield_half_length_in_meters) * self.one_meter_length
-        j = (xy_pos[1] + self.hfield_half_length_in_meters) * self.one_meter_length
+        def check_geom(i, max_h):
+            pos = geom_pos[i]
+            quat = geom_quat[i]
+            size = geom_size[i]
+            
+            # --- 1. Check if point is inside the box's 2D footprint ---
+            # Get inverse rotation (transpose of matrix)
+            R_mat = R.from_quat(quat).as_matrix()
+            R_inv = R_mat.T
+            
+            # Get vector from box center to xy_pos (ignoring z)
+            p_world_xy = backend.array([xy_pos[0] - pos[0], xy_pos[1] - pos[1]])
+            
+            # Rotate this vector into the box's local frame
+            # We only need the x and y components of the 3x3 R_inv
+            local_x = p_world_xy[0] * R_inv[0, 0] + p_world_xy[1] * R_inv[1, 0]
+            local_y = p_world_xy[0] * R_inv[0, 1] + p_world_xy[1] * R_inv[1, 1]
+            
+            is_inside_x = (backend.abs(local_x) < size[0])
+            is_inside_y = (backend.abs(local_y) < size[1])
+            is_inside = is_inside_x & is_inside_y & (size[0] > 0.0) # Check for active geom
+            
+            # --- 2. If inside, calculate the height of the box's top plane ---
+            # Plane equation: n · (p - p0) = 0
+            # n = box's local Z-axis in world frame (3rd column of R_mat)
+            n = R_mat[:, 2]
+            
+            # p0 = a point on the top plane (center of top face)
+            p_top_center = pos + R.from_quat(quat).apply(backend.array([0.0, 0.0, size[2]]))
+            
+            # Solve for z_world in:
+            # n[0]*(x - p0[0]) + n[1]*(y - p0[1]) + n[2]*(z_world - p0[2]) = 0
+            n_z_safe = backend.where(n[2] == 0, 1e-6, n[2]) # Avoid divide by zero
+            z_world_top = p_top_center[2] - \
+                          (n[0] * (xy_pos[0] - p_top_center[0]) + 
+                           n[1] * (xy_pos[1] - p_top_center[1])) / n_z_safe
+            
+            # Check for "hole" (negative height)
+            # If hole, we want the *bottom* plane's height
+            p_bottom_center = pos + R.from_quat(quat).apply(backend.array([0.0, 0.0, -size[2]]))
+            z_world_bottom = p_bottom_center[2] - \
+                             (n[0] * (xy_pos[0] - p_bottom_center[0]) + 
+                              n[1] * (xy_pos[1] - p_bottom_center[1])) / n_z_safe
+                             
+            # A "hole" is a box centered below z=0
+            is_hole = (pos[2] < self._floor_height)
+            
+            # If it's a hole, the height is the bottom of the box.
+            # If it's a step, the height is the top of the box.
+            geom_height = backend.where(is_hole, z_world_bottom, z_world_top)
+
+            return backend.where(is_inside, backend.maximum(max_h, geom_height), max_h)
+
+        if backend == jnp:
+            max_height = jax.lax.fori_loop(0, self.n_obstacle_geoms, check_geom, max_height)
+        else:
+            for i in range(self.n_obstacle_geoms):
+                max_height = check_geom(i, max_height)
         
-        i_clipped = backend.clip(backend.astype(i, 'int32'), 0, self.hfield_length - 1)
-        j_clipped = backend.clip(backend.astype(j, 'int32'), 0, self.hfield_length - 1)
-        
-        height = height_map[i_clipped, j_clipped]
-        
-        return height
+        return max_height
 
     def update(self, env: Any,
                model: Union[MjModel, Model],
                data: Union[MjData, Data],
                carry: Any,
                backend: ModuleType) -> Tuple[Union[MjModel, Model], Union[MjData, Data], Any]:
-        """Update the rough terrain and simulation state."""
+        """Update the terrain by setting all geom properties from the state."""
         assert_backend_is_supported(backend)
         terrain_state = carry.terrain_state
-        model = self._set_attribute_in_model(model, "hfield_data", terrain_state.height_field_raw, backend)
+        
+        if backend == jnp:
+            # JAX needs to update the model immutably
+            model = model.replace(
+                geom_pos=model.geom_pos.at[self._geom_ids].set(terrain_state.geom_pos),
+                geom_quat=model.geom_quat.at[self._geom_ids].set(terrain_state.geom_quat),
+                geom_size=model.geom_size.at[self._geom_ids].set(terrain_state.geom_size),
+                geom_rgba=model.geom_rgba.at[self._geom_ids].set(terrain_state.geom_rgba)
+            )
+        else:
+            # NumPy can update the model in place
+            model.geom_pos[self._geom_ids] = terrain_state.geom_pos
+            model.geom_quat[self._geom_ids] = terrain_state.geom_quat
+            model.geom_size[self._geom_ids] = terrain_state.geom_size
+            model.geom_rgba[self._geom_ids] = terrain_state.geom_rgba
+
         data = self._reset_on_edge(data, backend)
         return model, data, carry
 
@@ -522,30 +626,26 @@ class ParkourTerrain(DynamicTerrain):
                           carry: Any,
                           backend: ModuleType) -> Union[np.ndarray, jnp.ndarray]:
         assert_backend_is_supported(backend)
-        raise NotImplementedError
+        raise NotImplementedError("get_height_matrix is not implemented for geom-based terrain.")
 
     def isaac_hf_to_mujoco_hf(self,
                               isaac_hf: Union[np.ndarray, jnp.ndarray],
                               backend: ModuleType) -> Union[np.ndarray, jnp.ndarray]:
-        """
-        Convert Isaac height field data to MuJoCo-compatible height field data.
-        """
+        """Not used in this class."""
         assert_backend_is_supported(backend)
-
-        hf = isaac_hf + backend.abs(backend.min(isaac_hf))
-        hf /= self.mujoco_height_scaling
-        return hf.reshape(-1)
+        return backend.array([])
 
     def _reset_on_edge(self, data: Union[MjData, Data],
                        backend: ModuleType) -> Union[MjData, Data]:
         """Reset the robot position if it is on the edge of the terrain."""
         assert_backend_is_supported(backend)
 
-        min_edge = self.hfield_half_length_in_meters - 0.5
-        max_edge = self.hfield_half_length_in_meters
+        # Using a simpler platform check now
         com_pos = data.qpos[self._free_jnt_qpos_id][:2]
-        reached_edge = backend.array(((min_edge < backend.abs(com_pos[0])) & (backend.abs(com_pos[0]) < max_edge)) | (
-                    (min_edge < backend.abs(com_pos[1])) & (backend.abs(com_pos[1]) < max_edge)))
+        
+        # Reset if outside a 3.5m radius (for an 8x8m world)
+        reached_edge = (com_pos[0]**2 + com_pos[1]**2) > (3.5**2)
+        
         free_jnt_xy = self._free_jnt_qpos_id[:2]
         if backend == jnp:
             init_data = data.replace(qpos=data.qpos.at[free_jnt_xy].set(0.0))

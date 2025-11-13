@@ -62,7 +62,7 @@ def experiment(config: DictConfig):
     config.experiment.env_params["headless"] = False
     env = factory.make(**config.experiment.env_params, **config.experiment.task_factory.params)
     
-    env.create_observation_summary()
+    # env.create_observation_summary()
 
     # get initial agent configuration
     path = config.experiment.agent_path

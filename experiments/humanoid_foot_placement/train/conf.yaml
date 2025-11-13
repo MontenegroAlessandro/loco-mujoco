@@ -100,8 +100,8 @@ experiment:
       joint_position_limit_scale: 0.98
       joint_position_limit_coeff: -1.
       feet_slip_coeff: -0.1
-      feet_yaw_diff_coeff: 0.0 # -1.0 # -0.5
-      feet_yaw_mean_coeff: 0.0 # -1.0 # -0.5
+      feet_yaw_diff_coeff: -1.0 # -0.5
+      feet_yaw_mean_coeff: -1.0 # -0.5
       feet_roll_coeff: -4.0 # -0.1
       feet_distance_target: 0.2
       feet_swing_coeff: 6 # 3.
@@ -256,14 +256,14 @@ experiment:
         - 5.0 # Left_Hip_Roll
         - 5.0 # Left_Hip_Yaw
         - 5.0 # Left_Knee_Pitch
-        - 1.0 # Left_Ankle_Pitch
-        - 1.0 # Left_Ankle_Roll
+        - 3.0 # 1.0 # Left_Ankle_Pitch
+        - 3.0 # 1.0 # Left_Ankle_Roll
         - 5.0 # Right_Hip_Pitch
         - 5.0 # Right_Hip_Roll
         - 5.0 # Right_Hip_Yaw
         - 5.0 # Right_Knee_Pitch
-        - 1.0 # Right_Ankle_Pitch
-        - 1.0 # Right_Ankle_Roll
+        - 3.0 # 1.0 # Right_Ankle_Pitch
+        - 3.0 # 1.0 # Right_Ankle_Roll
 
       nominal_joint_positions:
         - 0.0 # AAHead_yaw

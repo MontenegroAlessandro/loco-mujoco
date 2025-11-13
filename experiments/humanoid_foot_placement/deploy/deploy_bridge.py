@@ -79,7 +79,7 @@ class RobotController:
         # Initialize components
         # self.remoteControlService = RemoteControlService()
         # self.policy = Policy(cfg=cfg)
-        policy_path = cfg["policy_path"]
+        policy_path = cfg["agent_path"]
 
         self.policy = JAXPolicy(policy_path=policy_path)
         self.policy_dt = 0.02
@@ -109,7 +109,12 @@ class RobotController:
         # new for foot placement
         self.counter = 0
         self.des_dist = self.command["distance"]
-        self.alpha = np.deg2rad(self.command["angle_deg"])
+        # define angles for movements
+        self.fwd_angle = np.deg2rad(30)
+        self.bwd_angle = np.deg2rad(120)
+        self.hold_angle = np.deg2rad(90)
+        # initialize the angle to be still
+        self.alpha = self.hold_angle
         self.swing_foot_idx = 0
         self.gait_frequency = self.command["gait_frequency"]
 
@@ -132,9 +137,16 @@ class RobotController:
         cmd = np.zeros(16, dtype=np.float32)
 
         # Calculate gait phase based on time
-        gait_process = (self.counter * self.policy_dt * self.goal_frequency) % 1.0 
+        gait_process = (self.counter * self.policy_dt * self.gait_frequency) % 1.0 
         sign = np.where(self.swing_foot_idx == 0, 1, -1)
-        dist  = self.des_dist
+        # dist  = self.des_dist / np.sin(self.alpha) if np.sin(self.alpha) != 0 else self.des_dist
+        if self.alpha != np.pi / 2:
+            if self.alpha < np.pi / 2:
+                dist = self.des_dist / np.sin(self.alpha)
+            else:
+                dist = self.des_dist / np.sin(self.alpha - np.pi / 2)
+        else:
+            dist = self.des_dist
         swing_pos_offset = np.array([dist * np.cos(self.alpha), dist * np.sin(self.alpha) * sign, 0], dtype=np.float32)
         stance_pos_offset = np.zeros(3, np.float32)
         swing_orn_offset = np_R.from_euler('z', np.deg2rad(0)).as_quat(scalar_first=True)
@@ -196,8 +208,8 @@ class RobotController:
 
         # Clip the final target angles to be within the robot's joint limits
         q_des = np.clip(q_des, self.min_angles, self.max_angles)
-        q_des[3] = -1.2
-        q_des[7] = 1.2
+        q_des[3] = -1.2 # arms contraint
+        q_des[7] = 1.2 # arms contraint
 
         # 6. SEND COMMAND TO ROBOT
         self.robot.send_cmd(q_target_pos=q_des, target_kp=self.kps, target_kd=self.kds)
@@ -249,39 +261,51 @@ class RobotController:
             if self.robot.joy_key.lt and self.robot.joy_key.a and self.robot.key_count == 2:  # start: LT + A
                 if self.robot.control_started:
                     self.agent_started = True
-                    self.vx_cmd = 0.0
-                    self.vy_cmd = 0.0
-                    self.vyaw_cmd = 0.0
+                    # self.vx_cmd = 0.0
+                    # self.vy_cmd = 0.0
+                    # self.vyaw_cmd = 0.0
+                    self.alpha = self.hold_angle
                     self.node.get_logger().info("Agent started.")
                 else:
                     self.node.get_logger().warn("Please start the control first by pressing LT + START.")
 
             if self.agent_started:
                 if self.robot.joy_key.hat_u and self.robot.key_count == 1:
-                    self.vx_cmd += 0.1
+                    # up key
+                    # self.vx_cmd += 0.1
+                    self.alpha = self.fwd_angle
                 elif self.robot.joy_key.hat_d and self.robot.key_count == 1:
-                    self.vx_cmd -= 0.1
+                    # down key
+                    self.alpha = self.bwd_angle
+                    # self.vx_cmd -= 0.1
                 elif self.robot.joy_key.hat_l and self.robot.key_count == 1:
-                    self.vy_cmd += 0.1
+                    # left key
+                    # self.vy_cmd += 0.1
+                    self.alpha = self.hold_angle
                 elif self.robot.joy_key.hat_r and self.robot.key_count == 1:
-                    self.vy_cmd -= 0.1
+                    # self.vy_cmd -= 0.1
+                    self.alpha = self.hold_angle
                 elif self.robot.joy_key.rx * -1 >= 1.0:
-                    self.vyaw_cmd += 0.1
+                    # self.vyaw_cmd += 0.1
+                    self.alpha = self.hold_angle
                 elif self.robot.joy_key.rx * -1 <= -1.0:
-                    self.vyaw_cmd -= 0.1
+                    # self.vyaw_cmd -= 0.1
+                    self.alpha = self.hold_angle
                 if (self.robot.joy_key.ls or self.robot.joy_key.rs) and self.robot.key_count == 1:
-                    self.vx_cmd = 0.0
-                    self.vy_cmd = 0.0
-                    self.vyaw_cmd = 0.0
+                    # self.vx_cmd = 0.0
+                    # self.vy_cmd = 0.0
+                    # self.vyaw_cmd = 0.0
+                    self.alpha = self.hold_angle
 
-                self.vx_cmd = np.clip(self.vx_cmd, -0.5, 0.5)
-                self.vy_cmd = np.clip(self.vy_cmd, -0.5, 0.5)
-                self.vyaw_cmd = np.clip(self.vyaw_cmd, -2.0, 2.0)
-                print(f"Velocity commands - vx: {self.vx_cmd}, vy: {self.vy_cmd}, vyaw: {self.vyaw_cmd}")
+                # self.vx_cmd = np.clip(self.vx_cmd, -0.5, 0.5)
+                # self.vy_cmd = np.clip(self.vy_cmd, -0.5, 0.5)
+                # self.vyaw_cmd = np.clip(self.vyaw_cmd, -2.0, 2.0)
+                # print(f"Velocity commands - vx: {self.vx_cmd}, vy: {self.vy_cmd}, vyaw: {self.vyaw_cmd}")
             else:
-                self.vx_cmd = 0.0
-                self.vy_cmd = 0.0
-                self.vyaw_cmd = 0.0
+                # self.vx_cmd = 0.0
+                # self.vy_cmd = 0.0
+                # self.vyaw_cmd = 0.0
+                self.alpha = self.hold_angle
 
             self.robot.joy_key = None  # Reset joy_key
             self.robot.key_count = 0 # Reset true_count after processing

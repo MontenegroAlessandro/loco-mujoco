@@ -198,8 +198,18 @@ if __name__ == "__main__":
     counter = 0
     gait_frequency = cmd_params["gait_frequency"]
     des_dist = cmd_params["distance"]
-    alpha = np.deg2rad(cmd_params["angle_deg"])
+    # directions
+    fwd_angle = np.deg2rad(30)
+    bwd_angle = np.deg2rad(150)
+    hold_angle = np.deg2rad(90)
+    angle_array = [hold_angle, fwd_angle, hold_angle, bwd_angle]
+    # initialize angle
+    alpha = hold_angle
     swing_foot_idx = 0
+    # gait_swithces
+    num_gaits = 0
+    idx = 0
+    max_gaits = 20
 
     # --- Start Simulation and Viewer ---
     with mujoco.viewer.launch_passive(m, d) as viewer:
@@ -227,8 +237,16 @@ if __name__ == "__main__":
                 # --- Create Command Vector `cmd` ---
                 gait_process = (counter * simulation_dt * gait_frequency) % 1.0
                 sign = np.where(swing_foot_idx == 0, 1, -1)
-                dist  = des_dist # / np.sin(alpha)
-                swing_pos_offset = np.array([dist * np.cos(alpha), dist * np.sin(alpha) * sign, 0], dtype=np.float32)
+                if alpha != np.pi / 2:
+                    if alpha < np.pi / 2:
+                        dist = des_dist / np.sin(alpha)
+                    else:
+                        dist = des_dist / np.sin(alpha - np.pi / 2)
+                else:
+                    dist = des_dist
+                # dist  = des_dist / np.abs(np.sin(alpha)) if np.sin(alpha) != 0 else des_dist
+                # swing_pos_offset = np.array([dist * np.cos(alpha), dist * np.sin(alpha) * sign, 0], dtype=np.float32)
+                swing_pos_offset = np.array([0.2, 0.2 * sign, 0], dtype=np.float32)
                 stance_pos_offset = np.zeros(3, np.float32)
                 swing_orn_offset = np_R.from_euler('z', np.deg2rad(0)).as_quat(scalar_first=True)
                 stance_orn_offset = np_R.from_euler('z', 0).as_quat(scalar_first=True)
@@ -236,8 +254,14 @@ if __name__ == "__main__":
                 # SET GOALS
                 if swing_foot_idx == 0 and (gait_process >= 0.5 and gait_process < 1):
                     swing_foot_idx = 1
+                    num_gaits += 1
                 elif swing_foot_idx == 1 and (gait_process < 0.5 and gait_process >= 0):
                     swing_foot_idx = 0
+                    num_gaits += 1
+                # switch walking scheme when needed
+                if num_gaits % max_gaits == 0:
+                    idx = (idx + 1) % len(angle_array)
+                    alpha = angle_array[idx]
                 # MANAGE OBS
                 if swing_foot_idx == 0:
                     l_offset = swing_pos_offset
