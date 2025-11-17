@@ -591,12 +591,10 @@ class GoalDoubleFootPlacementState:
     gait_frequency: float               # the desired gait frequency (1.0 is normal, 2.0 is very fast)     
     gait_process: float                 # \in [0,1] s.t. left \in [0,0.5) and right \in [0.5,1]
     gait_height: float                  # desired height of the steps
-    walking_scheme_idx: int
-    gait_horizon: int
-    gait_counter: int
     angle_range_rad: List[float]
     distance_range: List[float]
     movement_direction: float           # angle in rad defining the movement direction
+    feet_direction: float               # angle in rad defining the feet direction
 
 class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
     """
@@ -617,18 +615,16 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # gait information
             gait_frequency_range: List[float] = [1.0, 2.0],
             gait_height: float = 0.1,
-            # walking schemes
-            walking_schemes: List[str] = [],
-            gait_horizon: int = 1,
             # movement direction
             direction_range_deg: List[float] = [0.0, 0.0],
             change_direction_range_deg: List[float] = [0.0, 0.0],
+            # feet direction
+            feet_direction_range_deg: List[float] = [0.0, 0.0],
             **kwargs
         ):
         
         self.foot_site_names = [left_foot_site_name, right_foot_site_name]
         self.xy_distance_range = xy_distance_range
-        # self.z_height_range = z_height_range
         self.angle_range_rad = [jnp.deg2rad(angle_range_deg[0]), jnp.deg2rad(angle_range_deg[1])]
         self.yaw_range_rad = [jnp.deg2rad(yaw_range_deg[0]), jnp.deg2rad(yaw_range_deg[1])]
         self.goal_height = goal_height
@@ -637,22 +633,18 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.feet_distance = feet_distance
         self.direction_range_rad = [jnp.deg2rad(direction_range_deg[0]), jnp.deg2rad(direction_range_deg[1])]
         self.change_direction_range_rad = [jnp.deg2rad(change_direction_range_deg[0]), jnp.deg2rad(change_direction_range_deg[1])]
+        self.feet_direction_range_rad = [jnp.deg2rad(feet_direction_range_deg[0]), jnp.deg2rad(feet_direction_range_deg[1])] 
         
         self._foot_site_ids = [-1, -1]
         self._root_joint_name = info_props["root_free_joint_xml_name"]
         self._root_qpos_ids = []
 
         # Walking Schemes
-        self.gait_horizon = gait_horizon
         self._scheme_direction = jnp.array([0.0, np.pi, np.pi/2.0, -np.pi/2.0, 0.0])  # [forward, back, left, right, stand]
         self._scheme_forward = jnp.array([1.0, 1.0, 0.0, 0.0, 0.0])
         self._scheme_lateral = jnp.array([0.0, 0.0, 1.0, 1.0, 0.0])
         self._scheme_height = jnp.array([0.0, 0.0, 0.0, 0.0, 0.0])
         self._scheme_yaw = jnp.array([0.0, 0.0, 0.0, 0.0, 0.0])
-        # map walking scheme strings to indices
-        scheme_map = {"forward": 0, "backward": 1, "left": 2, "right": 3, "stand": 4}
-        self.walking_scheme_indices = jnp.array([scheme_map[w] for w in walking_schemes]) if walking_schemes else jnp.array([], dtype=jnp.int32)
-        self.walking_schemes_len = len(walking_schemes)
         # local safe range for foot placement computation
         self.local_angle_range_rad = [jnp.deg2rad(20.0), jnp.deg2rad(160)]
 
@@ -691,22 +683,20 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             gait_frequency=1.0,
             gait_process=0.0,
             gait_height=0.1,
-            # changing walking scheme info
-            walking_scheme_idx=0,
-            gait_horizon=self.gait_horizon,
-            gait_counter=0,
             # ranges
             angle_range_rad=self.angle_range_rad,
             distance_range=self.xy_distance_range,
             # movement direction
-            movement_direction=0.0
+            movement_direction=0.0,
+            # feet direction
+            feet_direction=0.0
         )
     
     def reset_state(self, env, model, data, carry, backend):
         """Reset the goal state by sampling a new random foot placement goal."""
         R = jnp_R if backend == jnp else np_R
         key = carry.key
-        key, subkey1, subkey2, subkey3, subkey4 = jax.random.split(key, 5)
+        key, subkey1, subkey2, subkey3, subkey4, subkey5 = jax.random.split(key, 6)
 
         # sample the movement direction
         movement_direction = jax.random.uniform(
@@ -716,19 +706,44 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             maxval=self.direction_range_rad[1],
         )
         movement_direction = self.wrap_to_pi(movement_direction, backend)
+        
+        # sample feet direction
+        feet_direction = jax.random.uniform(
+            subkey5,
+            shape=(),
+            minval=self.feet_direction_range_rad[0],
+            maxval=self.feet_direction_range_rad[1]
+        )
+        feet_direction = self.wrap_to_pi(feet_direction, backend=backend)
 
         # Sample the random starting phase of the gait
+        # NOTE: if the robot is required to move on its left side, then the left foot moves first, else the right one
+        rel_direction = self.wrap_to_pi(movement_direction - feet_direction, backend=backend)
+        left_direction = (rel_direction > 0) & (rel_direction < backend.pi)
+        right_direction = (rel_direction < 0) & (rel_direction > - backend.pi)
+        boundaries = (rel_direction == 0) | (rel_direction == backend.pi) | (rel_direction == -backend.pi)
+        
+        # sample randomly the first gate 
         rand_gp0 = jax.random.randint(subkey1, shape=(), minval=0, maxval=2) / 2
-        cond_left = (movement_direction > 0) & (movement_direction < backend.pi)
-        cond_right = (movement_direction > -backend.pi) & (movement_direction < 0)
-        cond_boundaries = (movement_direction == 0) | (movement_direction == backend.pi) | (movement_direction == -backend.pi)
+        
         gp0 = jnp.where(
-            cond_left, 0.0,
+            left_direction, 0.0,
             jnp.where(
-                cond_right, 0.5,
-                jnp.where(cond_boundaries, rand_gp0, 0.0)
+                right_direction, 0.5,
+                jnp.where(boundaries, rand_gp0, 0.0)
             )
         )
+        
+        # cond_left = (movement_direction > 0) & (movement_direction < backend.pi)
+        # cond_right = (movement_direction > -backend.pi) & (movement_direction < 0)
+        # cond_boundaries = (movement_direction == 0) | (movement_direction == backend.pi) | (movement_direction == -backend.pi)
+        # gp0 = jnp.where(
+        #     cond_left, 0.0,
+        #     jnp.where(
+        #         cond_right, 0.5,
+        #         jnp.where(cond_boundaries, rand_gp0, 0.0)
+        #     )
+        # )
 
         # sample the gait frequency
         gait_frequency = jax.random.uniform(
@@ -757,14 +772,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             distance_range=distance_range,
             angle_range_rad=angle_range_rad,
             movement_direction=movement_direction,
+            feet_direction=feet_direction,
             reset=True
-        )
-        
-        # gait counter information
-        goal_state = goal_state.replace(
-            gait_horizon=self.gait_horizon,
-            gait_counter=0,
-            walking_scheme_idx=0
         )
 
         observation_states = carry.observation_states.replace(**{self.name: goal_state})
@@ -775,7 +784,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         """Wrap any angle (in rad) to be in [-pi, pi]"""
         return (angle + backend.pi) % (2 * backend.pi) - backend.pi
 
-    def sample_goal(self, env, data, carry, backend, initial_gait, gait_frequency, distance_range, angle_range_rad, reset = False, movement_direction = 0.0):
+    def sample_goal(self, env, data, carry, backend, initial_gait, gait_frequency, distance_range, angle_range_rad, reset = False, movement_direction = 0.0, feet_direction = 0.0):
         """Sample a new random foot placement goal for a random foot in any direction."""
         R = jnp_R if backend == jnp else np_R
         key = carry.key
@@ -819,76 +828,84 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         stance_foot_orn = R.from_matrix(stance_foot_orn_mat).as_quat(scalar_first=True)
         current_stance_yaw = R.from_matrix(stance_foot_orn_mat).as_euler('xyz')[2]
         # stance_foot_yaw_rot = R.from_euler('z', R.as_euler('xyz', R.from_matrix(stance_foot_orn_mat))[2]) # take the rotation considering the yaw only part
-        swing_foot_pos = data.site_xpos[swing_foot_site_id]
+        # swing_foot_pos = data.site_xpos[swing_foot_site_id]
 
         # how far to step
         distance = jax.random.uniform(subkey1, minval=distance_range[0], maxval=distance_range[1])
+        
+        # ============================================FOOT PLACEMENT TARGET============================================
+        # define safe areas
+        min_local_angle = self.local_angle_range_rad[0]
+        max_local_angle = self.local_angle_range_rad[1]
+        
+        # define the sign of the resulting angle based on the foot to swing 
+        lateral_sign = jnp.where(stance_is_right, 1, -1) 
+        
+        # sample the random offset to add to the movement direction
+        angle_rand = lateral_sign * jax.random.uniform(subkey2, minval=angle_range_rad[0], maxval=angle_range_rad[1]) 
+        
+        # compute the unclipped world angle
+        angle = (R.from_euler('z', angle_rand) * mov_dir_rot).as_euler('xyz')[2]
+        
+        # convert the unclipped world angle into the stance foot frame
+        local_step_angle = self.wrap_to_pi(angle - current_stance_yaw, backend)
+        # local_step_angle = self.wrap_to_pi(angle - movement_direction, backend)
+        
+        # deifne precise clip bounds
+        local_clip_min = backend.where(stance_is_right, min_local_angle, -max_local_angle)
+        local_clip_max = backend.where(stance_is_right, max_local_angle, -min_local_angle)
+        
+        # clip the angle
+        clipped_local_angle = backend.clip(
+            local_step_angle,
+            local_clip_min,
+            local_clip_max
+        )
+        
+        # convert into the world
+        final_world_angle = current_stance_yaw + clipped_local_angle
+        # final_world_angle = movement_direction + clipped_local_angle
+        # final_world_angle = self.wrap_to_pi(angle, backend)
+        
+        # FIXME start
+        beta = backend.clip(angle_rand, local_clip_min, local_clip_max)
+        final_world_angle = movement_direction + beta
+        final_world_angle = movement_direction + clipped_local_angle
+        # FIXME end
+        
+        # step vector to be added to the stance foot coordinates
+        step_vec_local = backend.array(
+            [distance * backend.cos(final_world_angle), distance * backend.sin(final_world_angle), 0.0]
+        )
+        # compute the WORLD coordinates of the displacement
+        # NOTE: one would naturally make the rotation to the world frame, but actually the orientation is the one of
+        # NOTE: the torso (that moves quite a lot), so it makes more sense to keep the step in local frame. 
+        # NOTE: The stuff to do would be to consider the waist instead of the torso.
+        target_pos_pre_z = stance_foot_pos + step_vec_local
+        target_pos_xy = target_pos_pre_z[:2]
+        target_z_from_terrain = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
+        target_pos = target_pos_pre_z.at[2].set(target_z_from_terrain)
 
-        # consider if we have to sample a goal according to a walking scheme
-        if self.walking_scheme_indices.size > 0:
-            idx = jax.lax.dynamic_index_in_dim(self.walking_scheme_indices, state.walking_scheme_idx, keepdims=False)
-            step_vec_local, _, target_yaw = self.sample_from_scheme(
-                idx=idx, swing_is_left=(swing_foot_idx == 0), backend=backend, displacement=distance
-            )
-
-            # Compute the targets
-            target_pos_pre_z = swing_foot_pos + step_vec_local
-            target_pos_xy = target_pos_pre_z[:2]
-            target_z_from_terrain = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
-            target_pos = target_pos_pre_z.at[2].set(target_z_from_terrain)
-            target_orn = R.from_euler('z', target_yaw).as_quat(scalar_first=True) * R.from_matrix(stance_foot_orn_mat)
-        else:
-            # FOOT PLACEMENT TARGET
-            # define safe areas
-            min_local_angle = self.local_angle_range_rad[0]
-            max_local_angle = self.local_angle_range_rad[1]
-            # deifne the sign of the resulting angle based on the foot to swing 
-            lateral_sign = jnp.where(stance_is_right, 1, -1) 
-            # sample the random offset to add to the movement direction
-            angle_rand = lateral_sign * jax.random.uniform(subkey2, minval=angle_range_rad[0], maxval=angle_range_rad[1]) 
-            # compute the unclipped world angle
-            angle = (R.from_euler('z', angle_rand) * mov_dir_rot).as_euler('xyz')[2]
-            # convert the unclipped world angle into the stance foot frame
-            local_step_angle = self.wrap_to_pi(angle - current_stance_yaw, backend)
-            # deifne precise clip bounds
-            local_clip_min = backend.where(stance_is_right, min_local_angle, -max_local_angle)
-            local_clip_max = backend.where(stance_is_right, max_local_angle, -min_local_angle)
-            # clip the angle
-            clipped_local_angle = backend.clip(
-                local_step_angle,
-                local_clip_min,
-                local_clip_max
-            )
-            # convert into the world
-            final_world_angle = current_stance_yaw + clipped_local_angle
-            
-            # step vector to be added to the stance foot coordinates
-            step_vec_local = backend.array(
-                # [distance * backend.cos(angle), distance * backend.abs(backend.sin(angle)) * lateral_sign, 0.0]
-                [distance * backend.cos(final_world_angle), distance * backend.sin(final_world_angle), 0.0]
-            )
-            # compute the WORLD coordinates of the displacement
-            # NOTE: one would naturally make the rotation to the world frame, but actually the orientation is the one of
-            # NOTE: the torso (that moves quite a lot), so it makes more sense to keep the step in local frame. 
-            # NOTE: The stuff to do would be to consider the waist instead of the torso.
-            target_pos_pre_z = stance_foot_pos + step_vec_local
-            target_pos_xy = target_pos_pre_z[:2]
-            target_z_from_terrain = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
-            target_pos = target_pos_pre_z.at[2].set(target_z_from_terrain)
-
-            # FOOT ORIENTATION TARGET
-            key, subkey4 = jax.random.split(key)
-            # sample the yaw relative to the current stance foot yaw
-            rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1])
-            angle_yaw = (R.from_euler('z', rand_yaw) * mov_dir_rot).as_euler('xyz')[2]
-            # keep the angle in the safe range
-            yaw_displacement = self.wrap_to_pi(angle_yaw - current_stance_yaw, backend)
-            clipped_abs_displacement = backend.clip(backend.abs(yaw_displacement), 0, backend.pi / 2)
-            clipped_yaw_displacement = backend.sign(yaw_displacement) * clipped_abs_displacement
-            # compute final yaw
-            final_yaw = current_stance_yaw + clipped_yaw_displacement
-            target_orn_rot = R.from_euler('z', final_yaw)
-            target_orn = target_orn_rot.as_quat(scalar_first=True)
+        # ===========================================FOOT ORIENTATION TARGET===========================================
+        feet_dir_rot = R.from_euler('z', feet_direction)
+        key, subkey4 = jax.random.split(key)
+        
+        # sample the yaw relative to the current stance foot yaw
+        rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1])
+        
+        # angle_yaw = (R.from_euler('z', rand_yaw) * mov_dir_rot).as_euler('xyz')[2]
+        angle_yaw = (R.from_euler('z', rand_yaw) * feet_dir_rot).as_euler('xyz')[2]
+        
+        # keep the angle in the safe range
+        # NOTE: here we have to ensure that each foot is not rotated by a crazy angle
+        yaw_displacement = self.wrap_to_pi(angle_yaw - current_stance_yaw, backend)
+        clipped_abs_displacement = backend.clip(backend.abs(yaw_displacement), 0, backend.pi / 2)
+        clipped_yaw_displacement = backend.sign(yaw_displacement) * clipped_abs_displacement
+        
+        # compute final yaw
+        final_yaw = current_stance_yaw + clipped_yaw_displacement
+        target_orn_rot = R.from_euler('z', final_yaw)
+        target_orn = target_orn_rot.as_quat(scalar_first=True)
 
         # replace the information we already know we can substitute
         state = state.replace(
@@ -899,7 +916,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             gait_process=gp,
             distance_range=distance_range,
             angle_range_rad=angle_range_rad,
-            movement_direction=movement_direction
+            movement_direction=movement_direction,
+            feet_direction=feet_direction
         )
 
         # Replace the info for the left or right foot (the stance foot has its current position and orientations as targets)
@@ -983,36 +1001,13 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # check if it is needed to resample the goal
         resample_goal = (swing_foot_idx != state.swing_foot_idx)
 
-        # update the walking scheme if needed
-        if self.walking_schemes_len > 0:
-            gait_counter = state.gait_counter + backend.where(resample_goal, 1, 0)
-        
-            if backend == np:
-                walking_scheme_idx = state.walking_scheme_idx
-                if gait_counter >= state.gait_horizon:
-                    walking_scheme_idx = (walking_scheme_idx + 1) % self.walking_schemes_len
-                    gait_counter = 0
-            else:
-                walking_scheme_idx, gait_counter = jax.lax.cond(
-                    gait_counter >= state.gait_horizon,
-                    lambda _: ((state.walking_scheme_idx + 1) % self.walking_schemes_len, 0),
-                    lambda _: (state.walking_scheme_idx, gait_counter),
-                    operand=None
-                )
-
-            state = state.replace(
-                walking_scheme_idx=walking_scheme_idx,
-                gait_counter=gait_counter
-            )
-            observation_states = carry.observation_states.replace(**{self.name: state})
-            carry = carry.replace(observation_states=observation_states)
-
         # resample goal if needed
         if backend == np:
             if resample_goal:
                 new_goal = self.sample_goal(
                     env=env, data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency,
-                    distance_range=state.distance_range, angle_range_rad=state.angle_range_rad, movement_direction=state.movement_direction
+                    distance_range=state.distance_range, angle_range_rad=state.angle_range_rad, 
+                    movement_direction=state.movement_direction, feet_direction=state.feet_direction
                 )
                 state = new_goal
         else:
@@ -1020,17 +1015,18 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 resample_goal,
                 lambda s: self.sample_goal(
                     env=env, data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency,
-                    distance_range=state.distance_range, angle_range_rad=state.angle_range_rad, movement_direction=state.movement_direction
+                    distance_range=state.distance_range, angle_range_rad=state.angle_range_rad, 
+                    movement_direction=state.movement_direction, feet_direction=state.feet_direction
                 ),
                 lambda s: s,
                 operand=state
             )
 
         # Get the rotation matrix to convert into the root frame
-        global_pose_root = data.qpos[self._root_qpos_ids]
-        global_pos = global_pose_root[:3] # root global position
-        global_quat = global_pose_root[3:7] # root global orientation
-        global_rot = R.from_quat(quat_scalarfirst2scalarlast(global_quat)) # root rotation matrix
+        # global_pose_root = data.qpos[self._root_qpos_ids]
+        # global_pos = global_pose_root[:3] # root global position
+        # global_quat = global_pose_root[3:7] # root global orientation
+        # global_rot = R.from_quat(quat_scalarfirst2scalarlast(global_quat)) # root rotation matrix
 
         # retireve info about both feet
         left_pos_w  = data.site_xpos[self._foot_site_id_left]
@@ -1042,11 +1038,11 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         right_quat_w = R.from_matrix(right_mat_w).as_quat(scalar_first=True)
 
         # Compute the target position offset in base frame
-        left_pos_offset_w = state.left_foot_target_pos - left_pos_w
-        right_pos_offset_w = state.right_foot_target_pos - right_pos_w
+        # left_pos_offset_w = state.left_foot_target_pos - left_pos_w
+        # right_pos_offset_w = state.right_foot_target_pos - right_pos_w
         # change coordinates into local frame
-        left_pos_offset_local = global_rot.apply(left_pos_offset_w, inverse=True)
-        right_pos_offset_local = global_rot.apply(right_pos_offset_w, inverse=True)
+        # left_pos_offset_local = global_rot.apply(left_pos_offset_w, inverse=True)
+        # right_pos_offset_local = global_rot.apply(right_pos_offset_w, inverse=True)
 
         # Compute the orientation offset in base frame
         left_foot_matrix = R.from_quat(quat_scalarfirst2scalarlast(left_quat_w))
@@ -1072,21 +1068,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # right
             if right_local_target_offset_orn[0] < 0:
                 right_local_target_offset_orn = -right_local_target_offset_orn
-
-        # Compute the one hot of the foot to move
-        swing_one_hot = jax.nn.one_hot(state.swing_foot_idx, 2)
-
-        # Concatenate the observation
-        # observation = backend.concatenate([
-        #     left_pos_offset_local, # left info pos
-        #     left_local_target_offset_orn, # left info orn
-        #     right_pos_offset_local, # right info pos
-        #     right_local_target_offset_orn, # right info orn
-        #     backend.array([gp, state.gait_frequency]), # gait process info
-        #     # swing_one_hot
-        # ])
         
-        # FIXME: start
         # get the stance foot positions and orientations
         stance_pos, stance_orn, swing_pos_target, swing_orn_target, stance_pos_target, stance_orn_target = jax.lax.cond(
             (swing_foot_idx == 0),
@@ -1100,8 +1082,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         sign = jnp.where(orn_offset[0] < 0, -1.0, 1.0)
         orn_offset = orn_offset * sign
         # offset wrt the stance foot of the stance foot
-        hold_pos = stance_orn.apply(stance_pos_target - stance_pos, inverse=True) # backend.zeros(3, dtype=backend.float32)
-        hold_orn = (stance_orn.inv() * R.from_quat(quat_scalarfirst2scalarlast(stance_orn_target))).as_quat(scalar_first=True) # backend.array([1,0,0,0], dtype=backend.float32)
+        hold_pos = stance_orn.apply(stance_pos_target - stance_pos, inverse=True) 
+        hold_orn = (stance_orn.inv() * R.from_quat(quat_scalarfirst2scalarlast(stance_orn_target))).as_quat(scalar_first=True) 
         sign = jnp.where(hold_orn[0] < 0, -1.0, 1.0)
         hold_orn = hold_orn * sign
         left_pos_targ, left_orn_targ, right_pos_targ, right_orn_targ = jax.lax.cond(
@@ -1120,7 +1102,6 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 backend.sin(2 * backend.pi * gp) * (state.gait_frequency > 1.0e-8)])
             ]
         )
-        # FIXME: end
 
         # make the gait process progress
         gp = backend.fmod(gp + env.dt * state.gait_frequency, 1.0)
@@ -1131,21 +1112,6 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         if self.visualize_goal:
             carry = self.set_visuals(observation, env, model, data, carry, self.visual_geoms_idx, backend)
         return observation, carry
-    
-    def sample_from_scheme(self, idx: int, swing_is_left: bool, backend, displacement: float = 0.2):
-        # retrieve scheme params safely under tracing
-        direction = jax.lax.dynamic_index_in_dim(self._scheme_direction, idx, keepdims=False)
-        forward = displacement * jax.lax.dynamic_index_in_dim(self._scheme_forward, idx, keepdims=False)
-        lateral = jax.lax.dynamic_index_in_dim(self._scheme_lateral, idx, keepdims=False)
-        height = jax.lax.dynamic_index_in_dim(self._scheme_height, idx, keepdims=False)
-        yaw = jax.lax.dynamic_index_in_dim(self._scheme_yaw, idx, keepdims=False)
-
-        side_sign = backend.where(swing_is_left, -1.0, 1.0)
-        dx = forward * backend.cos(direction)
-        dy = forward * backend.sin(direction) + side_sign * lateral
-
-        step_vec_local = backend.array([dx, dy, height])
-        return step_vec_local, height, yaw
 
     @property
     def dim(self) -> int:

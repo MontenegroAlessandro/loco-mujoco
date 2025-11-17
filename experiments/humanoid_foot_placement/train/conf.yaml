@@ -42,6 +42,8 @@ experiment:
       goal_height: 0.68
       # direction range in deg
       direction_range_deg: [-180, 180]
+      # direction range in deg
+      feet_direction_range_deg: [-180, 180]
       # observation group
       group: [prioritized, policy]
 

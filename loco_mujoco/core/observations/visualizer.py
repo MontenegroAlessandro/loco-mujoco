@@ -416,6 +416,7 @@ class DoubleFootPlacementVisualizer:
     - Left foot target shown in BLUE
     - Right foot target shown in ORANGE
     - Movement direction shown in GREEN
+    - Feet direction shown in MAGENTA
     """
 
     def __init__(self,
@@ -423,8 +424,8 @@ class DoubleFootPlacementVisualizer:
                  left_foot_color: Tuple[float, float, float, float] = (0.2, 0.6, 1.0, 0.7),     # BLUE
                  right_foot_color: Tuple[float, float, float, float] = (1.0, 0.6, 0.2, 0.7)):   # ORANGE
         
-        # Two geoms (boxes) + one geom (arrow)
-        self._n_visual_geoms = 3
+        # Two geoms (boxes) + one geom (arrow) + another geom for the feet direction arrow
+        self._n_visual_geoms = 4 # 3
         
         # Box properties
         self._box_size = np.array(box_size)
@@ -435,6 +436,11 @@ class DoubleFootPlacementVisualizer:
         self._dir_arrow_type = int(mujoco.mjtGeom.mjGEOM_ARROW)
         self._dir_arrow_size = np.array([0.015, 0.03, 0.25]) # [shaft_radius, head_radius, length]
         self._dir_arrow_color = np.array([0.0, 1.0, 0.0, 0.7]) # Green
+        
+        # Arrow 2 properties
+        self._feet_arrow_type = int(mujoco.mjtGeom.mjGEOM_ARROW)
+        self._feet_arrow_size = np.array([0.015, 0.03, 0.15]) # [shaft_radius, head_radius, length]
+        self._feet_arrow_color = np.array([1.0, 0.0, 1.0, 0.7]) # Magenta
 
     def set_visuals(self,
                     goal: Union[np.ndarray, jnp.ndarray],
@@ -461,6 +467,9 @@ class DoubleFootPlacementVisualizer:
         
         # take the movement direction yaw
         mov_dir_yaw = goal_state.movement_direction
+        
+        # take the feet direction yaw
+        feet_dir_yaw = goal_state.feet_direction
 
         # Convert quaternions to rotation matrices
         left_mat = R.from_quat(quat_scalarfirst2scalarlast(left_orn)).as_matrix().reshape(-1)
@@ -472,6 +481,14 @@ class DoubleFootPlacementVisualizer:
         R_z_yaw_mat = R.from_euler("z", mov_dir_yaw, degrees=False).as_matrix()
         # Combine rotations: first, point Z-up arrow to X-forward, then rotate by yaw
         dir_arrow_mat = (R_z_yaw_mat @ R_y_90_mat).reshape(-1)
+        
+        # do the same for the feet directiona rrow
+        feet_arrow_pos = (left_pos + right_pos) / 2.0 + backend.array([0.0, 0.0, 0.02])
+        fR_y_90_mat = R.from_euler("y", 90, degrees=True).as_matrix()
+        fR_z_yaw_mat = R.from_euler("z", feet_dir_yaw, degrees=False).as_matrix()
+        # Combine rotations: first, point Z-up arrow to X-forward, then rotate by yaw
+        feet_arrow_mat = (fR_z_yaw_mat @ fR_y_90_mat).reshape(-1)
+        
 
         # --- Update all geoms ---
         if backend == jnp:
@@ -502,6 +519,13 @@ class DoubleFootPlacementVisualizer:
             geom_type = geom_type.at[visual_geoms_idx[2]].set(self._dir_arrow_type)
             geom_size = geom_size.at[visual_geoms_idx[2]].set(self._dir_arrow_size)
             geom_rgba = geom_rgba.at[visual_geoms_idx[2]].set(self._dir_arrow_color)
+            
+            # Direction arrow (index 3)
+            geom_pos = geom_pos.at[visual_geoms_idx[3]].set(feet_arrow_pos)
+            geom_mat = geom_mat.at[visual_geoms_idx[3]].set(feet_arrow_mat)
+            geom_type = geom_type.at[visual_geoms_idx[3]].set(self._feet_arrow_type)
+            geom_size = geom_size.at[visual_geoms_idx[3]].set(self._feet_arrow_size)
+            geom_rgba = geom_rgba.at[visual_geoms_idx[3]].set(self._feet_arrow_color)
 
         else:
             # NumPy backend (mutable)
@@ -531,6 +555,13 @@ class DoubleFootPlacementVisualizer:
             geom_type[visual_geoms_idx[2]] = self._dir_arrow_type
             geom_size[visual_geoms_idx[2]] = self._dir_arrow_size
             geom_rgba[visual_geoms_idx[2]] = self._dir_arrow_color
+            
+            # Direction arrow (index 3)
+            geom_pos[visual_geoms_idx[3]] = feet_arrow_pos
+            geom_mat[visual_geoms_idx[3]] = feet_arrow_mat
+            geom_type[visual_geoms_idx[3]] = self._feet_arrow_type
+            geom_size[visual_geoms_idx[3]] = self._feet_arrow_size
+            geom_rgba[visual_geoms_idx[3]] = self._feet_arrow_color
 
         # --- Create new geoms and update carry ---
         new_geoms = geoms.replace(

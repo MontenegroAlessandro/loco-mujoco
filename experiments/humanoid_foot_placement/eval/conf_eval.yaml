@@ -15,8 +15,8 @@ experiment:
     env_name: MjxBoosterT1
     horizon: 1000
 
-    terrain_type: ParkourTerrain
-    terrain_params: {}
+    # terrain_type: ParkourTerrain
+    # terrain_params: {}
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
@@ -29,7 +29,7 @@ experiment:
       # Range for the random step length [min, max] in meters
       xy_distance_range: [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [20, 90] 
+      angle_range_deg: [20, 20] # [20, 90] 
       # Range for randomizing the target foot yaw relative to the body
       yaw_range_deg: [-30, 30]
       # gait frequency target
@@ -39,7 +39,9 @@ experiment:
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
-      direction_range_deg: [-180, 180]
+      direction_range_deg: [0,0] # [-180, 180]
+      # direction range in deg
+      feet_direction_range_deg: [90,90] # [-180, 180]
       # observation group
       group: [prioritized, policy]
 
