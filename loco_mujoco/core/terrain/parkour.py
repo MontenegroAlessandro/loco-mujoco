@@ -35,11 +35,13 @@ class ParkourTerrain(DynamicTerrain):
 
     def __init__(
         self, env: Any,
-        inner_platform_size_in_meters: float = 1,
-        step_height: float = 0.1,
-        step_distance: float = 1.0,
-        step_length: float = 0.5,
-        step_width: float = 1.0,
+        num_boxes: int = 5,
+        box_length_range: Tuple[float, float] = (0.2, 1.0),
+        box_width_range: Tuple[float, float] = (0.1, 0.8),
+        box_height_range: Tuple[float, float] = (0.05, 0.5),
+        box_x_range: Tuple[float, float] = (1.0, 5.0),
+        box_y_range: Tuple[float, float] = (-1.0, 1.0),
+        box_yaw_range: Tuple[float, float] = (-np.pi, np.pi),
         feet_collision: List[str] = [],
         **kwargs: Any
     ):
@@ -47,11 +49,13 @@ class ParkourTerrain(DynamicTerrain):
         super().__init__(env, **kwargs)
         
         # store parameters
-        self.inner_platform_size_in_meters = inner_platform_size_in_meters
-        self.step_height = step_height
-        self.step_distance = step_distance
-        self.step_length = step_length
-        self.step_width = step_width
+        self.num_boxes = num_boxes
+        self.box_length_range = box_length_range
+        self.box_width_range = box_width_range
+        self.box_height_range = box_height_range
+        self.box_x_range = box_x_range
+        self.box_y_range = box_y_range
+        self.box_yaw_range = box_yaw_range
         self.feet_collision = feet_collision
         
         # hfield parameters
@@ -76,6 +80,9 @@ class ParkourTerrain(DynamicTerrain):
         self._free_jnt_qpos_id = np.array(
             mj_jntname2qposid(root_free_joint_xml_name, env._model)
         )
+        
+        # store the geoms for the obstacles
+        self_obstacle_geom_ids = []  # NOTE: these will be added in modify_spec!
 
     def init_state(
         self,
@@ -140,37 +147,67 @@ class ParkourTerrain(DynamicTerrain):
             contype=0,
             conaffinity=0,
         )
-
-        # add the step as a box geom
-        # MuJoCo expects half sizes in geom.size
-        hx = self.step_length / 2.0
-        hy = self.step_width / 2.0
-        hz = self.step_height / 2.0
-
-        # place step: front face at x = step_distance
-        # so center = step_distance + hx
-        step_center_x = self.step_distance + hx
-        step_center_y = 0.0
-        step_center_z = self._floor_height + hz
-
-        wb.add_geom(
-            name="step",
-            type=mujoco.mjtGeom.mjGEOM_BOX,
-            size=(hx, hy, hz),
-            pos=(step_center_x, step_center_y, step_center_z),
-            material="MatPlane",
-            group=2,
-            rgba=(1.0, 0.2, 0.2, 1.0),
-            contype=0,
-            conaffinity=0,
-        )
+        
+        # add plaemhoder geoms for the boxes
+        # this part is only needed for initialization, then the boxes will be added when doing the reset
+        for i in range(self.num_boxes):
+            wb.add_geom(
+                name=f"obstacle_{i}",
+                type=mujoco.mjtGeom.mjGEOM_BOX,
+                size=(0.1, 0.1, 0.1),       # placeholder; will be overwritten at reset()
+                pos=(0, 0, 0),             # placeholder
+                quat=(1, 0, 0, 0),         # no rotation
+                group=2,
+                rgba=(0.8, 0.2, 0.2, 1.0),
+                contype=0,
+                conaffinity=0,
+            )
+        
+        # add ids
+        self._obstacle_geom_ids = []
+        for i, geom in enumerate(spec.geoms):
+            if geom.name.startswith("obstacle_"):
+                self._obstacle_geom_ids.append(i)
         
         # add collisions
-        # spec.add_pair(geomname1="floor", geomname2="step")
         if len(self.feet_collision) > 0:
             for foot_geom in self.feet_collision:
-                spec.add_pair(geomname1=foot_geom, geomname2="step")
                 spec.add_pair(geomname1=foot_geom, geomname2="floor")
+                for i in range(self.num_boxes):
+                    spec.add_pair(geomname1=foot_geom, geomname2=f"obstacle_{i}")
+
+        # NOTE: remove
+        # # add the step as a box geom
+        # # MuJoCo expects half sizes in geom.size
+        # hx = self.step_length / 2.0
+        # hy = self.step_width / 2.0
+        # hz = self.step_height / 2.0
+
+        # # place step: front face at x = step_distance
+        # # so center = step_distance + hx
+        # step_center_x = self.step_distance + hx
+        # step_center_y = 0.0
+        # step_center_z = self._floor_height + hz
+
+        # wb.add_geom(
+        #     name="step",
+        #     type=mujoco.mjtGeom.mjGEOM_BOX,
+        #     size=(hx, hy, hz),
+        #     pos=(step_center_x, step_center_y, step_center_z),
+        #     material="MatPlane",
+        #     group=2,
+        #     rgba=(1.0, 0.2, 0.2, 1.0),
+        #     contype=0,
+        #     conaffinity=0,
+        # )
+        
+        # # add collisions
+        # # spec.add_pair(geomname1="floor", geomname2="step")
+        # if len(self.feet_collision) > 0:
+        #     for foot_geom in self.feet_collision:
+        #         spec.add_pair(geomname1=foot_geom, geomname2="step")
+        #         spec.add_pair(geomname1=foot_geom, geomname2="floor")
+        # NOTE: end remove
 
         return spec
 
