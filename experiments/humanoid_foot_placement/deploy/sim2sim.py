@@ -123,8 +123,10 @@ if __name__ == "__main__":
     # --- Load Policy ---
     # Initialize Hydra to access environment config used during training
     # The config_path should point to the directory containing your hydra config files
-    hydra.initialize(config_path="./") # Adjust path if your hydra config is elsewhere
-    lmj_hydra_config = hydra.compose(config_name="conf_t1") # Use the appropriate config name
+    # hydra.initialize(config_path="./") # Adjust path if your hydra config is elsewhere
+    hydra.initialize(config_path="../train/")
+    # lmj_hydra_config = hydra.compose(config_name="conf_t1") # Use the appropriate config name
+    lmj_hydra_config = hydra.compose(config_name="conf")
 
     # policy = LMJPolicy(policy_path=args.path) # Removed control_func_path
     policy = LMJPolicy(policy_path=agent_path)
@@ -199,12 +201,11 @@ if __name__ == "__main__":
     gait_frequency = cmd_params["gait_frequency"]
     des_dist = cmd_params["distance"]
     # directions
-    fwd_angle = np.deg2rad(30)
-    bwd_angle = np.deg2rad(150)
-    hold_angle = np.deg2rad(90)
-    angle_array = [hold_angle, fwd_angle, hold_angle, bwd_angle]
-    # initialize angle
-    alpha = hold_angle
+    fwd_pos = np.array([[des_dist, des_dist, 0.0], [des_dist, -des_dist, 0.0]]) # left, right
+    bwd_pos = np.array([[-des_dist, des_dist, 0.0], [-des_dist, -des_dist, 0.0]]) # left, right
+    hold_pos = np.array([[0.0, des_dist, 0.0], [0.0, -des_dist, 0.0]]) # left, right
+    pos_array = [hold_pos, fwd_pos, hold_pos, bwd_pos]
+    # goals
     swing_foot_idx = 0
     # gait_swithces
     num_gaits = 0
@@ -236,17 +237,8 @@ if __name__ == "__main__":
 
                 # --- Create Command Vector `cmd` ---
                 gait_process = (counter * simulation_dt * gait_frequency) % 1.0
-                sign = np.where(swing_foot_idx == 0, 1, -1)
-                if alpha != np.pi / 2:
-                    if alpha < np.pi / 2:
-                        dist = des_dist / np.sin(alpha)
-                    else:
-                        dist = des_dist / np.sin(alpha - np.pi / 2)
-                else:
-                    dist = des_dist
-                # dist  = des_dist / np.abs(np.sin(alpha)) if np.sin(alpha) != 0 else des_dist
-                # swing_pos_offset = np.array([dist * np.cos(alpha), dist * np.sin(alpha) * sign, 0], dtype=np.float32)
-                swing_pos_offset = np.array([0.2, 0.2 * sign, 0], dtype=np.float32)
+                
+                swing_pos_offset = pos_array[idx][swing_foot_idx]
                 stance_pos_offset = np.zeros(3, np.float32)
                 swing_orn_offset = np_R.from_euler('z', np.deg2rad(0)).as_quat(scalar_first=True)
                 stance_orn_offset = np_R.from_euler('z', 0).as_quat(scalar_first=True)
@@ -260,8 +252,8 @@ if __name__ == "__main__":
                     num_gaits += 1
                 # switch walking scheme when needed
                 if num_gaits % max_gaits == 0:
-                    idx = (idx + 1) % len(angle_array)
-                    alpha = angle_array[idx]
+                    idx = (idx + 1) % len(pos_array)
+
                 # MANAGE OBS
                 if swing_foot_idx == 0:
                     l_offset = swing_pos_offset
@@ -309,6 +301,9 @@ if __name__ == "__main__":
 
                 # Clip target_dof_pos to joint limits
                 target_dof_pos = np.clip(target_dof_pos, min_angles, max_angles)
+                # FIXME: FIX HEAD AND SHOULDERS
+                target_dof_pos[0] = 0
+                target_dof_pos[1] = 0
                 target_dof_pos[3] = -1.2
                 target_dof_pos[7] = 1.2
 

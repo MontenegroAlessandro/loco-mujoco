@@ -42,18 +42,21 @@ def experiment(config: DictConfig):
             str_overrides.append(f"{key}={value}")
     
     # setup wandb
-    wandb.login()
-    config_dict = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+    if config.wandb.log:
+        wandb.login()
+        config_dict = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
 
-    # name the run as time stamp + overrides
-    wandb_run_name = f"{';'.join(str_overrides + [job_timestamp_str])}"
+        # name the run as time stamp + overrides
+        wandb_run_name = f"{';'.join(str_overrides + [job_timestamp_str])}"
 
-    run = wandb.init(
-        entity="",
-        project=config.wandb.project,
-        name=wandb_run_name,
-        config=config_dict
-    )
+        run = wandb.init(
+            entity="",
+            project=config.wandb.project,
+            name=wandb_run_name,
+            config=config_dict
+        )
+    else:
+        run = None
 
     # get task factory
     factory = TaskFactory.get_factory_cls(config.experiment.task_factory.name)
@@ -76,14 +79,14 @@ def experiment(config: DictConfig):
         agent_state, 
         deterministic=True, 
         n_steps=1000, 
-        n_envs=1, 
+        n_envs=10, 
         record=True,
         train_state_seed=0
     )
     video_file = env.video_file_path
-    run.log({"Agent Video": wandb.Video(video_file)})
-
-    wandb.finish()
+    if run is not None:
+        run.log({"Agent Video": wandb.Video(video_file)})
+        wandb.finish()
 
 if __name__ == "__main__":
     experiment()

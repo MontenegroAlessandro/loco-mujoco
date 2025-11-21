@@ -843,45 +843,84 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             # if we are in the right phase (gait_process >= 0.5) we remove 0.5
             # the quantity we consider is always in 2 * [0, 0.5]
             gait_sharpness = 2 * (gait_process - backend.where(gait_process >= 0.5, 0.5, 0))
-
-            # Retrieve targets
-            left_target_pos = goal_state.left_foot_target_pos # (x,y,z)
-            left_target_orn = goal_state.left_foot_target_orn
-            right_target_pos = goal_state.right_foot_target_pos # (x,y,z)
-            right_target_orn = goal_state.right_foot_target_orn
-
-            # Current pose
-            left_pos = data.site_xpos[self._left_foot_site_id] # (x,y,z)
-            left_orn = R.from_matrix(data.site_xmat[self._left_foot_site_id].reshape(3, 3)).as_quat(scalar_first=True)
-            right_pos = data.site_xpos[self._right_foot_site_id] # (x,y,z)
-            right_orn = R.from_matrix(data.site_xmat[self._right_foot_site_id].reshape(3, 3)).as_quat(scalar_first=True)
-
-            # Position tracking error
-            lpos_err_sq = backend.sum(backend.square(left_pos - left_target_pos))
-            rpos_err_sq = backend.sum(backend.square(right_pos - right_target_pos))
-
-            # Orientation tracking error
-            # NOTE: we are going to consider just the yaw misalignment, since we accept the possibility of having 
-            # NOTE: uneven terrains
-            # target yaws
-            l_targ_yaw = (R.from_quat(quat_scalarfirst2scalarlast(left_target_orn))).as_euler('xyz')[2]
-            r_targ_yaw = (R.from_quat(quat_scalarfirst2scalarlast(right_target_orn))).as_euler('xyz')[2]
-            # current feet yaws
-            l_cur_yaw = (R.from_quat(quat_scalarfirst2scalarlast(left_orn))).as_euler('xyz')[2]
-            r_cur_yaw = R.from_quat(quat_scalarfirst2scalarlast(right_orn)).as_euler('xyz')[2]
-            # get the yaw error
-            l_yaw_err = (l_targ_yaw - l_cur_yaw + backend.pi) % (2 * backend.pi) - backend.pi
-            lorn_err = backend.square(l_yaw_err)
-            r_yaw_err = (r_targ_yaw - r_cur_yaw + backend.pi) % (2 * backend.pi) - backend.pi
-            rorn_err = backend.square(r_yaw_err)
-
-            # discrimate left and right foot basing on the swing idx
-            swing_left = (swing_foot_idx == 0)
-            (swing_pos_error_sq, swing_orn_error, stance_pos_error_sq, stance_orn_error) = jax.lax.cond(
-                swing_left,
-                lambda: (lpos_err_sq, lorn_err, rpos_err_sq, rorn_err),
-                lambda: (rpos_err_sq, rorn_err, lpos_err_sq, lorn_err)
+            
+            # retrieve tragets for the swing and the stance feet
+            swing_target_pos, swing_target_orn, stance_target_pos, stance_target_orn = jax.lax.cond(
+                swing_foot_idx == 0, # left foot swing
+                lambda: (goal_state.left_foot_target_pos, goal_state.left_foot_target_orn, goal_state.right_foot_target_pos, goal_state.right_foot_target_orn),
+                lambda: (goal_state.right_foot_target_pos, goal_state.right_foot_target_orn, goal_state.left_foot_target_pos, goal_state.left_foot_target_orn),
             )
+            
+            # retrieve current pose
+            swing_curr_pos, swing_curr_orn, stance_curr_pos, stance_curr_orn = jax.lax.cond(
+                swing_foot_idx == 0, # left foot swing
+                lambda: (data.site_xpos[self._left_foot_site_id], data.site_xmat[self._left_foot_site_id], data.site_xpos[self._right_foot_site_id], data.site_xmat[self._right_foot_site_id]),
+                lambda: (data.site_xpos[self._right_foot_site_id], data.site_xmat[self._right_foot_site_id], data.site_xpos[self._left_foot_site_id], data.site_xmat[self._left_foot_site_id]),
+            )
+            
+            # take just the xy components for the swing positions
+            swing_target_pos = swing_target_pos[:2]
+            swing_curr_pos = swing_curr_pos[:2]
+            
+            # post-process the orientations knowing that:
+            # 1. the goal is providing (w,x,y,z) 
+            # 2. the data is a flattened matrix
+            # 3. helper functions wants quaternions with scalar last
+            # 4. we want to treat just the yaw error
+            swing_target_orn = (R.from_quat(quat_scalarfirst2scalarlast(swing_target_orn))).as_euler('xyz')[2]
+            stance_target_orn = (R.from_quat(quat_scalarfirst2scalarlast(stance_target_orn))).as_euler('xyz')[2]
+            swing_curr_orn = (R.from_matrix(swing_curr_orn.reshape(3,3))).as_euler('xyz')[2]
+            stance_curr_orn = (R.from_matrix(stance_curr_orn.reshape(3,3))).as_euler('xyz')[2]
+            
+            # compute errors
+            swing_pos_error_sq = backend.sum(backend.square(swing_curr_pos - swing_target_pos))
+            stance_pos_error_sq = backend.sum(backend.square(stance_curr_pos - stance_target_pos))
+            
+            def _wrap_to_pi(angle):
+                return (angle + backend.pi) % (2 * backend.pi) - backend.pi
+            swing_orn_error = backend.square(_wrap_to_pi(swing_target_orn - swing_curr_orn))
+            stance_orn_error = backend.square(_wrap_to_pi(stance_target_orn - stance_curr_orn))
+            
+            # FIXME: old code start
+            # Retrieve targets
+            # left_target_pos = jax.lax.select(swing_foot_idx==0, goal_state.left_foot_target_pos, goal_state.left_foot_target_pos) # (x,y,z)
+            # left_target_orn = goal_state.left_foot_target_orn
+            # right_target_pos = jax.lax.select(swing_foot_idx==1, goal_state.right_foot_target_pos, goal_state.right_foot_target_pos) # (x,y,z)
+            # right_target_orn = goal_state.right_foot_target_orn
+
+            # # Current pose
+            # left_pos = jax.lax.select(swing_foot_idx==0, data.site_xpos[self._left_foot_site_id], data.site_xpos[self._left_foot_site_id]) # (x,y,z)
+            # left_orn = R.from_matrix(data.site_xmat[self._left_foot_site_id].reshape(3, 3)).as_quat(scalar_first=True)
+            # right_pos = jax.lax.select(swing_foot_idx==0, data.site_xpos[self._right_foot_site_id], data.site_xpos[self._right_foot_site_id]) # (x,y,z)
+            # right_orn = R.from_matrix(data.site_xmat[self._right_foot_site_id].reshape(3, 3)).as_quat(scalar_first=True)
+
+            # # Position tracking error
+            # lpos_err_sq = backend.sum(backend.square(left_pos - left_target_pos))
+            # rpos_err_sq = backend.sum(backend.square(right_pos - right_target_pos))
+
+            # # Orientation tracking error
+            # # NOTE: we are going to consider just the yaw misalignment, since we accept the possibility of having 
+            # # NOTE: uneven terrains
+            # # target yaws
+            # l_targ_yaw = (R.from_quat(quat_scalarfirst2scalarlast(left_target_orn))).as_euler('xyz')[2]
+            # r_targ_yaw = (R.from_quat(quat_scalarfirst2scalarlast(right_target_orn))).as_euler('xyz')[2]
+            # # current feet yaws
+            # l_cur_yaw = (R.from_quat(quat_scalarfirst2scalarlast(left_orn))).as_euler('xyz')[2]
+            # r_cur_yaw = R.from_quat(quat_scalarfirst2scalarlast(right_orn)).as_euler('xyz')[2]
+            # # get the yaw error
+            # l_yaw_err = (l_targ_yaw - l_cur_yaw + backend.pi) % (2 * backend.pi) - backend.pi
+            # lorn_err = backend.square(l_yaw_err)
+            # r_yaw_err = (r_targ_yaw - r_cur_yaw + backend.pi) % (2 * backend.pi) - backend.pi
+            # rorn_err = backend.square(r_yaw_err)
+
+            # # discrimate left and right foot basing on the swing idx
+            # swing_left = (swing_foot_idx == 0)
+            # (swing_pos_error_sq, swing_orn_error, stance_pos_error_sq, stance_orn_error) = jax.lax.cond(
+            #     swing_left,
+            #     lambda: (lpos_err_sq, lorn_err, rpos_err_sq, rorn_err),
+            #     lambda: (rpos_err_sq, rorn_err, lpos_err_sq, lorn_err)
+            # )
+            # FIXME: old code end
 
             # NOTE: adaptive sharpness is just for the swing targets
             swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq * gait_sharpness)
@@ -922,7 +961,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
 
         # Base height reward
         base_height_target = goal_state.goal_height
-        base_height = global_pos_root[2] - 0  # Assuming flat ground at z=0
+        base_height = global_pos_root[2] - env._terrain.get_height_at_xy(carry.terrain_state, global_pos_root[:2], backend)  # Assuming flat ground at z=0
         base_height_reward = backend.square(base_height - base_height_target)
 
         # Orientation reward
@@ -1060,36 +1099,18 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         )
         feet_distance_reward = backend.clip(self._feet_distance_target - feet_distance, 0.0, 0.1)
 
+        # =================================================FEET SWING=================================================
         # Feet swing reward
         gait_frequency = goal_state.gait_frequency
+        
+        # discriminate whether the gait porcess has to be computed or taken form the goal state
         if self._goal_name in ["GoalRandomChangingFootPlacement", "GoalDoubleFootPlacement", "GoalFootPlacementFromVelocity"]:
             # if we use the changing target, we have to sync to the goal gait phase
             gait_process = goal_state.gait_process
         else:
             gait_process = backend.fmod(reward_state.gait_process + env.dt * gait_frequency, 1.0)
-        
-        left_gait_height_sharpness = 1.0 # by default
-        right_gait_height_sharpness = 1.0 # by default
-        if self._goal_name in ["GoalDoubleFootPlacement"]:
-            # compute the exponential sharpness of the gait height tracking
-            # get feet positions
-            stance_foot_pos = jax.lax.select(
-                gait_process < 0.5, # left swinging
-                right_foot_pos,
-                left_foot_pos
-            )
-            # get offset wrt world
-            swing_target_pos = jax.lax.select(
-                gait_process < 0.5, # left swinging
-                goal_state.left_foot_target_pos,
-                goal_state.right_foot_target_pos
-            )
-            # desired_gait_height = env._terrain.get_height_at_xy(carry.terrain_state, stance_foot_pos[:2], backend) + goal_state.gait_height
-            desired_gait_height = swing_target_pos[2] + goal_state.gait_height
-            # compute exponential
-            left_gait_height_sharpness = self._gait_height_coeff * backend.exp(-self._gait_height_sharp * backend.square(desired_gait_height - left_foot_pos[2]))
-            right_gait_height_sharpness = self._gait_height_coeff * backend.exp(-self._gait_height_sharp * backend.square(desired_gait_height - right_foot_pos[2]))
-        
+            
+        # swinging conditions
         left_swing = (
             (backend.abs(gait_process - 0.25) < 0.5 * self._feet_swing_period) & 
             (gait_frequency > 1.0e-8)
@@ -1099,10 +1120,56 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             (gait_frequency > 1.0e-8)
         )
         
-        feet_swing_reward = (
-            (left_swing & ~feet_on_ground[0]).astype(backend.float32) * left_gait_height_sharpness +
-            (right_swing & ~feet_on_ground[1]).astype(backend.float32) * right_gait_height_sharpness
-        ) 
+        # left_gait_height_sharpness = 1.0 # by default
+        # right_gait_height_sharpness = 1.0 # by default
+        if self._goal_name in ["GoalDoubleFootPlacement"]:
+            # FIXME: old code start
+            # # compute the exponential sharpness of the gait height tracking
+            # # get feet positions
+            # stance_foot_pos = jax.lax.select(
+            #     gait_process < 0.5, # left swinging
+            #     right_foot_pos,
+            #     left_foot_pos
+            # )
+            # # get offset wrt world
+            # swing_target_pos = jax.lax.select(
+            #     gait_process < 0.5, # left swinging
+            #     goal_state.left_foot_target_pos,
+            #     goal_state.right_foot_target_pos
+            # )
+            # # desired_gait_height = env._terrain.get_height_at_xy(carry.terrain_state, stance_foot_pos[:2], backend) + goal_state.gait_height
+            # desired_gait_height = swing_target_pos[2] + goal_state.gait_height
+            # # compute exponential
+            # left_gait_height_sharpness = self._gait_height_coeff * backend.exp(-self._gait_height_sharp * backend.square(desired_gait_height - left_foot_pos[2]))
+            # right_gait_height_sharpness = self._gait_height_coeff * backend.exp(-self._gait_height_sharp * backend.square(desired_gait_height - right_foot_pos[2]))
+            # FIXME: old code end
+            
+            # generate the conditions for the swing foot to be above the desired height
+            swing_desired_gait_height = swing_target_pos[2] + goal_state.gait_height
+            stance_desired_gait_height = env._terrain.get_height_at_xy(carry.terrain_state, stance_curr_pos[:2], backend)
+            swing_above_desired_height = (swing_curr_pos[2] >= swing_desired_gait_height)
+            stance_on_ground = (stance_curr_pos[2] <= (stance_desired_gait_height + goal_state.gait_height))
+            
+            l_foot_cond, r_foot_cond = jax.lax.cond(
+                swing_foot_idx == 0,
+                lambda: (swing_above_desired_height, stance_on_ground),
+                lambda: (stance_on_ground, swing_above_desired_height)
+            )
+            
+            feet_swing_reward = (
+                (left_swing & l_foot_cond).astype(backend.float32) +
+                (right_swing & r_foot_cond).astype(backend.float32)
+            )
+        else:
+            # feet_swing_reward = (
+            #     (left_swing & ~feet_on_ground[0]).astype(backend.float32) * left_gait_height_sharpness +
+            #     (right_swing & ~feet_on_ground[1]).astype(backend.float32) * right_gait_height_sharpness
+            # ) 
+            feet_swing_reward = (
+                (left_swing & ~feet_on_ground[0]).astype(backend.float32) +
+                (right_swing & ~feet_on_ground[1]).astype(backend.float32)
+            ) 
+        # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
         # Nominal joint position rewards
         joint_qpos_reward = backend.exp(

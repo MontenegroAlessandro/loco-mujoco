@@ -425,7 +425,7 @@ class DoubleFootPlacementVisualizer:
                  right_foot_color: Tuple[float, float, float, float] = (1.0, 0.6, 0.2, 0.7)):   # ORANGE
         
         # Two geoms (boxes) + one geom (arrow) + another geom for the feet direction arrow
-        self._n_visual_geoms = 4 # 3
+        self._n_visual_geoms = 6 # 4 # 3
         
         # Box properties
         self._box_size = np.array(box_size)
@@ -434,13 +434,19 @@ class DoubleFootPlacementVisualizer:
 
         # Arrow properties
         self._dir_arrow_type = int(mujoco.mjtGeom.mjGEOM_ARROW)
-        self._dir_arrow_size = np.array([0.015, 0.03, 0.25]) # [shaft_radius, head_radius, length]
-        self._dir_arrow_color = np.array([0.0, 1.0, 0.0, 0.7]) # Green
+        self._dir_arrow_size = np.array([0.015, 0.03, 1.0]) # [shaft_radius, head_radius, length]
+        self._dir_arrow_color = np.array([0.0, 1.0, 0.0, 0.25]) # Green
         
         # Arrow 2 properties
         self._feet_arrow_type = int(mujoco.mjtGeom.mjGEOM_ARROW)
-        self._feet_arrow_size = np.array([0.015, 0.03, 0.15]) # [shaft_radius, head_radius, length]
-        self._feet_arrow_color = np.array([1.0, 0.0, 1.0, 0.7]) # Magenta
+        self._feet_arrow_size = np.array([0.015, 0.03, 0.5]) # [shaft_radius, head_radius, length]
+        self._feet_arrow_color = np.array([1.0, 0.0, 1.0, 0.25]) # Magenta
+        
+        # Toe arrow properties
+        self._toe_arrow_type = int(mujoco.mjtGeom.mjGEOM_ARROW)
+        self._toe_arrow_size = np.array([0.01, 0.02, 0.25])  # small
+        self._left_toe_color  = np.array([1.0, 0.0, 0.0, 0.7])   # RED
+        self._right_toe_color = np.array([1.0, 0.0, 0.0, 0.7])   # RED
 
     def set_visuals(self,
                     goal: Union[np.ndarray, jnp.ndarray],
@@ -489,6 +495,20 @@ class DoubleFootPlacementVisualizer:
         # Combine rotations: first, point Z-up arrow to X-forward, then rotate by yaw
         feet_arrow_mat = (fR_z_yaw_mat @ fR_y_90_mat).reshape(-1)
         
+        # orientation arrows for feet
+        # Extract yaw of left and right foot targets
+        left_yaw  = R.from_matrix(left_mat.reshape(3,3)).as_euler("xyz")[2]
+        right_yaw = R.from_matrix(right_mat.reshape(3,3)).as_euler("xyz")[2]
+
+        # Create arrow rotation: Z-up → X-forward, then apply yaw
+        arrow_align = R.from_euler("y", 90, degrees=True).as_matrix()
+
+        left_arrow_rot  = (R.from_euler("z", left_yaw).as_matrix() @ arrow_align).reshape(-1)
+        right_arrow_rot = (R.from_euler("z", right_yaw).as_matrix() @ arrow_align).reshape(-1)
+
+        # Toe arrow positions (placed slightly above ground)
+        left_toe_pos  = left_pos + backend.array([0.5 * self._box_size[0], 0., 0.5 * self._box_size[2]])
+        right_toe_pos = right_pos + backend.array([0.5 * self._box_size[0], 0., 0.5 * self._box_size[2]])
 
         # --- Update all geoms ---
         if backend == jnp:
@@ -526,6 +546,21 @@ class DoubleFootPlacementVisualizer:
             geom_type = geom_type.at[visual_geoms_idx[3]].set(self._feet_arrow_type)
             geom_size = geom_size.at[visual_geoms_idx[3]].set(self._feet_arrow_size)
             geom_rgba = geom_rgba.at[visual_geoms_idx[3]].set(self._feet_arrow_color)
+            
+            # Toe arrow positions (placed slightly above ground)
+            # Left toe arrow (index 4)
+            geom_pos = geom_pos.at[visual_geoms_idx[4]].set(left_toe_pos)
+            geom_mat = geom_mat.at[visual_geoms_idx[4]].set(left_arrow_rot)
+            geom_type = geom_type.at[visual_geoms_idx[4]].set(self._toe_arrow_type)
+            geom_size = geom_size.at[visual_geoms_idx[4]].set(self._toe_arrow_size)
+            geom_rgba = geom_rgba.at[visual_geoms_idx[4]].set(self._left_toe_color)
+
+            # Right toe arrow (index 5)
+            geom_pos = geom_pos.at[visual_geoms_idx[5]].set(right_toe_pos)
+            geom_mat = geom_mat.at[visual_geoms_idx[5]].set(right_arrow_rot)
+            geom_type = geom_type.at[visual_geoms_idx[5]].set(self._toe_arrow_type)
+            geom_size = geom_size.at[visual_geoms_idx[5]].set(self._toe_arrow_size)
+            geom_rgba = geom_rgba.at[visual_geoms_idx[5]].set(self._right_toe_color)
 
         else:
             # NumPy backend (mutable)
@@ -562,6 +597,21 @@ class DoubleFootPlacementVisualizer:
             geom_type[visual_geoms_idx[3]] = self._feet_arrow_type
             geom_size[visual_geoms_idx[3]] = self._feet_arrow_size
             geom_rgba[visual_geoms_idx[3]] = self._feet_arrow_color
+            
+            # Toe arrow positions (placed slightly above ground)
+            # Left toe arrow (index 4)
+            geom_pos[visual_geoms_idx[4]] = left_toe_pos
+            geom_mat[visual_geoms_idx[4]] = left_arrow_rot
+            geom_type[visual_geoms_idx[4]] = self._toe_arrow_type
+            geom_size[visual_geoms_idx[4]] = self._toe_arrow_size
+            geom_rgba[visual_geoms_idx[4]] = self._left_toe_color
+
+            # Right toe arrow (index 5)
+            geom_pos[visual_geoms_idx[5]] = right_toe_pos
+            geom_mat[visual_geoms_idx[5]] = right_arrow_rot
+            geom_type[visual_geoms_idx[5]] = self._toe_arrow_type
+            geom_size[visual_geoms_idx[5]] = self._toe_arrow_size
+            geom_rgba[visual_geoms_idx[5]] = self._right_toe_color
 
         # --- Create new geoms and update carry ---
         new_geoms = geoms.replace(

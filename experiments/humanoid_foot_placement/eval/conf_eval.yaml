@@ -5,9 +5,10 @@ defaults:
 wandb:
   project: "BoosterT1 Foot Placement - Eval"
   note: ""
+  log: false
 
 experiment:
-  agent_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/safe_tracker.pkl 
+  agent_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/puze2.pkl 
   task_factory:
     name: RLFactory
     params: {}
@@ -16,7 +17,9 @@ experiment:
     horizon: 1000
 
     # terrain_type: ParkourTerrain
-    # terrain_params: {}
+    # terrain_params: {
+    #   feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
+    # }
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
@@ -26,12 +29,13 @@ experiment:
       # Names of the foot sites from the booster_t1_dfki.xml file
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
+      feet_distance: 0.5
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.2, 0.5]
+      xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [20, 20] # [20, 90] 
+      angle_range_deg: [20,90] # [-90, 90]
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-30, 30]
+      yaw_range_deg: [-30, 30] # [-20, 20] # [-30, 30]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
@@ -39,11 +43,14 @@ experiment:
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
-      direction_range_deg: [0,0] # [-180, 180]
-      # direction range in deg
-      feet_direction_range_deg: [90,90] # [-180, 180]
+      direction_range_deg: [-180, 180] # [-180, 180]
+      change_direction_range_deg: [10, 10]
+      # feet direction range in deg
+      track_movement_only: true # if true remeber to mod how the angles are computed!
+      feet_direction_range_deg: [0,0] # [-180, 180]
       # observation group
       group: [prioritized, policy]
+    
 
     headless: true
 
@@ -212,16 +219,16 @@ experiment:
       clip_actions: 1.0
       
       p_gain: 
-        - 40 # AAHead_yaw
-        - 40 # Head_pitch
-        - 40 # Left_Shoulder_Pitch
-        - 40 # Left_Shoulder_Roll
-        - 40 # Left_Elbow_Pitch
-        - 40 # Left_Elbow_Yaw
-        - 40 # Right_Shoulder_Pitch
-        - 40 # Right_Shoulder_Roll
-        - 40 # Right_Elbow_Pitch
-        - 40 # Right_Elbow_Yaw
+        - 20 # 40 # AAHead_yaw
+        - 20 # 40 # Head_pitch
+        - 20 # 40 # Left_Shoulder_Pitch
+        - 20 # 40 # Left_Shoulder_Roll
+        - 20 # 40 # Left_Elbow_Pitch
+        - 20 # 40 # Left_Elbow_Yaw
+        - 20 # 40 # Right_Shoulder_Pitch
+        - 20 # 40 # Right_Shoulder_Roll
+        - 20 # 40 # Right_Elbow_Pitch
+        - 20 # 40 # Right_Elbow_Yaw
         - 200 # Waist
         - 200 # Left_Hip_Pitch
         - 200 # Left_Hip_Roll
@@ -233,20 +240,20 @@ experiment:
         - 200 # Right_Hip_Roll
         - 200 # Right_Hip_Yaw
         - 200 # Right_Knee_Pitch
-        - 30 # Right_Ankle_Pitch
-        - 30 # Right_Ankle_Roll
+        - 50 # Right_Ankle_Pitch
+        - 50 # Right_Ankle_Roll
 
       d_gain:
-        - 2.0 # AAHead_yaw
-        - 2.0 # Head_pitch
-        - 2.0 # Left_Shoulder_Pitch
-        - 2.0 # Left_Shoulder_Roll
-        - 2.0 # Left_Elbow_Pitch
-        - 2.0 # Left_Elbow_Yaw
-        - 2.0 # Right_Shoulder_Pitch
-        - 2.0 # Right_Shoulder_Roll
-        - 2.0 # Right_Elbow_Pitch
-        - 2.0 # Right_Elbow_Yaw
+        - 0.2 # 2.0 # AAHead_yaw
+        - 0.2 # 2.0 # Head_pitch
+        - 0.5 # 2.0 # Left_Shoulder_Pitch
+        - 0.5 # 2.0 # Left_Shoulder_Roll
+        - 0.5 # 2.0 # Left_Elbow_Pitch
+        - 0.5 # 2.0 # Left_Elbow_Yaw
+        - 0.5 # 2.0 # Right_Shoulder_Pitch
+        - 0.5 # 2.0 # Right_Shoulder_Roll
+        - 0.5 # 2.0 # Right_Elbow_Pitch
+        - 0.5 # 2.0 # Right_Elbow_Yaw
         - 5.0 # Waist
         - 5.0 # Left_Hip_Pitch
         - 5.0 # Left_Hip_Roll
@@ -265,11 +272,11 @@ experiment:
         - 0.0 # AAHead_yaw
         - 0.0 # Head_pitch
         - 0.2 # Left_Shoulder_Pitch
-        - -1.35 # Left_Shoulder_Roll
+        - -1.2 # -1.35 # Left_Shoulder_Roll
         - 0.0 # Left_Elbow_Pitch
         - -0.5 # Left_Elbow_Yaw
         - 0.2 # Right_Shoulder_Pitch
-        - 1.35 # Right_Shoulder_Roll
+        - 1.2 # 1.35 # Right_Shoulder_Roll
         - 0.0 # Right_Elbow_Pitch
         - 0.5 # Right_Elbow_Yaw
         - 0.0 # Waist
@@ -291,8 +298,8 @@ experiment:
       qpos_init: [0, 0, 0.72, 
                   1, 0, 0, 0, 
                   0, 0,
-                  0.2, -1.35, 0, -0.5,
-                  0.2, 1.35, 0, 0.5,
+                  0.2, -1.2, 0, -0.5,
+                  0.2, 1.2, 0, 0.5,
                   0,
                   -0.2, 0, 0, 0.4, -0.25, 0,
                   -0.2, 0, 0, 0.4, -0.25, 0]

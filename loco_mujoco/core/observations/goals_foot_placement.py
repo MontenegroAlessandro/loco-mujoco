@@ -620,6 +620,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             change_direction_range_deg: List[float] = [0.0, 0.0],
             # feet direction
             feet_direction_range_deg: List[float] = [0.0, 0.0],
+            track_movement_only: bool = False,
             **kwargs
         ):
         
@@ -634,6 +635,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.direction_range_rad = [jnp.deg2rad(direction_range_deg[0]), jnp.deg2rad(direction_range_deg[1])]
         self.change_direction_range_rad = [jnp.deg2rad(change_direction_range_deg[0]), jnp.deg2rad(change_direction_range_deg[1])]
         self.feet_direction_range_rad = [jnp.deg2rad(feet_direction_range_deg[0]), jnp.deg2rad(feet_direction_range_deg[1])] 
+        self.track_movement_only = track_movement_only
         
         self._foot_site_ids = [-1, -1]
         self._root_joint_name = info_props["root_free_joint_xml_name"]
@@ -646,7 +648,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self._scheme_height = jnp.array([0.0, 0.0, 0.0, 0.0, 0.0])
         self._scheme_yaw = jnp.array([0.0, 0.0, 0.0, 0.0, 0.0])
         # local safe range for foot placement computation
-        self.local_angle_range_rad = [jnp.deg2rad(20.0), jnp.deg2rad(160)]
+        self.local_angle_range_rad = [jnp.deg2rad(20.0), jnp.deg2rad(160.0)]
 
         DoubleFootPlacementVisualizer.__init__(self)
         n_visual_geoms = self._n_visual_geoms if kwargs.get("visualize_goal") else 0
@@ -715,6 +717,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             maxval=self.feet_direction_range_rad[1]
         )
         feet_direction = self.wrap_to_pi(feet_direction, backend=backend)
+        feet_direction = jax.lax.select(self.track_movement_only, movement_direction, feet_direction)
 
         # Sample the random starting phase of the gait
         # NOTE: if the robot is required to move on its left side, then the left foot moves first, else the right one
@@ -819,6 +822,14 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         rand_direction_change = jax.lax.select(reset, 0.0, rand_direction_change) # if reset do not change the direction
         mov_dir_rot = R.from_euler('z', rand_direction_change) * R.from_euler('z', movement_direction)
         movement_direction = mov_dir_rot.as_euler('xyz')[2]
+        # movement_direction = self.wrap_to_pi(mov_dir_rot.as_euler('xyz')[2], backend) # ensure the angle is in [-pi. pi]
+        
+        # re-assign the feet direction if it is the case
+        feet_direction = jax.lax.select(
+            self.track_movement_only,
+            movement_direction,
+            feet_direction
+        )
 
         # Generate Position Target
         # stance foot posiiton in the WORLD
@@ -834,54 +845,105 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         distance = jax.random.uniform(subkey1, minval=distance_range[0], maxval=distance_range[1])
         
         # ============================================FOOT PLACEMENT TARGET============================================
-        # define safe areas
-        min_local_angle = self.local_angle_range_rad[0]
-        max_local_angle = self.local_angle_range_rad[1]
+        # get the ideal world coordinates
+        # lateral_sign = jnp.where(stance_is_right, 1, -1)
+        def _generate_position_target_no_tracking():
+            angle_rand = jax.random.uniform(subkey2, minval=angle_range_rad[0], maxval=angle_range_rad[1])
+            angle = (R.from_euler('z', angle_rand) * mov_dir_rot).as_euler('xyz')[2]
+            ideal_world_target = backend.array(
+                [distance * backend.cos(angle), distance * backend.sin(angle), 0.0]
+            )
+            ideal_world_target = ideal_world_target + stance_foot_pos
+            
+            # clip the coordinates to be in the safe areas
+            # NOTE: we define a direction centered in self.feet_distance / 2.0 and with the same orientation of the 
+            # NOTE: stance foot orientation, while the ideal targets are generated in the movement direction
+            
+            # take the rotation of the current stance yaw
+            current_stance_yaw_rot = R.from_euler('z', current_stance_yaw)
+            
+            # convert the ideal target into the local frame of the stance foot
+            local_target = current_stance_yaw_rot.apply(ideal_world_target - stance_foot_pos, inverse=True)
+
+            # define the maximum lateral step
+            max_lateral = 0.5 * self.feet_distance  # max allowed distance from foot
+            
+            # clip on the boundaries if it is needed
+            if backend == jnp:
+                local_target = jax.lax.select(
+                    stance_is_right,
+                    local_target.at[1].set(
+                        backend.maximum(local_target[1], max_lateral)
+                    ),
+                    local_target.at[1].set(
+                        backend.minimum(local_target[1], -max_lateral)
+                    )
+                )
+            else:
+                if stance_is_right:
+                    # swing foot is left → can only be y_local >= +min_dist
+                    local_target = local_target.at[1].set(
+                        backend.maximum(local_target[1], max_lateral)
+                    )
+                else:
+                    # swing foot is right → can only be y_local <= -min_dist
+                    local_target = local_target.at[1].set(
+                        backend.minimum(local_target[1], -max_lateral)
+                    )
+            
+            # move the clipped foot placement from local coordinates back to world coordinates
+            target_pos_pre_z = current_stance_yaw_rot.apply(local_target, inverse=False) + stance_foot_pos
+            return target_pos_pre_z
         
-        # define the sign of the resulting angle based on the foot to swing 
-        lateral_sign = jnp.where(stance_is_right, 1, -1) 
+        def _generate_position_target_tracking():
+            # define safe areas
+            min_local_angle = self.local_angle_range_rad[0]
+            max_local_angle = self.local_angle_range_rad[1]
+            
+            # define the sign of the resulting angle based on the foot to swing 
+            lateral_sign = jnp.where(stance_is_right, 1, -1) 
+            
+            # sample the random offset to add to the movement direction
+            angle_rand = lateral_sign * jax.random.uniform(subkey2, minval=angle_range_rad[0], maxval=angle_range_rad[1]) 
+            
+            # compute the unclipped world angle
+            angle = (R.from_euler('z', angle_rand) * mov_dir_rot).as_euler('xyz')[2]
+            
+            # convert the unclipped world angle into the stance foot frame
+            local_step_angle = self.wrap_to_pi(angle - current_stance_yaw, backend)
+            
+            # deifne precise clip bounds
+            local_clip_min = backend.where(stance_is_right, min_local_angle, -max_local_angle)
+            local_clip_max = backend.where(stance_is_right, max_local_angle, -min_local_angle)
+            
+            # clip the angle
+            clipped_local_angle = backend.clip(
+                local_step_angle,
+                local_clip_min,
+                local_clip_max
+            )
+            
+            # convert into the world
+            final_world_angle = current_stance_yaw + clipped_local_angle
+            
+            # step vector to be added to the stance foot coordinates
+            step_vec_local = backend.array(
+                [distance * backend.cos(final_world_angle), distance * backend.sin(final_world_angle), 0.0]
+            )
+            # compute the WORLD coordinates of the displacement
+            # NOTE: one would naturally make the rotation to the world frame, but actually the orientation is the one of
+            # NOTE: the torso (that moves quite a lot), so it makes more sense to keep the step in local frame. 
+            # NOTE: The stuff to do would be to consider the waist instead of the torso.
+            target_pos_pre_z = stance_foot_pos + step_vec_local
+            return target_pos_pre_z
         
-        # sample the random offset to add to the movement direction
-        angle_rand = lateral_sign * jax.random.uniform(subkey2, minval=angle_range_rad[0], maxval=angle_range_rad[1]) 
-        
-        # compute the unclipped world angle
-        angle = (R.from_euler('z', angle_rand) * mov_dir_rot).as_euler('xyz')[2]
-        
-        # convert the unclipped world angle into the stance foot frame
-        local_step_angle = self.wrap_to_pi(angle - current_stance_yaw, backend)
-        # local_step_angle = self.wrap_to_pi(angle - movement_direction, backend)
-        
-        # deifne precise clip bounds
-        local_clip_min = backend.where(stance_is_right, min_local_angle, -max_local_angle)
-        local_clip_max = backend.where(stance_is_right, max_local_angle, -min_local_angle)
-        
-        # clip the angle
-        clipped_local_angle = backend.clip(
-            local_step_angle,
-            local_clip_min,
-            local_clip_max
+        target_pos_pre_z = jax.lax.cond(
+            self.track_movement_only,
+            _generate_position_target_tracking,
+            _generate_position_target_no_tracking
         )
         
-        # convert into the world
-        final_world_angle = current_stance_yaw + clipped_local_angle
-        # final_world_angle = movement_direction + clipped_local_angle
-        # final_world_angle = self.wrap_to_pi(angle, backend)
-        
-        # FIXME start
-        beta = backend.clip(angle_rand, local_clip_min, local_clip_max)
-        final_world_angle = movement_direction + beta
-        final_world_angle = movement_direction + clipped_local_angle
-        # FIXME end
-        
-        # step vector to be added to the stance foot coordinates
-        step_vec_local = backend.array(
-            [distance * backend.cos(final_world_angle), distance * backend.sin(final_world_angle), 0.0]
-        )
-        # compute the WORLD coordinates of the displacement
-        # NOTE: one would naturally make the rotation to the world frame, but actually the orientation is the one of
-        # NOTE: the torso (that moves quite a lot), so it makes more sense to keep the step in local frame. 
-        # NOTE: The stuff to do would be to consider the waist instead of the torso.
-        target_pos_pre_z = stance_foot_pos + step_vec_local
+        # adjust the height of the target based on the terrain properties
         target_pos_xy = target_pos_pre_z[:2]
         target_z_from_terrain = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
         target_pos = target_pos_pre_z.at[2].set(target_z_from_terrain)
@@ -903,7 +965,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         clipped_yaw_displacement = backend.sign(yaw_displacement) * clipped_abs_displacement
         
         # compute final yaw
-        final_yaw = current_stance_yaw + clipped_yaw_displacement
+        # final_yaw = current_stance_yaw + clipped_yaw_displacement
+        final_yaw = self.wrap_to_pi(current_stance_yaw + clipped_yaw_displacement, backend)
         target_orn_rot = R.from_euler('z', final_yaw)
         target_orn = target_orn_rot.as_quat(scalar_first=True)
 

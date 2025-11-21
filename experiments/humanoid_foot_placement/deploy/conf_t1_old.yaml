@@ -1,9 +1,34 @@
 defaults:
   - override hydra/job_logging: default
+  # - override hydra/launcher: pegasus_cluster # comment out when running locally
   - _self_
 
+
+# hydra:
+#   mode: MULTIRUN
+#   job_logging: {}
+#   hydra_logging: {}
+#   sweeper:
+#     params:
+#       wandb.note: "feet roll sweep"
+
+#       experiment.env_params.reward_params.action_rate_coeff: -1.0
+#       experiment.env_params.reward_params.survival: 0.25  
+#       experiment.env_params.reward_params.tracking_w_sum_linvel_x: 1.5
+#       experiment.env_params.reward_params.tracking_w_sum_linvel_y: 1.5
+#       experiment.env_params.reward_params.tracking_w_sum_angvel: 1.0
+#       experiment.env_params.reward_params.feet_swing_coeff: 6.0
+#       experiment.env_params.reward_params.feet_yaw_diff_coeff: -1.0
+#       experiment.env_params.reward_params.feet_yaw_mean_coeff: -1.0
+#       experiment.env_params.reward_params.feet_roll_coeff: -4.0
+#       experiment.env_params.reward_params.joint_vel_coeff: -9.e-4 
+
+#       experiment.env_params.control_params.clip_actions: 1.0
+
+
+
 wandb:
-  project: "BoosterT1 Foot Placement"
+  project: "BoosterT1"
   note: ""
 
 experiment:
@@ -14,65 +39,36 @@ experiment:
     env_name: MjxBoosterT1
     horizon: 1000
 
-    # terrain_type: StonesHolesTerrain
-    # terrain_params: 
-    #   patch_size: 0.5
-    #   height_range: [-0.05, 0.05]
-    #   inner_platform_size_in_meters: 0.5
-
     terminal_state_type: HeightBasedTerminalStateHandler
 
-    goal_type: GoalDoubleFootPlacement # GoalRandomChangingFootPlacement # GoalRandomFootPlacement
+    goal_type: GoalChangingRandomRootVelocity
     goal_params:
+      max_x_vel: 0.8
+      max_y_vel: 0.5
+      max_yaw_vel: 1
+      max_height: 0.67
+      min_height: 0.67
+      resample_rate: 0.004
+      still_proportion: 0.1
+      gait_frequency_range: [1.0, 2.0] # Hz
       visualize_goal: true
-      # Names of the foot sites from the booster_t1_dfki.xml file
-      left_foot_site_name: left_foot
-      right_foot_site_name: right_foot
-      feet_distance: 0.5
-      # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
-      # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [-90, 90] # [-20, 20] # [20, 90] 
-      # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-30, 30] # [-20, 20] # [-30, 30]
-      # gait frequency target
-      gait_frequency_range: [1.0, 1.0] 
-      # gait height
-      gait_height: 0.05 
-      # desired height to maintain
-      goal_height: 0.68
-      # direction range in deg
-      direction_range_deg: [-180, 180] # [-180, 180]
-      change_direction_range_deg: [0, 0]
-      # feet direction range in deg
-      track_movement_only: false
-      feet_direction_range_deg: [0,0] # [-180, 180]
-      # observation group
       group: [prioritized, policy]
+
     
     headless: true
 
-    reward_type: CrispBoosterLocomotionFootPlacementReward
+    reward_type: CrispBoosterLocomotionReward
     reward_params:
-      goal_name: GoalDoubleFootPlacement # GoalRandomChangingFootPlacement 
-      left_foot_site_name: left_foot
-      right_foot_site_name: right_foot
       survival: 0.25
-      # feet tracking rewards
-      swing_pos_w: 4.0 # 4.0 # 1.0
-      swing_orn_w: 4.0 # 2.0 # 3.0 # 1.0
-      stance_pos_w: 4.0 # 1.0
-      stance_orn_w: 4.0 # 1.0
-      sharp_pos: 100.0 # 50 # 10
-      sharp_orn: 100.0 # 10
-      stance_sharp_pos: 100.0
-      stance_sharp_orn: 100.0 
-      # gait
-      gait_height_sharp: 1.0
-      gait_height_coeff: 1.0
-      # other tracking rewards
-      tracking_nominal_joint_pos_exp: 4.0
-      tracking_nominal_joint_pos_coeff: 0.5 # 0.0
+      # tracking rewards
+      tracking_w_exp_linvel_x: 4.0
+      tracking_w_sum_linvel_x: 1.0
+      tracking_w_exp_linvel_y: 4.0
+      tracking_w_sum_linvel_y: 1.0
+      tracking_w_exp_angvel: 4.0
+      tracking_w_sum_angvel: 0.5
+      tracking_nominal_joint_pos_exp: 4
+      tracking_nominal_joint_pos_coeff: 0
       tracking_nominal_joint_pos_names: 
         - AAHead_yaw
         - Head_pitch
@@ -85,30 +81,30 @@ experiment:
         - Right_Elbow_Pitch
         - Right_Elbow_Yaw
         - Waist
-        # - Right_Ankle_Roll
-        # - Left_Ankle_Roll
+        - Right_Ankle_Roll
+        - Left_Ankle_Roll
       # penalties
       joint_deviation_l1_coeff: -0.3
       base_height_target: 0.68
-      base_height_coeff: -2 # -10.
+      base_height_coeff: -10.
       orientation_coeff: -5.
       joint_torque_coeff: -2.e-4
       torque_tiredness_coeff: 0.0
       energy_coeff: -2.e-3
       z_vel_coeff: -0.0
       roll_pitch_vel_coeff: -0.2
-      joint_vel_coeff: -9.e-4 # -1.e-4
+      joint_vel_coeff: -1.e-4
       joint_acc_coeff: -1.e-7
       root_acc_coeff: -1.e-4
       action_rate_coeff: -1.
       joint_position_limit_scale: 0.98
       joint_position_limit_coeff: -1.
       feet_slip_coeff: -0.1
-      feet_yaw_diff_coeff: -1.0 # -0.5
-      feet_yaw_mean_coeff: -1.0 # -0.5
-      feet_roll_coeff: -4.0 # -0.1
+      feet_yaw_diff_coeff: -0.5
+      feet_yaw_mean_coeff: -0.5
+      feet_roll_coeff: -0.1
       feet_distance_target: 0.2
-      feet_swing_coeff: 6 # 3.
+      feet_swing_coeff: 3.
       feet_swing_period: 0.2
       feet_distance_coeff: 0.0
       # extra regularization / penalties
@@ -241,8 +237,8 @@ experiment:
         - 200 # Right_Hip_Roll
         - 200 # Right_Hip_Yaw
         - 200 # Right_Knee_Pitch
-        - 50 # Right_Ankle_Pitch
-        - 50 # Right_Ankle_Roll
+        - 30 # Right_Ankle_Pitch
+        - 30 # Right_Ankle_Roll
 
       d_gain:
         - 2.0 # AAHead_yaw
@@ -273,11 +269,11 @@ experiment:
         - 0.0 # AAHead_yaw
         - 0.0 # Head_pitch
         - 0.2 # Left_Shoulder_Pitch
-        - -1.2 # -1.35 # Left_Shoulder_Roll
+        - -1.2 # Left_Shoulder_Roll
         - 0.0 # Left_Elbow_Pitch
         - -0.5 # Left_Elbow_Yaw
         - 0.2 # Right_Shoulder_Pitch
-        - 1.2 # 1.35 # Right_Shoulder_Roll
+        - 1.2 # Right_Shoulder_Roll
         - 0.0 # Right_Elbow_Pitch
         - 0.5 # Right_Elbow_Yaw
         - 0.0 # Waist
@@ -299,7 +295,7 @@ experiment:
       qpos_init: [0, 0, 0.72, 
                   1, 0, 0, 0, 
                   0, 0,
-                  0.2,-1.2, 0, -0.5,
+                  0.2, -1.2, 0, -0.5,
                   0.2, 1.2, 0, 0.5,
                   0,
                   -0.2, 0, 0, 0.4, -0.25, 0,
@@ -317,10 +313,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 200e6
+      total_timesteps: 1200e6
       num_curriculum_steps: 1
       num_environments: 8192
-      num_total_timesteps: 200e6
+      num_total_timesteps: 1200e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -413,7 +409,7 @@ experiment:
       filter_action_alpha: 0.0
 
       # Kicking
-      kick_robots: false # true
+      kick_robots: true
       kick_min_vel: 0.2
       kick_max_vel: 0.6 # m/s
       kick_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 kick per second
@@ -432,7 +428,7 @@ experiment:
   len_obs_history: 1
   num_envs: 8192
   num_steps: 50
-  total_timesteps: 200e6
+  total_timesteps: 1200e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995
@@ -457,9 +453,7 @@ experiment:
     num_steps: 100
     num_envs: 100
     num: 10 # set to 0 to disable validation
-  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/2025-11-04/18-05-53/PPOJax_saved.pkl
-  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/2025-11-06/17-18-40/PPOJax_saved.pkl
-  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/outputs/2025-11-19/10-59-31/PPOJax_saved.pkl
+
 
 robot_joints_to_consider:
   - AAHead_yaw
