@@ -38,7 +38,7 @@ experiment:
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
-      gait_height: 0.05 
+      gait_height: 0.06 
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
