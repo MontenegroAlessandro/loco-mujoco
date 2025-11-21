@@ -1123,48 +1123,40 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         # left_gait_height_sharpness = 1.0 # by default
         # right_gait_height_sharpness = 1.0 # by default
         if self._goal_name in ["GoalDoubleFootPlacement"]:
-            # FIXME: old code start
-            # # compute the exponential sharpness of the gait height tracking
-            # # get feet positions
-            # stance_foot_pos = jax.lax.select(
-            #     gait_process < 0.5, # left swinging
-            #     right_foot_pos,
-            #     left_foot_pos
-            # )
-            # # get offset wrt world
-            # swing_target_pos = jax.lax.select(
-            #     gait_process < 0.5, # left swinging
-            #     goal_state.left_foot_target_pos,
-            #     goal_state.right_foot_target_pos
-            # )
-            # # desired_gait_height = env._terrain.get_height_at_xy(carry.terrain_state, stance_foot_pos[:2], backend) + goal_state.gait_height
-            # desired_gait_height = swing_target_pos[2] + goal_state.gait_height
-            # # compute exponential
-            # left_gait_height_sharpness = self._gait_height_coeff * backend.exp(-self._gait_height_sharp * backend.square(desired_gait_height - left_foot_pos[2]))
-            # right_gait_height_sharpness = self._gait_height_coeff * backend.exp(-self._gait_height_sharp * backend.square(desired_gait_height - right_foot_pos[2]))
-            # FIXME: old code end
-            
-            # generate the conditions for the swing foot to be above the desired height
-            swing_desired_gait_height = swing_target_pos[2] + goal_state.gait_height
-            stance_desired_gait_height = env._terrain.get_height_at_xy(carry.terrain_state, stance_curr_pos[:2], backend)
-            swing_above_desired_height = (swing_curr_pos[2] >= swing_desired_gait_height)
-            stance_on_ground = (stance_curr_pos[2] <= (stance_desired_gait_height + 0.05))
-            
-            l_foot_cond, r_foot_cond = jax.lax.cond(
-                swing_foot_idx == 0,
-                lambda: (swing_above_desired_height, stance_on_ground),
-                lambda: (stance_on_ground, swing_above_desired_height)
+            # compute the exponential sharpness of the gait height tracking
+            # get feet positions
+            stance_foot_pos = jax.lax.select(
+                gait_process < 0.5, # left swinging
+                right_foot_pos,
+                left_foot_pos
+            )
+            # get offset wrt world
+            swing_target_pos = jax.lax.select(
+                gait_process < 0.5, # left swinging
+                goal_state.left_foot_target_pos,
+                goal_state.right_foot_target_pos
+            )
+            # desired_gait_height = env._terrain.get_height_at_xy(carry.terrain_state, stance_foot_pos[:2], backend) + goal_state.gait_height
+            desired_gait_height = swing_target_pos[2] + goal_state.gait_height
+            # compute exponential
+            left_gait_height_sharpness = self._gait_height_coeff * backend.exp(-self._gait_height_sharp * backend.square(desired_gait_height - left_foot_pos[2]))
+            left_gait_height_sharpness = jax.lax.select(
+                (left_foot_pos[2] >= desired_gait_height), # if the foot is above ...
+                self._gait_height_coeff, # ... give the maximum weight ...
+                left_gait_height_sharpness # ... otherwise use the exponential
+            )
+            right_gait_height_sharpness = self._gait_height_coeff * backend.exp(-self._gait_height_sharp * backend.square(desired_gait_height - right_foot_pos[2]))
+            right_gait_height_sharpness = jax.lax.select(
+                (right_foot_pos[2] >= desired_gait_height), # if the foot is above ...
+                self._gait_height_coeff, # ... give the maximum weight ...
+                right_gait_height_sharpness # ... otherwise use the exponential
             )
             
             feet_swing_reward = (
-                (left_swing & ~feet_on_ground[0] & l_foot_cond).astype(backend.float32) +
-                (right_swing & ~feet_on_ground[1] & r_foot_cond).astype(backend.float32)
-            )
+                (left_swing & ~feet_on_ground[0]).astype(backend.float32) * left_gait_height_sharpness +
+                (right_swing & ~feet_on_ground[1]).astype(backend.float32) * right_gait_height_sharpness
+            ) 
         else:
-            # feet_swing_reward = (
-            #     (left_swing & ~feet_on_ground[0]).astype(backend.float32) * left_gait_height_sharpness +
-            #     (right_swing & ~feet_on_ground[1]).astype(backend.float32) * right_gait_height_sharpness
-            # ) 
             feet_swing_reward = (
                 (left_swing & ~feet_on_ground[0]).astype(backend.float32) +
                 (right_swing & ~feet_on_ground[1]).astype(backend.float32)
