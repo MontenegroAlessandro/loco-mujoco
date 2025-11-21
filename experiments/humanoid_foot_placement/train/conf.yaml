@@ -38,7 +38,7 @@ experiment:
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
-      gait_height: 0.05 
+      gait_height: 0.2 
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
@@ -317,10 +317,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 200e6
+      total_timesteps: 300e6
       num_curriculum_steps: 1
       num_environments: 8192
-      num_total_timesteps: 200e6
+      num_total_timesteps: 300e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -432,7 +432,7 @@ experiment:
   len_obs_history: 1
   num_envs: 8192
   num_steps: 50
-  total_timesteps: 200e6
+  total_timesteps: 300e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995

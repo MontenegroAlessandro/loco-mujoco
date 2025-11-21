@@ -1148,7 +1148,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             swing_desired_gait_height = swing_target_pos[2] + goal_state.gait_height
             stance_desired_gait_height = env._terrain.get_height_at_xy(carry.terrain_state, stance_curr_pos[:2], backend)
             swing_above_desired_height = (swing_curr_pos[2] >= swing_desired_gait_height)
-            stance_on_ground = (stance_curr_pos[2] <= (stance_desired_gait_height + goal_state.gait_height))
+            stance_on_ground = (stance_curr_pos[2] <= (stance_desired_gait_height + 0.05))
             
             l_foot_cond, r_foot_cond = jax.lax.cond(
                 swing_foot_idx == 0,
@@ -1157,8 +1157,8 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             )
             
             feet_swing_reward = (
-                (left_swing & l_foot_cond).astype(backend.float32) +
-                (right_swing & r_foot_cond).astype(backend.float32)
+                (left_swing & ~feet_on_ground[0] & l_foot_cond).astype(backend.float32) +
+                (right_swing & ~feet_on_ground[1] & r_foot_cond).astype(backend.float32)
             )
         else:
             # feet_swing_reward = (

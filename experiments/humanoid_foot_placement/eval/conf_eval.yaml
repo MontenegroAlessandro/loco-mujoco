@@ -33,7 +33,7 @@ experiment:
       # Range for the random step length [min, max] in meters
       xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [20,90] # [-90, 90]
+      angle_range_deg: [-90, 90] # [20,90] # [-90, 90]
       # Range for randomizing the target foot yaw relative to the body
       yaw_range_deg: [-30, 30] # [-20, 20] # [-30, 30]
       # gait frequency target
@@ -46,7 +46,7 @@ experiment:
       direction_range_deg: [-180, 180] # [-180, 180]
       change_direction_range_deg: [10, 10]
       # feet direction range in deg
-      track_movement_only: true # if true remeber to mod how the angles are computed!
+      track_movement_only: false # if true remeber to mod how the angles are computed!
       feet_direction_range_deg: [0,0] # [-180, 180]
       # observation group
       group: [prioritized, policy]

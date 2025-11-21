@@ -53,7 +53,10 @@ def experiment(config: DictConfig):
                 str_overrides.append(f"{key}={value}")
         
         # setup wandb
-        wandb.login()
+        api_key = os.getenv("WANDB_KEY_ALE")
+        if api_key is None:
+            raise RuntimeError("WANDB_KEY_ALE is not set!")
+        wandb.login(key=api_key)
         config_dict = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
 
         # name the run as time stamp + overrides
