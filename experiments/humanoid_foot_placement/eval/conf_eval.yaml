@@ -16,10 +16,17 @@ experiment:
     env_name: MjxBoosterT1
     horizon: 1000
 
-    # terrain_type: ParkourTerrain
-    # terrain_params: {
-    #   feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
-    # }
+    terrain_type: ParkourTerrain
+    terrain_params: {
+      num_boxes: 5,
+      box_length_range: [0.2, 1.0],
+      box_width_range: [0.1, 1.0],
+      box_height_range: [0.05, 0.2],
+      box_x_range: [-2.5, 2.5],
+      box_y_range: [-2.5, 2.5],
+      box_yaw_range: [-180, 180],
+      feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
+    }
 
     terminal_state_type: HeightBasedTerminalStateHandler
 

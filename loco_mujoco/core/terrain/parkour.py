@@ -26,6 +26,9 @@ from loco_mujoco.core.utils.math import (
 @struct.dataclass
 class ParkourTerrainState:
     height_field_raw: Union[np.ndarray, jax.Array]
+    sizes: Union[np.ndarray, jax.Array]
+    positions: Union[np.ndarray, jax.Array]
+    quats: Union[np.ndarray, jax.Array]
 
 
 class ParkourTerrain(DynamicTerrain):
@@ -36,12 +39,12 @@ class ParkourTerrain(DynamicTerrain):
     def __init__(
         self, env: Any,
         num_boxes: int = 5,
-        box_length_range: Tuple[float, float] = (0.2, 1.0),
-        box_width_range: Tuple[float, float] = (0.1, 0.8),
-        box_height_range: Tuple[float, float] = (0.05, 0.5),
-        box_x_range: Tuple[float, float] = (1.0, 5.0),
-        box_y_range: Tuple[float, float] = (-1.0, 1.0),
-        box_yaw_range: Tuple[float, float] = (-np.pi, np.pi),
+        box_length_range: List[float] = [0.2, 1.0],
+        box_width_range: List[float] = [0.1, 0.8],
+        box_height_range: List[float] = [0.05, 0.5],
+        box_x_range: List[float] = [1.0, 5.0],
+        box_y_range: List[float] = [-1.0, 1.0],
+        box_yaw_range: List[float] = [-np.pi, np.pi],
         feet_collision: List[str] = [],
         **kwargs: Any
     ):
@@ -82,7 +85,7 @@ class ParkourTerrain(DynamicTerrain):
         )
         
         # store the geoms for the obstacles
-        self_obstacle_geom_ids = []  # NOTE: these will be added in modify_spec!
+        self._obstacle_geom_ids = []  # NOTE: these will be added in modify_spec!
 
     def init_state(
         self,
@@ -98,7 +101,10 @@ class ParkourTerrain(DynamicTerrain):
         assert_backend_is_supported(backend)
 
         return ParkourTerrainState(
-            height_field_raw=backend.zeros((self.hfield_length, self.hfield_length))
+            height_field_raw=backend.zeros((self.hfield_length, self.hfield_length)),
+            positions=backend.zeros((self.num_boxes, 3)),
+            sizes=backend.zeros((self.num_boxes, 3)),
+            quats=backend.zeros((self.num_boxes, 4))
         )
 
     def modify_spec(self, spec: MjSpec) -> MjSpec:
@@ -154,7 +160,7 @@ class ParkourTerrain(DynamicTerrain):
             wb.add_geom(
                 name=f"obstacle_{i}",
                 type=mujoco.mjtGeom.mjGEOM_BOX,
-                size=(0.1, 0.1, 0.1),       # placeholder; will be overwritten at reset()
+                size=(0.1, 0.1, 0.1),      # placeholder; will be overwritten at reset()
                 pos=(0, 0, 0),             # placeholder
                 quat=(1, 0, 0, 0),         # no rotation
                 group=2,
@@ -227,18 +233,92 @@ class ParkourTerrain(DynamicTerrain):
         """
         assert_backend_is_supported(backend)
         terrain_state = carry.terrain_state
-
+        
+        # sample boxes dimensions
         if backend == jnp:
+            # extract keys
+            key = carry.key
+            key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
+            
+            # sample dimensions
+            sizes_x = jax.random.uniform(
+                subkey1, (self.num_boxes,), minval=self.box_length_range[0], maxval=self.box_length_range[1]
+            )
+            sizes_y = jax.random.uniform(
+                subkey2, (self.num_boxes,), minval=self.box_width_range[0], maxval=self.box_width_range[1]
+            )
+            sizes_z = jax.random.uniform(
+                subkey3, (self.num_boxes,), minval=self.box_height_range[0], maxval=self.box_height_range[1]
+            )
+            
+            # sample positions
+            key, subkey1, subkey2 = jax.random.split(key, 3)
+            pos_x = jax.random.uniform(
+                subkey1, (self.num_boxes,), minval=self.box_x_range[0], maxval=self.box_x_range[1] 
+            )
+            pos_y = jax.random.uniform(
+                subkey2, (self.num_boxes,), minval=self.box_y_range[0], maxval=self.box_y_range[1] 
+            )
+            pos_z = sizes_z / 2 # make them stay on the ground
+            
+            # sample yaws
+            key, subkey = jax.random.split(key, 2)
+            yaws = jax.random.uniform(
+                subkey, (self.num_boxes,), minval=self.box_yaw_range[0], maxval=self.box_yaw_range[1]
+            )
+            # quats = jnp.array([jnp_R.from_euler('z', yw).as_quat(scalar_first=True) for yw in yaws])
+            half_yaw = yaws / 2.0
+            qw = jnp.cos(half_yaw)
+            qz = jnp.sin(half_yaw)
+            q0 = jnp.zeros_like(qw)
+            quats = jnp.stack([qw, q0, q0, qz], axis=1)  # (N, 4) scalar-first
+            
             # flat heightfield = zeros
             height_matrix = jnp.zeros((self.hfield_length, self.hfield_length))
             height_field_raw = self.isaac_hf_to_mujoco_hf(height_matrix, backend)
+            
+            # set the new key
+            carry = carry.replace(key=key)
         else:
+            # do the same as before but in np
+            # ... sizes
+            sizes_x = np.random.uniform(
+                self.box_length_range[0], self.box_length_range[1], size=(self.num_boxes,)
+            )
+            sizes_y = np.random.uniform(
+                self.box_width_range[0], self.box_width_range[1], size=(self.num_boxes,)
+            )
+            sizes_z = np.random.uniform(
+                self.box_height_range[0], self.box_height_range[1], size=(self.num_boxes,)
+            )
+            
+            # ... positions
+            pos_x = np.random.uniform(
+               self.box_x_range[0], self.box_x_range[1], size=(self.num_boxes,)
+            )
+            pos_y = np.random.uniform(
+               self.box_y_range[0], self.box_y_range[1], size=(self.num_boxes,)
+            )
+            pos_z = sizes_z / 2 # make them stay on the ground
+            
+            #... quats
+            yaws = np.random.uniform(
+                self.box_yaw_range[0], self.box_yaw_range[1], size=(self.num_boxes,)
+            )
+            quats = np.array([np_R.from_euler('z', yw).as_quat(scalar_first=True) for yw in yaws])
+            
+            # flat height field
             height_matrix = np.zeros((self.hfield_length, self.hfield_length))
             height_field_raw = self.isaac_hf_to_mujoco_hf(height_matrix, backend)
 
-        terrain_state = terrain_state.replace(height_field_raw=height_field_raw)
+        # update the terrain state
+        terrain_state = terrain_state.replace(
+            height_field_raw=height_field_raw,
+            positions=backend.stack([pos_x, pos_y, pos_z], axis=1),
+            sizes=backend.stack([sizes_x, sizes_y, sizes_z], axis=1),
+            quats=quats
+        )
         carry = carry.replace(terrain_state=terrain_state)
-
         return data, carry
 
     def update(
@@ -250,21 +330,100 @@ class ParkourTerrain(DynamicTerrain):
         backend: ModuleType,
     ) -> Tuple[Union[MjModel, Model], Union[MjData, Data], Any]:
         """
-        Update the Mujoco MJX model with the current heightfield.
-
-        The step geom is static (only in the spec), so we don't touch geoms here.
+        Update the Mujoco MJX model with the current heightfield and obstacle geoms.
         """
         assert_backend_is_supported(backend)
         terrain_state = carry.terrain_state
 
-        # push heightfield into model.hfield_data
-        model = self._set_attribute_in_model(
-            model, "hfield_data", terrain_state.height_field_raw, backend
-        )
+        # ----- update obstacle geoms -----
+        if backend == jnp:
+            # JAX: use .at[...] to keep things JIT-friendly
+            geom_size = model.geom_size
+            geom_pos = model.geom_pos
+            geom_quat = model.geom_quat
+
+            for local_id, geom_id in enumerate(self._obstacle_geom_ids):
+                # MuJoCo stores half-sizes in geom_size
+                fullsize = terrain_state.sizes[local_id] / 2.0
+                pos_xyz = terrain_state.positions[local_id]
+                quat = terrain_state.quats[local_id]
+
+                geom_size = geom_size.at[geom_id].set(fullsize)
+                geom_pos = geom_pos.at[geom_id].set(pos_xyz)
+                geom_quat = geom_quat.at[geom_id].set(quat)
+
+            model = model.replace(
+                geom_pos=geom_pos, 
+                geom_size=geom_size, 
+                geom_quat=geom_quat, 
+                hfield_data=terrain_state.height_field_raw
+            )
+        else:
+            # NumPy backend: just assign in-place
+            for local_id, geom_id in enumerate(self._obstacle_geom_ids):
+                fullsize = terrain_state.sizes[local_id] / 2.0
+                pos_xyz = terrain_state.positions[local_id]
+                quat = terrain_state.quats[local_id]
+
+                model.geom_size[geom_id] = np.asarray(fullsize)
+                model.geom_pos[geom_id] = np.asarray(pos_xyz)
+                model.geom_quat[geom_id] = np.asarray(quat)
+            model.hfield_data = np.asarray(terrain_state.height_field_raw)
+
         data = self._reset_on_edge(data, backend)
         return model, data, carry
 
     def get_height_at_xy(
+        self,
+        terrain_state: ParkourTerrainState,
+        xy_pos: Union[np.ndarray, jnp.ndarray],
+        backend: ModuleType,
+    ):
+        assert_backend_is_supported(backend)
+
+        x, y = xy_pos[0], xy_pos[1]
+        floor_h = self._floor_height
+
+        centers = terrain_state.positions      # (N, 3)
+        sizes   = terrain_state.sizes          # (N, 3)
+        quats   = terrain_state.quats          # (N, 4), scalar-first
+
+        if centers.shape[0] == 0:
+            # no obstacles
+            return floor_h
+
+        # extract yaw from quats (assuming z-rotation only)
+        w = quats[:, 0]
+        z = quats[:, 3]
+        yaw = 2.0 * backend.atan2(z, w)        # (N,)
+
+        # rotate world point into each box local frame (inverse yaw)
+        cos_y = backend.cos(-yaw)
+        sin_y = backend.sin(-yaw)
+
+        dx = x - centers[:, 0]
+        dy = y - centers[:, 1]
+
+        lx = dx * cos_y - dy * sin_y
+        ly = dx * sin_y + dy * cos_y
+
+        hx = sizes[:, 0] / 2.0
+        hy = sizes[:, 1] / 2.0
+        hz = sizes[:, 2] / 2.0
+
+        inside_x = backend.abs(lx) <= hx
+        inside_y = backend.abs(ly) <= hy
+        inside   = inside_x & inside_y
+
+        top = centers[:, 2] + hz
+
+        # mask boxes that don't cover (x,y)
+        masked_tops = backend.where(inside, top, -1e9)
+        max_top = backend.max(masked_tops)
+
+        return backend.maximum(floor_h, max_top)
+
+    def old_get_height_at_xy(
         self,
         terrain_state: ParkourTerrainState,
         xy_pos: Union[np.ndarray, jnp.ndarray],

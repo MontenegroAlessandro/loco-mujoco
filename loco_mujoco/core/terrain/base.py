@@ -211,5 +211,5 @@ class Terrain(StatefulObject):
             xy_pos: Union[np.ndarray, jnp.ndarray], 
             backend: ModuleType
         ) -> Any:
-        # to be implemneted by inheritign classes
+        # to be implemneted by inheriting classes
         return 0
