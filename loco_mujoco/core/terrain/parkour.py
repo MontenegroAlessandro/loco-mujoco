@@ -21,6 +21,7 @@ from loco_mujoco.core.utils.math import (
     quat_scalarfirst2scalarlast,
     quat_scalarlast2scalarfirst
 )
+import copy
 
 
 @struct.dataclass
@@ -46,6 +47,7 @@ class ParkourTerrain(DynamicTerrain):
         box_y_range: List[float] = [-1.0, 1.0],
         box_yaw_range: List[float] = [-np.pi, np.pi],
         feet_collision: List[str] = [],
+        inner_platform_size: float = 1.0,
         **kwargs: Any
     ):
         # super class initialization
@@ -60,6 +62,7 @@ class ParkourTerrain(DynamicTerrain):
         self.box_y_range = box_y_range
         self.box_yaw_range = box_yaw_range
         self.feet_collision = feet_collision
+        self.inner_platform_size = inner_platform_size
         
         # hfield parameters
         self.hfield_size = (4, 4, 0.01, 0.1)  # (sx, sy, sz, thickness)
@@ -86,6 +89,7 @@ class ParkourTerrain(DynamicTerrain):
         
         # store the geoms for the obstacles
         self._obstacle_geom_ids = []  # NOTE: these will be added in modify_spec!
+        self._obstacle_body_ids = []
 
     def init_state(
         self,
@@ -108,14 +112,7 @@ class ParkourTerrain(DynamicTerrain):
         )
 
     def modify_spec(self, spec: MjSpec) -> MjSpec:
-        """
-        Modify the Mujoco spec:
-
-        - add a heightfield 'parkour_terrain'
-        - replace original floor with a hfield-based floor
-        - add one box geom as the step in front of the robot
-        """
-        # heightfield
+        # =================================================HEIGHTFIELD=================================================
         file_name = (
             Path(__file__).resolve().parent.parent.parent
             / "models"
@@ -154,20 +151,32 @@ class ParkourTerrain(DynamicTerrain):
             conaffinity=0,
         )
         
-        # add plaemhoder geoms for the boxes
+        # ==================================================OBSTACLEs==================================================
         # this part is only needed for initialization, then the boxes will be added when doing the reset
         for i in range(self.num_boxes):
             wb.add_geom(
                 name=f"obstacle_{i}",
                 type=mujoco.mjtGeom.mjGEOM_BOX,
-                size=(0.1, 0.1, 0.1),      # placeholder; will be overwritten at reset()
-                pos=(0, 0, 0),             # placeholder
-                quat=(1, 0, 0, 0),         # no rotation
+                size=(0.1, 0.1, 0.1),   # *      
+                pos=(0., 0., 0.1),      # **             
+                quat=(1, 0, 0, 0),     
                 group=2,
                 rgba=(0.8, 0.2, 0.2, 1.0),
                 contype=0,
                 conaffinity=0,
             )
+        
+        """
+        Footnotes:
+        *: if the specified size would have been (0,0,0), then mujoco would have complained. We set a "fake" size and 
+        then we will update it at reset time.
+        
+        **: the initial position cannot be (0,0,0), otherwise we would have rendering issues. In particular, if the 
+        initial position is (0,0,0), then mujoco would add to that geom an attirbute "SAME_FRAME=1". In that case,
+        when we modify the model "geom_pos", "geom_size", and "geom_quat", they will not be updated in the data, since 
+        the "forward" method called by the visualizer is filtering out certain geometries with certain values for
+        the "SAME_FRAME". If the initial position is not exactly (0,0,0), then "SAME_FRAME=3", and we are happy.
+        """
         
         # add ids
         self._obstacle_geom_ids = []
@@ -175,46 +184,13 @@ class ParkourTerrain(DynamicTerrain):
             if geom.name.startswith("obstacle_"):
                 self._obstacle_geom_ids.append(i)
         
+        # =================================================COLLISIONs=================================================
         # add collisions
         if len(self.feet_collision) > 0:
             for foot_geom in self.feet_collision:
                 spec.add_pair(geomname1=foot_geom, geomname2="floor")
                 for i in range(self.num_boxes):
                     spec.add_pair(geomname1=foot_geom, geomname2=f"obstacle_{i}")
-
-        # NOTE: remove
-        # # add the step as a box geom
-        # # MuJoCo expects half sizes in geom.size
-        # hx = self.step_length / 2.0
-        # hy = self.step_width / 2.0
-        # hz = self.step_height / 2.0
-
-        # # place step: front face at x = step_distance
-        # # so center = step_distance + hx
-        # step_center_x = self.step_distance + hx
-        # step_center_y = 0.0
-        # step_center_z = self._floor_height + hz
-
-        # wb.add_geom(
-        #     name="step",
-        #     type=mujoco.mjtGeom.mjGEOM_BOX,
-        #     size=(hx, hy, hz),
-        #     pos=(step_center_x, step_center_y, step_center_z),
-        #     material="MatPlane",
-        #     group=2,
-        #     rgba=(1.0, 0.2, 0.2, 1.0),
-        #     contype=0,
-        #     conaffinity=0,
-        # )
-        
-        # # add collisions
-        # # spec.add_pair(geomname1="floor", geomname2="step")
-        # if len(self.feet_collision) > 0:
-        #     for foot_geom in self.feet_collision:
-        #         spec.add_pair(geomname1=foot_geom, geomname2="step")
-        #         spec.add_pair(geomname1=foot_geom, geomname2="floor")
-        # NOTE: end remove
-
         return spec
 
     def reset(
@@ -256,9 +232,11 @@ class ParkourTerrain(DynamicTerrain):
             pos_x = jax.random.uniform(
                 subkey1, (self.num_boxes,), minval=self.box_x_range[0], maxval=self.box_x_range[1] 
             )
+            pos_x = self.clip_to_platform(pos_x, backend)
             pos_y = jax.random.uniform(
                 subkey2, (self.num_boxes,), minval=self.box_y_range[0], maxval=self.box_y_range[1] 
             )
+            pos_y = self.clip_to_platform(pos_y, backend)
             pos_z = sizes_z / 2 # make them stay on the ground
             
             # sample yaws
@@ -285,9 +263,11 @@ class ParkourTerrain(DynamicTerrain):
             sizes_x = np.random.uniform(
                 self.box_length_range[0], self.box_length_range[1], size=(self.num_boxes,)
             )
+            pos_x = self.clip_to_platform(pos_x, backend)
             sizes_y = np.random.uniform(
                 self.box_width_range[0], self.box_width_range[1], size=(self.num_boxes,)
             )
+            pos_y = self.clip_to_platform(pos_y, backend)
             sizes_z = np.random.uniform(
                 self.box_height_range[0], self.box_height_range[1], size=(self.num_boxes,)
             )
@@ -337,10 +317,10 @@ class ParkourTerrain(DynamicTerrain):
 
         # ----- update obstacle geoms -----
         if backend == jnp:
-            # JAX: use .at[...] to keep things JIT-friendly
             geom_size = model.geom_size
             geom_pos = model.geom_pos
             geom_quat = model.geom_quat
+            
 
             for local_id, geom_id in enumerate(self._obstacle_geom_ids):
                 # MuJoCo stores half-sizes in geom_size
@@ -359,7 +339,6 @@ class ParkourTerrain(DynamicTerrain):
                 hfield_data=terrain_state.height_field_raw
             )
         else:
-            # NumPy backend: just assign in-place
             for local_id, geom_id in enumerate(self._obstacle_geom_ids):
                 fullsize = terrain_state.sizes[local_id] / 2.0
                 pos_xyz = terrain_state.positions[local_id]
@@ -422,6 +401,13 @@ class ParkourTerrain(DynamicTerrain):
         max_top = backend.max(masked_tops)
 
         return backend.maximum(floor_h, max_top)
+
+    def clip_to_platform(self, v: Union[np.ndarray, jax.Array], backend) -> Union[np.ndarray, jax.Array]:
+        """
+        This func outputs a position vector v clipped to respect the flat area at the robot initialization specified 
+        by the attribute "self.inner_platform_size."
+        """
+        return backend.sign(v) * backend.clip(backend.abs(v), a_min=self.inner_platform_size, a_max=None)
 
     def old_get_height_at_xy(
         self,

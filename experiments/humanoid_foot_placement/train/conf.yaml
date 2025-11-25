@@ -47,6 +47,8 @@ experiment:
       # feet direction range in deg
       track_movement_only: false
       feet_direction_range_deg: [0,0] # [-180, 180]
+      # still proportion
+      still_proportion: 0.05
       # observation group
       group: [prioritized, policy]
     
@@ -220,16 +222,16 @@ experiment:
       clip_actions: 1.0
       
       p_gain: 
-        - 40 # AAHead_yaw
-        - 40 # Head_pitch
-        - 40 # Left_Shoulder_Pitch
-        - 40 # Left_Shoulder_Roll
-        - 40 # Left_Elbow_Pitch
-        - 40 # Left_Elbow_Yaw
-        - 40 # Right_Shoulder_Pitch
-        - 40 # Right_Shoulder_Roll
-        - 40 # Right_Elbow_Pitch
-        - 40 # Right_Elbow_Yaw
+        - 20 # 40 # AAHead_yaw
+        - 20 # 40 # Head_pitch
+        - 20 # 40 # Left_Shoulder_Pitch
+        - 20 # 40 # Left_Shoulder_Roll
+        - 20 # 40 # Left_Elbow_Pitch
+        - 20 # 40 # Left_Elbow_Yaw
+        - 20 # 40 # Right_Shoulder_Pitch
+        - 20 # 40 # Right_Shoulder_Roll
+        - 20 # 40 # Right_Elbow_Pitch
+        - 20 # 40 # Right_Elbow_Yaw
         - 200 # Waist
         - 200 # Left_Hip_Pitch
         - 200 # Left_Hip_Roll
@@ -245,29 +247,29 @@ experiment:
         - 50 # Right_Ankle_Roll
 
       d_gain:
-        - 2.0 # AAHead_yaw
-        - 2.0 # Head_pitch
-        - 2.0 # Left_Shoulder_Pitch
-        - 2.0 # Left_Shoulder_Roll
-        - 2.0 # Left_Elbow_Pitch
-        - 2.0 # Left_Elbow_Yaw
-        - 2.0 # Right_Shoulder_Pitch
-        - 2.0 # Right_Shoulder_Roll
-        - 2.0 # Right_Elbow_Pitch
-        - 2.0 # Right_Elbow_Yaw
+        - 0.2 # 2.0 # AAHead_yaw
+        - 0.2 # 2.0 # Head_pitch
+        - 0.5 # 2.0 # Left_Shoulder_Pitch
+        - 0.5 # 2.0 # Left_Shoulder_Roll
+        - 0.5 # 2.0 # Left_Elbow_Pitch
+        - 0.5 # 2.0 # Left_Elbow_Yaw
+        - 0.5 # 2.0 # Right_Shoulder_Pitch
+        - 0.5 # 2.0 # Right_Shoulder_Roll
+        - 0.5 # 2.0 # Right_Elbow_Pitch
+        - 0.5 # 2.0 # Right_Elbow_Yaw
         - 5.0 # Waist
         - 5.0 # Left_Hip_Pitch
         - 5.0 # Left_Hip_Roll
         - 5.0 # Left_Hip_Yaw
         - 5.0 # Left_Knee_Pitch
-        - 1.0 # Left_Ankle_Pitch
-        - 1.0 # Left_Ankle_Roll
+        - 3.0 # 1.0 # Left_Ankle_Pitch
+        - 3.0 # 1.0 # Left_Ankle_Roll
         - 5.0 # Right_Hip_Pitch
         - 5.0 # Right_Hip_Roll
         - 5.0 # Right_Hip_Yaw
         - 5.0 # Right_Knee_Pitch
-        - 1.0 # Right_Ankle_Pitch
-        - 1.0 # Right_Ankle_Roll
+        - 3.0 # 1.0 # Right_Ankle_Pitch
+        - 3.0 # 1.0 # Right_Ankle_Roll
 
       nominal_joint_positions:
         - 0.0 # AAHead_yaw
@@ -319,7 +321,7 @@ experiment:
 
       total_timesteps: 600e6
       num_curriculum_steps: 1
-      num_environments: 8192
+      num_environments: 4096 # 8192
       num_total_timesteps: 600e6
       # gravity
       randomize_gravity: true
@@ -430,7 +432,7 @@ experiment:
   kl_margin: 1.5          # Margin for scaling (e.g., if KL > 0.02*1.5, decrease LR)
   kl_lr_scale: 1.5        # How much to scale LR by (multiply or divide)
   len_obs_history: 1
-  num_envs: 8192
+  num_envs: 4096 # 8192
   num_steps: 50
   total_timesteps: 600e6
   update_epochs: 20

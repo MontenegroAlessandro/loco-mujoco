@@ -8,10 +8,12 @@ from flax import struct
 import numpy as np
 import jax
 import jax.numpy as jnp
+import copy
 
 from loco_mujoco.core.mujoco_base import Mujoco, AdditionalCarry
 from loco_mujoco.core.visuals import MujocoViewer
 from loco_mujoco.trajectory import TrajectoryData
+from loco_mujoco.core.terrain import ParkourTerrain
 
 
 @struct.dataclass
@@ -529,8 +531,16 @@ class Mjx(Mujoco):
             assert hasattr(terrain_state, "height_field_raw"), "Terrain state does not have height_field_raw."
             assert self._terrain.hfield_id is not None, "Terrain hfield id is not set."
             hfield_data = np.array(terrain_state.height_field_raw)
-            self._model.hfield_data = hfield_data[0]
-            self._viewer.upload_hfield(self._model, hfield_id=self._terrain.hfield_id)
+            model = copy.deepcopy(self._model)
+            model.hfield_data = hfield_data[0]
+            self._viewer.upload_hfield(model, hfield_id=self._terrain.hfield_id)
+            
+            # check if we need to update the visuals, just in the case of the Parkour terrain
+            if isinstance(self._terrain, ParkourTerrain):
+                model.geom_pos[self._terrain._obstacle_geom_ids] = np.array(terrain_state.positions)
+                model.geom_size[self._terrain._obstacle_geom_ids] = np.array(terrain_state.sizes) / 2.
+                model.geom_quat[self._terrain._obstacle_geom_ids] = np.array(terrain_state.quats)
+                self.viewer.load_new_model(model)
 
         return self._viewer.parallel_render(state, record)
 
