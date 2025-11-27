@@ -74,7 +74,7 @@ experiment:
       gait_height_coeff: 1.0
       # other tracking rewards
       tracking_nominal_joint_pos_exp: 4.0
-      tracking_nominal_joint_pos_coeff: 0.5 # 0.0
+      tracking_nominal_joint_pos_coeff: 4 # 0.0
       tracking_nominal_joint_pos_names: 
         - AAHead_yaw
         - Head_pitch
@@ -321,7 +321,7 @@ experiment:
 
       total_timesteps: 600e6
       num_curriculum_steps: 1
-      num_environments: 4096 # 8192
+      num_environments: 8192
       num_total_timesteps: 600e6
       # gravity
       randomize_gravity: true
@@ -432,7 +432,7 @@ experiment:
   kl_margin: 1.5          # Margin for scaling (e.g., if KL > 0.02*1.5, decrease LR)
   kl_lr_scale: 1.5        # How much to scale LR by (multiply or divide)
   len_obs_history: 1
-  num_envs: 4096 # 8192
+  num_envs: 8192
   num_steps: 50
   total_timesteps: 600e6
   update_epochs: 20

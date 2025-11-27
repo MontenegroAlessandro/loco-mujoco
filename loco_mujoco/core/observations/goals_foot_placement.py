@@ -1191,8 +1191,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 left_orn_targ,
                 right_pos_targ,
                 right_orn_targ,
-                backend.array([backend.cos(2 * backend.pi * gp) * (state.gait_frequency > 1.0e-8),
-                backend.sin(2 * backend.pi * gp) * (state.gait_frequency > 1.0e-8)])
+                backend.array([backend.cos(2 * backend.pi * gp), #  * (state.gait_frequency > 1.0e-8),
+                backend.sin(2 * backend.pi * gp)]) # * (state.gait_frequency > 1.0e-8)])
             ]
         )
 

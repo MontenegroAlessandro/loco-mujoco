@@ -1,0 +1,180 @@
+    
+# Configuration for deploying the H1 policy in a MuJoCo simulation.
+# Name: deploy_mujoco_config_h1_dfki.yaml
+# Updated with parameters and correct joint limits for a 23 DoF robot model.
+
+# policy parameters
+agent_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/G1/puze.pkl 
+train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
+train_config_name: conf_g1.yaml
+# --- Simulation Parameters ---
+xml_path: /home/alessandro/code/loco-mujoco/loco_mujoco/models/unitree_g1/g1_29dof_original.xml
+simulation_duration: 300.0 # seconds
+simulation_dt: 0.002 # seconds, physics timestep
+control_decimation: 10 # policy will run every N physics steps (policy freq = 1 / (dt * decimation))
+
+# --- PD Control Gains (for 29 actuated joints) ---
+lmj_kps:
+  - 100
+  - 100
+  - 100
+  - 150 
+  - 20
+  - 20
+  - 100
+  - 100
+  - 100
+  - 150 
+  - 20
+  - 20
+  - 100 # waist yaw
+  - 100 # waist roll
+  - 100 # waist pitch
+  - 30
+  - 30
+  - 30
+  - 30
+  - 30
+  - 10
+  - 10
+  - 30
+  - 30
+  - 30
+  - 30
+  - 30
+  - 10
+  - 10
+lmj_kds:
+  - 2
+  - 2
+  - 2
+  - 3
+  - 1
+  - 1
+  - 2
+  - 2
+  - 2
+  - 3
+  - 1
+  - 1
+  - 3
+  - 3
+  - 3
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+# --- Robot Pose and Limits (29 joints) ---
+default_angles:
+  - -0.1 # - left_hip_pitch_joint
+  - 0.0 # - left_hip_roll_joint
+  - 0.0 # - left_hip_yaw_joint
+  - 0.3  # - left_knee_joint
+  - -0.2  # - left_ankle_pitch_joint
+  - 0.0  # - left_ankle_roll_joint
+  - -0.1  # - right_hip_pitch_joint
+  - 0.0  # - right_hip_roll_joint
+  - 0.0  # - right_hip_yaw_joint
+  - 0.3  # - right_knee_joint
+  - -0.2  # - right_ankle_pitch_joint
+  - 0.0  # - right_ankle_roll_joint
+  - 0.0  # - waist_yaw_joint
+  - 0.0  # - waist_roll_joint
+  - 0.0  # - waist_pitch_joint
+  - 0.0  # - left_shoulder_pitch_joint
+  - 0.2  # - left_shoulder_roll_joint
+  - 0.0  # - left_shoulder_yaw_joint
+  - 1.5  # - left_elbow_joint
+  - 0.0  # - left_wrist_roll_joint
+  - 0.0  # - left_wrist_pitch_joint
+  - 0.0  # - left_wrist_yaw_joint
+  - 0.0  # - right_shoulder_pitch_joint
+  - -0.2  # - right_shoulder_roll_joint
+  - 0.0  # - right_shoulder_yaw_joint
+  - 1.5  # - right_elbow_joint
+  - 0.0  # - right_wrist_roll_joint
+  - 0.0  # - right_wrist_pitch_joint
+  - 0.0  # - right_wrist_yaw_joint
+
+min_angles:
+  - -2.0 # - left_hip_pitch_joint
+  - -2.0 # - left_hip_roll_joint
+  - -2.0 # - left_hip_yaw_joint
+  - -2.0  # - left_knee_joint
+  - -2.0  # - left_ankle_pitch_joint
+  - -2.0  # - left_ankle_roll_joint
+  - -2.0  # - right_hip_pitch_joint
+  - -2.0  # - right_hip_roll_joint
+  - -2.0  # - right_hip_yaw_joint
+  - -2.0  # - right_knee_joint
+  - -2.0  # - right_ankle_pitch_joint
+  - -2.0  # - right_ankle_roll_joint
+  - -2.0  # - waist_yaw_joint
+  - -2.0  # - waist_roll_joint
+  - -2.0  # - waist_pitch_joint
+  - -2.0  # - left_shoulder_pitch_joint
+  - -2.0  # - left_shoulder_roll_joint
+  - -2.0  # - left_shoulder_yaw_joint
+  - -2.0  # - left_elbow_joint
+  - -2.0  # - left_wrist_roll_joint
+  - -2.0  # - left_wrist_pitch_joint
+  - -2.0  # - left_wrist_yaw_joint
+  - -2.0  # - right_shoulder_pitch_joint
+  - -2.0  # - right_shoulder_roll_joint
+  - -2.0  # - right_shoulder_yaw_joint
+  - -2.0  # - right_elbow_joint
+  - -2.0  # - right_wrist_roll_joint
+  - -2.0  # - right_wrist_pitch_joint
+  - -2.0  # - right_wrist_yaw_joint
+
+max_angles:
+  - 2.0 # - left_hip_pitch_joint
+  - 2.0 # - left_hip_roll_joint
+  - 2.0 # - left_hip_yaw_joint
+  - 2.0  # - left_knee_joint
+  - 2.0  # - left_ankle_pitch_joint
+  - 2.0  # - left_ankle_roll_joint
+  - 2.0  # - right_hip_pitch_joint
+  - 2.0  # - right_hip_roll_joint
+  - 2.0  # - right_hip_yaw_joint
+  - 2.0  # - right_knee_joint
+  - 2.0  # - right_ankle_pitch_joint
+  - 2.0  # - right_ankle_roll_joint
+  - 2.0  # - waist_yaw_joint
+  - 2.0  # - waist_roll_joint
+  - 2.0  # - waist_pitch_joint
+  - 2.0  # - left_shoulder_pitch_joint
+  - 2.0  # - left_shoulder_roll_joint
+  - 2.0  # - left_shoulder_yaw_joint
+  - 2.0  # - left_elbow_joint
+  - 2.0  # - left_wrist_roll_joint
+  - 2.0  # - left_wrist_pitch_joint
+  - 2.0  # - left_wrist_yaw_joint
+  - 2.0  # - right_shoulder_pitch_joint
+  - 2.0  # - right_shoulder_roll_joint
+  - 2.0  # - right_shoulder_yaw_joint
+  - 2.0  # - right_elbow_joint
+  - 2.0  # - right_wrist_roll_joint
+  - 2.0  # - right_wrist_pitch_joint
+  - 2.0  # - right_wrist_yaw_joint
+
+# --- Policy Parameters ---
+num_actions: 29 # Base number of actions (one per joint). Script will handle varstiff extension.
+
+# --- Command Parameters (for generating the `cmd` vector) ---
+# These are default command values. The valid ranges are in the comments.
+command:
+  distance: 0.2
+  gait_frequency: 1.0   # Target gait frequency in Hz (Range: 0.5 to 1.5)
+
+  

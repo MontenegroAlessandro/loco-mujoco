@@ -124,7 +124,7 @@ if __name__ == "__main__":
     # Initialize Hydra to access environment config used during training
     # The config_path should point to the directory containing your hydra config files
     # hydra.initialize(config_path="./") # Adjust path if your hydra config is elsewhere
-    hydra.initialize(config_path="../train/")
+    hydra.initialize(config_path="./")
     # lmj_hydra_config = hydra.compose(config_name="conf_t1") # Use the appropriate config name
     lmj_hydra_config = hydra.compose(config_name="conf")
 

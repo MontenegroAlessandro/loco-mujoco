@@ -11,7 +11,7 @@ from loco_mujoco.utils import MetricsHandler
 
 job_timestamp_str = "EVAL: " + time.strftime("%Y-%m-%d/%H-%M-%S", time.localtime())
 
-@hydra.main(version_base=None, config_path="./", config_name="conf_eval")
+@hydra.main(version_base=None, config_path="./", config_name="conf_eval_g1")
 def experiment(config: DictConfig):
 
     os.environ['XLA_FLAGS'] = (
@@ -79,7 +79,7 @@ def experiment(config: DictConfig):
         agent_state, 
         deterministic=True, 
         n_steps=1000, 
-        n_envs=1, 
+        n_envs=10, 
         record=True,
         train_state_seed=0
     )

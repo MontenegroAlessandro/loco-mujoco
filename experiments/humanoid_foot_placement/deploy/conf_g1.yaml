@@ -3,30 +3,22 @@ defaults:
   - _self_
 
 wandb:
-  project: "BoosterT1 Foot Placement - Eval"
+  project: "Foot Placement"
   note: ""
-  log: false
 
 experiment:
-  agent_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/puze3.pkl 
   task_factory:
     name: RLFactory
     params: {}
   env_params:
-    env_name: MjxBoosterT1
+    env_name: MjxUnitreeG1
     horizon: 1000
 
-    # terrain_type: ParkourTerrain
-    # terrain_params: {
-    #   num_boxes: 5,
-    #   box_length_range: [0.2, 1.0],
-    #   box_width_range: [0.1, 1.0],
-    #   box_height_range: [0.05, 0.2],
-    #   box_x_range: [-2.5, 2.5],
-    #   box_y_range: [-2.5, 2.5],
-    #   box_yaw_range: [-180, 180],
-    #   feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
-    # }
+    # terrain_type: StonesHolesTerrain
+    # terrain_params: 
+    #   patch_size: 0.5
+    #   height_range: [-0.05, 0.05]
+    #   inner_platform_size_in_meters: 0.5
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
@@ -40,26 +32,26 @@ experiment:
       # Range for the random step length [min, max] in meters
       xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [-90, 90] # [20,90] # [-90, 90]
+      angle_range_deg: [-90, 90] # [-20, 20] # [20, 90] 
       # Range for randomizing the target foot yaw relative to the body
       yaw_range_deg: [-30, 30] # [-20, 20] # [-30, 30]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
-      gait_height: 0.05 
+      gait_height: 0.06 
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
       direction_range_deg: [-180, 180] # [-180, 180]
       change_direction_range_deg: [0, 0]
       # feet direction range in deg
-      track_movement_only: false # if true remeber to mod how the angles are computed!
+      track_movement_only: false
       feet_direction_range_deg: [0,0] # [-180, 180]
+      # still proportion
+      still_proportion: 0.05
       # observation group
-      still_proportion: 1.0
       group: [prioritized, policy]
     
-
     headless: true
 
     reward_type: CrispBoosterLocomotionFootPlacementReward
@@ -67,55 +59,68 @@ experiment:
       goal_name: GoalDoubleFootPlacement # GoalRandomChangingFootPlacement 
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
-      survival: 0.25
       # feet tracking rewards
       swing_pos_w: 4.0 # 4.0 # 1.0
-      swing_orn_w: 2.0 # 3.0 # 1.0
-      stance_pos_w: 2.0 # 1.0
-      stance_orn_w: 2.0 # 1.0
-      sharp_pos: 100 # 50 # 10
-      sharp_orn: 100 # 10
-      stance_sharp_pos: 100
-      stance_sharp_orn: 100 
-      # other tracking rewards
+      swing_orn_w: 4.0 # 2.0 # 3.0 # 1.0
+      stance_pos_w: 4.0 # 1.0
+      stance_orn_w: 4.0 # 1.0
+      sharp_pos: 100.0 # 50 # 10
+      sharp_orn: 100.0 # 10
+      stance_sharp_pos: 100.0
+      stance_sharp_orn: 100.0 
+      # gait
+      gait_height_sharp: 1.0
+      gait_height_coeff: 1.0
+      survival: 0.25
+      # tracking rewards
+      # tracking_w_exp_linvel_x: 4
+      # tracking_w_sum_linvel_x: 1.5
+      # tracking_w_exp_linvel_y: 4
+      # tracking_w_sum_linvel_y: 1.5
+      # tracking_w_exp_angvel: 4
+      # tracking_w_sum_angvel: 1.0
       tracking_nominal_joint_pos_exp: 4
-      tracking_nominal_joint_pos_coeff: 0
+      tracking_nominal_joint_pos_coeff: 1 # 0
       tracking_nominal_joint_pos_names: 
-        - AAHead_yaw
-        - Head_pitch
-        - Left_Shoulder_Pitch
-        - Left_Shoulder_Roll
-        - Left_Elbow_Pitch
-        - Left_Elbow_Yaw
-        - Right_Shoulder_Pitch
-        - Right_Shoulder_Roll
-        - Right_Elbow_Pitch
-        - Right_Elbow_Yaw
-        - Waist
-        - Right_Ankle_Roll
-        - Left_Ankle_Roll
+        - waist_yaw_joint
+        - waist_roll_joint
+        - waist_pitch_joint
+        - left_shoulder_pitch_joint
+        - left_shoulder_roll_joint
+        - left_shoulder_yaw_joint
+        - left_elbow_joint
+        - left_wrist_roll_joint
+        - left_wrist_pitch_joint
+        - left_wrist_yaw_joint
+        - right_shoulder_pitch_joint
+        - right_shoulder_roll_joint
+        - right_shoulder_yaw_joint
+        - right_elbow_joint
+        - right_wrist_roll_joint
+        - right_wrist_pitch_joint
+        - right_wrist_yaw_joint
       # penalties
       joint_deviation_l1_coeff: -0.3
-      base_height_target: 0.68
-      base_height_coeff: -10.
-      orientation_coeff: -5.
-      joint_torque_coeff: -2.e-4
-      torque_tiredness_coeff: 0.0
-      energy_coeff: -2.e-3
+      base_height_target: 0.78
+      base_height_coeff: -5
+      orientation_coeff: -2
+      joint_torque_coeff: -1e-5
+      torque_tiredness_coeff: 0
+      energy_coeff: -1e-4
       z_vel_coeff: -0.0
-      roll_pitch_vel_coeff: -0.2
-      joint_vel_coeff: -9.e-4 # -1.e-4
-      joint_acc_coeff: -1.e-7
-      root_acc_coeff: -1.e-4
-      action_rate_coeff: -1.
+      roll_pitch_vel_coeff: -0.1
+      joint_vel_coeff: -1e-4
+      joint_acc_coeff: -1e-7
+      root_acc_coeff: -5e-6
+      action_rate_coeff: -0.25
       joint_position_limit_scale: 0.98
-      joint_position_limit_coeff: -1.
+      joint_position_limit_coeff: -5.0
       feet_slip_coeff: -0.1
-      feet_yaw_diff_coeff: 0.0 # -1.0 # -0.5
-      feet_yaw_mean_coeff: 0.0 # -1.0 # -0.5
-      feet_roll_coeff: -4.0 # -0.1
-      feet_distance_target: 0.2
-      feet_swing_coeff: 6 # 3.
+      feet_yaw_diff_coeff: 0.0
+      feet_yaw_mean_coeff: 0.0
+      feet_roll_coeff: 0.0
+      feet_distance_target: 0.3
+      feet_swing_coeff: 7.0
       feet_swing_period: 0.2
       feet_distance_coeff: 0.0
       # extra regularization / penalties
@@ -127,29 +132,35 @@ experiment:
       impact_coeff: 0
 
     actuation_spec:
-      - AAHead_yaw
-      - Head_pitch
-      - Left_Shoulder_Pitch
-      - Left_Shoulder_Roll
-      - Left_Elbow_Pitch
-      - Left_Elbow_Yaw
-      - Right_Shoulder_Pitch
-      - Right_Shoulder_Roll
-      - Right_Elbow_Pitch
-      - Right_Elbow_Yaw
-      - Waist
-      - Left_Hip_Pitch
-      - Left_Hip_Roll
-      - Left_Hip_Yaw
-      - Left_Knee_Pitch
-      - Left_Ankle_Pitch
-      - Left_Ankle_Roll
-      - Right_Hip_Pitch
-      - Right_Hip_Roll
-      - Right_Hip_Yaw
-      - Right_Knee_Pitch
-      - Right_Ankle_Pitch
-      - Right_Ankle_Roll
+      - left_hip_pitch_joint
+      - left_hip_roll_joint
+      - left_hip_yaw_joint
+      - left_knee_joint
+      - left_ankle_pitch_joint
+      - left_ankle_roll_joint
+      - right_hip_pitch_joint
+      - right_hip_roll_joint
+      - right_hip_yaw_joint
+      - right_knee_joint
+      - right_ankle_pitch_joint
+      - right_ankle_roll_joint
+      - waist_yaw_joint
+      - waist_roll_joint
+      - waist_pitch_joint
+      - left_shoulder_pitch_joint
+      - left_shoulder_roll_joint
+      - left_shoulder_yaw_joint
+      - left_elbow_joint
+      - left_wrist_roll_joint
+      - left_wrist_pitch_joint
+      - left_wrist_yaw_joint
+      - right_shoulder_pitch_joint
+      - right_shoulder_roll_joint
+      - right_shoulder_yaw_joint
+      - right_elbow_joint
+      - right_wrist_roll_joint
+      - right_wrist_pitch_joint
+      - right_wrist_yaw_joint
 
     timestep: 0.005 # 250 Hz
     n_substeps: 4  # 50 Hz
@@ -226,108 +237,128 @@ experiment:
       action_scale: 1.0
       clip_actions: 1.0
       
-      p_gain: 
-        - 20 # 40 # AAHead_yaw
-        - 20 # 40 # Head_pitch
-        - 20 # 40 # Left_Shoulder_Pitch
-        - 20 # 40 # Left_Shoulder_Roll
-        - 20 # 40 # Left_Elbow_Pitch
-        - 20 # 40 # Left_Elbow_Yaw
-        - 20 # 40 # Right_Shoulder_Pitch
-        - 20 # 40 # Right_Shoulder_Roll
-        - 20 # 40 # Right_Elbow_Pitch
-        - 20 # 40 # Right_Elbow_Yaw
-        - 200 # Waist
-        - 200 # Left_Hip_Pitch
-        - 200 # Left_Hip_Roll
-        - 200 # Left_Hip_Yaw
-        - 200 # Left_Knee_Pitch
-        - 50 # Left_Ankle_Pitch
-        - 50 # Left_Ankle_Roll
-        - 200 # Right_Hip_Pitch
-        - 200 # Right_Hip_Roll
-        - 200 # Right_Hip_Yaw
-        - 200 # Right_Knee_Pitch
-        - 50 # Right_Ankle_Pitch
-        - 50 # Right_Ankle_Roll
+      p_gain:
+        - 100
+        - 100
+        - 100
+        - 150 
+        - 20
+        - 20
+        - 100
+        - 100
+        - 100
+        - 150 
+        - 20
+        - 20
+        - 100 # waist yaw
+        - 100 # waist roll
+        - 100 # waist pitch
+        - 30
+        - 30
+        - 30
+        - 30
+        - 30
+        - 10
+        - 10
+        - 30
+        - 30
+        - 30
+        - 30
+        - 30
+        - 10
+        - 10
 
       d_gain:
-        - 0.2 # 2.0 # AAHead_yaw
-        - 0.2 # 2.0 # Head_pitch
-        - 0.5 # 2.0 # Left_Shoulder_Pitch
-        - 0.5 # 2.0 # Left_Shoulder_Roll
-        - 0.5 # 2.0 # Left_Elbow_Pitch
-        - 0.5 # 2.0 # Left_Elbow_Yaw
-        - 0.5 # 2.0 # Right_Shoulder_Pitch
-        - 0.5 # 2.0 # Right_Shoulder_Roll
-        - 0.5 # 2.0 # Right_Elbow_Pitch
-        - 0.5 # 2.0 # Right_Elbow_Yaw
-        - 5.0 # Waist
-        - 5.0 # Left_Hip_Pitch
-        - 5.0 # Left_Hip_Roll
-        - 5.0 # Left_Hip_Yaw
-        - 5.0 # Left_Knee_Pitch
-        - 3.0 # 1.0 # Left_Ankle_Pitch
-        - 3.0 # 1.0 # Left_Ankle_Roll
-        - 5.0 # Right_Hip_Pitch
-        - 5.0 # Right_Hip_Roll
-        - 5.0 # Right_Hip_Yaw
-        - 5.0 # Right_Knee_Pitch
-        - 3.0 # 1.0 # Right_Ankle_Pitch
-        - 3.0 # 1.0 # Right_Ankle_Roll
+        - 2
+        - 2
+        - 2
+        - 3
+        - 1
+        - 1
+        - 2
+        - 2
+        - 2
+        - 3
+        - 1
+        - 1
+        - 3
+        - 3
+        - 3
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
 
       nominal_joint_positions:
-        - 0.0 # AAHead_yaw
-        - 0.0 # Head_pitch
-        - 0.2 # Left_Shoulder_Pitch
-        - -1.2 # -1.35 # Left_Shoulder_Roll
-        - 0.0 # Left_Elbow_Pitch
-        - -0.5 # Left_Elbow_Yaw
-        - 0.2 # Right_Shoulder_Pitch
-        - 1.2 # 1.35 # Right_Shoulder_Roll
-        - 0.0 # Right_Elbow_Pitch
-        - 0.5 # Right_Elbow_Yaw
-        - 0.0 # Waist
-        - -0.2 # Left_Hip_Pitch
-        - 0.0 # Left_Hip_Roll
-        - 0.0 # Left_Hip_Yaw
-        - 0.4 # Left_Knee_Pitch
-        - -0.25 # Left_Ankle_Pitch
-        - 0.0 # Left_Ankle_Roll
-        - -0.2 # Right_Hip_Pitch
-        - 0.0 # Right_Hip_Roll
-        - 0.0 # Right_Hip_Yaw
-        - 0.4 # Right_Knee_Pitch
-        - -0.25 # Right_Ankle_Pitch
-        - 0.0 # Right_Ankle_Roll
+        - -0.1 # - left_hip_pitch_joint
+        - 0.0 # - left_hip_roll_joint
+        - 0.0 # - left_hip_yaw_joint
+        - 0.3  # - left_knee_joint
+        - -0.2  # - left_ankle_pitch_joint
+        - 0.0  # - left_ankle_roll_joint
+        - -0.1  # - right_hip_pitch_joint
+        - 0.0  # - right_hip_roll_joint
+        - 0.0  # - right_hip_yaw_joint
+        - 0.3  # - right_knee_joint
+        - -0.2  # - right_ankle_pitch_joint
+        - 0.0  # - right_ankle_roll_joint
+        - 0.0  # - waist_yaw_joint
+        - 0.0  # - waist_roll_joint
+        - 0.0  # - waist_pitch_joint
+        - 0.0  # - left_shoulder_pitch_joint
+        - 0.2  # - left_shoulder_roll_joint
+        - 0.0  # - left_shoulder_yaw_joint
+        - 1.5  # - left_elbow_joint
+        - 0.0  # - left_wrist_roll_joint
+        - 0.0  # - left_wrist_pitch_joint
+        - 0.0  # - left_wrist_yaw_joint
+        - 0.0  # - right_shoulder_pitch_joint
+        - -0.2  # - right_shoulder_roll_joint
+        - 0.0  # - right_shoulder_yaw_joint
+        - 1.5  # - right_elbow_joint
+        - 0.0  # - right_wrist_roll_joint
+        - 0.0  # - right_wrist_pitch_joint
+        - 0.0  # - right_wrist_yaw_joint
 
     init_state_type: DefaultInitialStateHandler
     init_state_params:
-      qpos_init: [0, 0, 0.72, 
-                  1, 0, 0, 0, 
-                  0, 0,
-                  0.2, -1.2, 0, -0.5,
-                  0.2, 1.2, 0, 0.5,
-                  0,
-                  -0.2, 0, 0, 0.4, -0.25, 0,
-                  -0.2, 0, 0, 0.4, -0.25, 0]
+      
+      qpos_init: [0, 0, 0.8, 
+                  1, 0, 0, 0,
+                  -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
+                  -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
+                  0.0, 0.0, 0.0,
+                  0.0, 0.2, 0.0, 1.5, 0.0, 0.0, 0.0,
+                  0.0, -0.2, 0.0, 1.5, 0.0, 0.0, 0.0
+                  ]
 
       qvel_init: [0, 0, 0, 
                   0, 0, 0, 
-                  0, 0, 
-                  0, 0, 0, 0, 
-                  0, 0, 0, 0, 
-                  0, 
                   0, 0, 0, 0, 0, 0,
-                  0, 0, 0, 0, 0, 0]
+                  0, 0, 0, 0, 0, 0,
+                  0, 0, 0,
+                  0, 0, 0, 0, 0, 0, 0,
+                  0, 0, 0, 0, 0, 0, 0
+                  ]
+
 
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 300e6
+      total_timesteps: 600e6
       num_curriculum_steps: 1
       num_environments: 8192
-      num_total_timesteps: 300e6
+      num_total_timesteps: 600e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -439,7 +470,7 @@ experiment:
   len_obs_history: 1
   num_envs: 8192
   num_steps: 50
-  total_timesteps: 300e6
+  total_timesteps: 600e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995
@@ -464,29 +495,37 @@ experiment:
     num_steps: 100
     num_envs: 100
     num: 10 # set to 0 to disable validation
-
+  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/2025-11-04/18-05-53/PPOJax_saved.pkl
+  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/2025-11-06/17-18-40/PPOJax_saved.pkl
+  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/outputs/2025-11-19/10-59-31/PPOJax_saved.pkl
 
 robot_joints_to_consider:
-  - AAHead_yaw
-  - Head_pitch
-  - Left_Shoulder_Pitch
-  - Left_Shoulder_Roll
-  - Left_Elbow_Pitch
-  - Left_Elbow_Yaw
-  - Right_Shoulder_Pitch
-  - Right_Shoulder_Roll
-  - Right_Elbow_Pitch
-  - Right_Elbow_Yaw
-  - Waist
-  - Left_Hip_Pitch
-  - Left_Hip_Roll
-  - Left_Hip_Yaw
-  - Left_Knee_Pitch
-  - Left_Ankle_Pitch
-  - Left_Ankle_Roll
-  - Right_Hip_Pitch
-  - Right_Hip_Roll
-  - Right_Hip_Yaw
-  - Right_Knee_Pitch
-  - Right_Ankle_Pitch
-  - Right_Ankle_Roll
+  - left_hip_pitch_joint
+  - left_hip_roll_joint
+  - left_hip_yaw_joint
+  - left_knee_joint
+  - left_ankle_pitch_joint
+  - left_ankle_roll_joint
+  - right_hip_pitch_joint
+  - right_hip_roll_joint
+  - right_hip_yaw_joint
+  - right_knee_joint
+  - right_ankle_pitch_joint
+  - right_ankle_roll_joint
+  - waist_yaw_joint
+  - waist_roll_joint
+  - waist_pitch_joint
+  - left_shoulder_pitch_joint
+  - left_shoulder_roll_joint
+  - left_shoulder_yaw_joint
+  - left_elbow_joint
+  - left_wrist_roll_joint
+  - left_wrist_pitch_joint
+  - left_wrist_yaw_joint
+  - right_shoulder_pitch_joint
+  - right_shoulder_roll_joint
+  - right_shoulder_yaw_joint
+  - right_elbow_joint
+  - right_wrist_roll_joint
+  - right_wrist_pitch_joint
+  - right_wrist_yaw_joint
