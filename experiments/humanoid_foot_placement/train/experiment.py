@@ -79,8 +79,12 @@ def experiment(config: DictConfig):
         # get initial agent configuration
         agent_conf = PPOJax.init_agent_conf(env, config)
         agent_state = None
+        resume_just_params = config.experiment.resume_just_params
         if "resume_from_path" in config.experiment:
-            agent_conf, agent_state = PPOJax.load_agent(config.experiment.resume_from_path)
+            if resume_just_params:
+                _, agent_state = PPOJax.load_agent(config.experiment.resume_from_path)
+            else:
+                agent_conf, agent_state = PPOJax.load_agent(config.experiment.resume_from_path)
 
         # build training function
         # train_fn = PPOJax.build_train_fn(env, agent_conf)
@@ -145,10 +149,13 @@ def experiment(config: DictConfig):
         print(f"Time taken to log metrics: {time.time() - t_start}s")
 
         # run the environment with the trained agent to record video
-        # PPOJax.play_policy(env, agent_conf, agent_state, deterministic=True, n_steps=1000, n_envs=20, record=True, train_state_seed=0)
-        PPOJax.play_policy(env, agent_conf, agent_state, deterministic=True, n_steps=1000, n_envs=20, record=True, train_state_seed=0)
-        video_file = env.video_file_path
-        run.log({"Agent Video": wandb.Video(video_file)})
+        record = os.getenv("RENDER_POLICY")
+        if record is None:
+            raise RuntimeError("RENDER_POLICY is not set!")
+        if record:
+            PPOJax.play_policy(env, agent_conf, agent_state, deterministic=True, n_steps=1000, n_envs=1, record=True, train_state_seed=0)
+            video_file = env.video_file_path
+            run.log({"Agent Video": wandb.Video(video_file)})
 
         wandb.finish()
 

@@ -3,7 +3,7 @@ defaults:
   - _self_
 
 wandb:
-  project: "Foot Placement"
+  project: "Steps"
   note: ""
 
 experiment:
@@ -14,11 +14,19 @@ experiment:
     env_name: MjxBoosterT1
     horizon: 1000
 
-    # terrain_type: StonesHolesTerrain
-    # terrain_params: 
-    #   patch_size: 0.5
-    #   height_range: [-0.05, 0.05]
-    #   inner_platform_size_in_meters: 0.5
+    terrain_type: ParkourTerrain
+    terrain_params: {
+      num_boxes: 15,
+      box_length_range: [0.2, 0.8],
+      box_width_range: [0.2, 0.8],
+      box_height_range: [0.05, 0.1],
+      box_x_range: [-2.5, 2.5],
+      box_y_range: [-2.5, 2.5],
+      box_yaw_range: [-180, 180],
+      inner_platform_size: 0.5,
+      feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
+    }
+
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
@@ -222,8 +230,8 @@ experiment:
       clip_actions: 1.0
       
       p_gain: 
-        - 20 # 40 # AAHead_yaw
-        - 20 # 40 # Head_pitch
+        - 10 # 40 # AAHead_yaw
+        - 10 # 40 # Head_pitch
         - 20 # 40 # Left_Shoulder_Pitch
         - 20 # 40 # Left_Shoulder_Roll
         - 20 # 40 # Left_Elbow_Pitch
@@ -232,19 +240,19 @@ experiment:
         - 20 # 40 # Right_Shoulder_Roll
         - 20 # 40 # Right_Elbow_Pitch
         - 20 # 40 # Right_Elbow_Yaw
-        - 200 # Waist
-        - 200 # Left_Hip_Pitch
-        - 200 # Left_Hip_Roll
-        - 200 # Left_Hip_Yaw
-        - 200 # Left_Knee_Pitch
-        - 50 # Left_Ankle_Pitch
-        - 50 # Left_Ankle_Roll
-        - 200 # Right_Hip_Pitch
-        - 200 # Right_Hip_Roll
-        - 200 # Right_Hip_Yaw
-        - 200 # Right_Knee_Pitch
-        - 50 # Right_Ankle_Pitch
-        - 50 # Right_Ankle_Roll
+        - 150 # Waist
+        - 120 # Left_Hip_Pitch
+        - 120 # Left_Hip_Roll
+        - 120 # Left_Hip_Yaw
+        - 120 # Left_Knee_Pitch
+        - 30 # Left_Ankle_Pitch
+        - 30 # Left_Ankle_Roll
+        - 120 # Right_Hip_Pitch
+        - 120 # Right_Hip_Roll
+        - 120 # Right_Hip_Yaw
+        - 120 # Right_Knee_Pitch
+        - 30 # Right_Ankle_Pitch
+        - 30 # Right_Ankle_Roll
 
       d_gain:
         - 0.2 # 2.0 # AAHead_yaw
@@ -262,14 +270,14 @@ experiment:
         - 5.0 # Left_Hip_Roll
         - 5.0 # Left_Hip_Yaw
         - 5.0 # Left_Knee_Pitch
-        - 3.0 # 1.0 # Left_Ankle_Pitch
-        - 3.0 # 1.0 # Left_Ankle_Roll
+        - 5.0 # 1.0 # Left_Ankle_Pitch
+        - 5.0 # 1.0 # Left_Ankle_Roll
         - 5.0 # Right_Hip_Pitch
         - 5.0 # Right_Hip_Roll
         - 5.0 # Right_Hip_Yaw
         - 5.0 # Right_Knee_Pitch
-        - 3.0 # 1.0 # Right_Ankle_Pitch
-        - 3.0 # 1.0 # Right_Ankle_Roll
+        - 5.0 # 1.0 # Right_Ankle_Pitch
+        - 5.0 # 1.0 # Right_Ankle_Roll
 
       nominal_joint_positions:
         - 0.0 # AAHead_yaw
@@ -319,10 +327,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 600e6
+      total_timesteps: 100e6
       num_curriculum_steps: 1
       num_environments: 8192
-      num_total_timesteps: 600e6
+      num_total_timesteps: 100e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -434,7 +442,7 @@ experiment:
   len_obs_history: 1
   num_envs: 8192
   num_steps: 50
-  total_timesteps: 600e6
+  total_timesteps: 100e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995
@@ -459,9 +467,9 @@ experiment:
     num_steps: 100
     num_envs: 100
     num: 10 # set to 0 to disable validation
-  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/2025-11-04/18-05-53/PPOJax_saved.pkl
-  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/2025-11-06/17-18-40/PPOJax_saved.pkl
-  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/outputs/2025-11-19/10-59-31/PPOJax_saved.pkl
+  # parameter initialization
+  resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/T1/cluster_ll.pkl
+  resume_just_params: true
 
 robot_joints_to_consider:
   - AAHead_yaw

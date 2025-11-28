@@ -4,7 +4,7 @@
 # Updated with parameters and correct joint limits for a 23 DoF robot model.
 
 # policy parameters
-agent_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/puze2.pkl 
+agent_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/T1/cluster_ll.pkl 
 train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
 train_config_name: conf.yaml
 # --- Simulation Parameters ---
@@ -22,8 +22,8 @@ control_decimation: 10 # policy will run every N physics steps (policy freq = 1 
 # - Left_Hip_Pitch, Left_Hip_Roll, Left_Hip_Yaw, Left_Knee_Pitch, Left_Ankle_Pitch, Left_Ankle_Roll
 # - Right_Hip_Pitch, Right_Hip_Roll, Right_Hip_Yaw, Right_Knee_Pitch, Right_Ankle_Pitch, Right_Ankle_Roll
 lmj_kps:
-  - 20 # 40 # AAHead_yaw
-  - 20 # 40 # Head_pitch
+  - 10 # 40 # AAHead_yaw
+  - 10 # 40 # Head_pitch
   - 20 # 40 # Left_Shoulder_Pitch
   - 20 # 40 # Left_Shoulder_Roll
   - 20 # 40 # Left_Elbow_Pitch
@@ -32,19 +32,19 @@ lmj_kps:
   - 20 # 40 # Right_Shoulder_Roll
   - 20 # 40 # Right_Elbow_Pitch
   - 20 # 40 # Right_Elbow_Yaw
-  - 200 # Waist
-  - 200 # Left_Hip_Pitch
-  - 200 # Left_Hip_Roll
-  - 200 # Left_Hip_Yaw
-  - 200 # Left_Knee_Pitch
-  - 50 # Left_Ankle_Pitch
-  - 50 # Left_Ankle_Roll
-  - 200 # Right_Hip_Pitch
-  - 200 # Right_Hip_Roll
-  - 200 # Right_Hip_Yaw
-  - 200 # Right_Knee_Pitch
-  - 50 # Right_Ankle_Pitch
-  - 50 # Right_Ankle_Roll
+  - 150 # Waist
+  - 120 # Left_Hip_Pitch
+  - 120 # Left_Hip_Roll
+  - 120 # Left_Hip_Yaw
+  - 120 # Left_Knee_Pitch
+  - 30 # Left_Ankle_Pitch
+  - 30 # Left_Ankle_Roll
+  - 120 # Right_Hip_Pitch
+  - 120 # Right_Hip_Roll
+  - 120 # Right_Hip_Yaw
+  - 120 # Right_Knee_Pitch
+  - 30 # Right_Ankle_Pitch
+  - 30 # Right_Ankle_Roll
 lmj_kds:
   - 0.2 # 2.0 # AAHead_yaw
   - 0.2 # 2.0 # Head_pitch
@@ -61,14 +61,14 @@ lmj_kds:
   - 5.0 # Left_Hip_Roll
   - 5.0 # Left_Hip_Yaw
   - 5.0 # Left_Knee_Pitch
-  - 3.0 # 1.0 # Left_Ankle_Pitch
-  - 3.0 # 1.0 # Left_Ankle_Roll
+  - 5.0 # 1.0 # Left_Ankle_Pitch
+  - 5.0 # 1.0 # Left_Ankle_Roll
   - 5.0 # Right_Hip_Pitch
   - 5.0 # Right_Hip_Roll
   - 5.0 # Right_Hip_Yaw
   - 5.0 # Right_Knee_Pitch
-  - 3.0 # 1.0 # Right_Ankle_Pitch
-  - 3.0 # 1.0 # Right_Ankle_Roll
+  - 5.0 # 1.0 # Right_Ankle_Pitch
+  - 5.0 # 1.0 # Right_Ankle_Roll
 
 # --- Robot Pose and Limits (23 joints) ---
 default_angles:

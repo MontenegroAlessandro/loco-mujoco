@@ -8,7 +8,7 @@ wandb:
   log: false
 
 experiment:
-  agent_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/puze3.pkl 
+  agent_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/T1/steps_1.pkl 
   task_factory:
     name: RLFactory
     params: {}
@@ -16,17 +16,18 @@ experiment:
     env_name: MjxBoosterT1
     horizon: 1000
 
-    # terrain_type: ParkourTerrain
-    # terrain_params: {
-    #   num_boxes: 5,
-    #   box_length_range: [0.2, 1.0],
-    #   box_width_range: [0.1, 1.0],
-    #   box_height_range: [0.05, 0.2],
-    #   box_x_range: [-2.5, 2.5],
-    #   box_y_range: [-2.5, 2.5],
-    #   box_yaw_range: [-180, 180],
-    #   feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
-    # }
+    terrain_type: ParkourTerrain
+    terrain_params: {
+      num_boxes: 15,
+      box_length_range: [0.2, 0.8],
+      box_width_range: [0.2, 0.8],
+      box_height_range: [0.05, 0.1],
+      box_x_range: [-2.5, 2.5],
+      box_y_range: [-2.5, 2.5],
+      box_yaw_range: [-180, 180],
+      inner_platform_size: 0.5,
+      feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
+    }
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
@@ -40,9 +41,9 @@ experiment:
       # Range for the random step length [min, max] in meters
       xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [-90, 90] # [20,90] # [-90, 90]
+      angle_range_deg: [30, 30] 
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-30, 30] # [-20, 20] # [-30, 30]
+      yaw_range_deg: [0, 0] # [-20, 20] # [-30, 30]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
@@ -53,10 +54,10 @@ experiment:
       direction_range_deg: [-180, 180] # [-180, 180]
       change_direction_range_deg: [0, 0]
       # feet direction range in deg
-      track_movement_only: false # if true remeber to mod how the angles are computed!
+      track_movement_only: true # if true remeber to mod how the angles are computed!
       feet_direction_range_deg: [0,0] # [-180, 180]
       # observation group
-      still_proportion: 1.0
+      still_proportion: 0.0
       group: [prioritized, policy]
     
 

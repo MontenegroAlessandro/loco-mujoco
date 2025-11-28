@@ -110,13 +110,13 @@ class RobotController:
         self.counter = 0
         self.des_dist = self.command["distance"]
         # define angles for movements
-        self.fwd_angle = np.deg2rad(30)
-        self.bwd_angle = np.deg2rad(120)
-        self.hold_angle = np.deg2rad(90)
+        self.fwd_pos = np.array([[self.des_dist, self.des_dist, 0.0], [self.des_dist, -self.des_dist, 0.0]]) # left, right
+        self.bwd_pos = np.array([[-self.des_dist, self.des_dist, 0.0], [-self.des_dist, -self.des_dist, 0.0]]) # left, right
+        self.hold_pos = np.array([[0.0, self.des_dist, 0.0], [0.0, -self.des_dist, 0.0]]) # left, right
         # initialize the angle to be still
-        self.alpha = self.hold_angle
         self.swing_foot_idx = 0
-        self.gait_frequency = self.command["gait_frequency"]
+        self.gait_frequency = 0.0 # self.command["gait_frequency"]
+        self.current_cmd = self.hold_pos
 
         print("Please press\n\t \"LT + START\" to start control, \n\t \"LT + A\" to start inferrence, \n\t \"BACK\" to stop control, \n\t \"LB\" for ready position, \n\t \"RB\" for zero position, \n\t \"LT + BACK\" for emergency stop.")
 
@@ -138,16 +138,8 @@ class RobotController:
 
         # Calculate gait phase based on time
         gait_process = (self.counter * self.policy_dt * self.gait_frequency) % 1.0 
-        sign = np.where(self.swing_foot_idx == 0, 1, -1)
-        # dist  = self.des_dist / np.sin(self.alpha) if np.sin(self.alpha) != 0 else self.des_dist
-        if self.alpha != np.pi / 2:
-            if self.alpha < np.pi / 2:
-                dist = self.des_dist / np.sin(self.alpha)
-            else:
-                dist = self.des_dist / np.sin(self.alpha - np.pi / 2)
-        else:
-            dist = self.des_dist
-        swing_pos_offset = np.array([dist * np.cos(self.alpha), dist * np.sin(self.alpha) * sign, 0], dtype=np.float32)
+        
+        swing_pos_offset = self.current_cmd[self.swing_foot_idx]
         stance_pos_offset = np.zeros(3, np.float32)
         swing_orn_offset = np_R.from_euler('z', np.deg2rad(0)).as_quat(scalar_first=True)
         stance_orn_offset = np_R.from_euler('z', 0).as_quat(scalar_first=True)
@@ -249,9 +241,6 @@ class RobotController:
         np.ndarray: The rotated 3D vector.
         """
         rot_mat = self.convert_quat_to_rot_mat(quat)
-        # R_x = np.array([[1, 0, 0], [0, np.cos(roll), -np.sin(roll)], [0, np.sin(roll), np.cos(roll)]])
-        # R_y = np.array([[np.cos(pitch), 0, np.sin(pitch)], [0, 1, 0], [-np.sin(pitch), 0, np.cos(pitch)]])
-        # R_z = np.array([[np.cos(yaw), -np.sin(yaw), 0], [np.sin(yaw), np.cos(yaw), 0], [0, 0, 1]])
         return rot_mat.T @ vector
         
     def check_state(self):
@@ -261,10 +250,8 @@ class RobotController:
             if self.robot.joy_key.lt and self.robot.joy_key.a and self.robot.key_count == 2:  # start: LT + A
                 if self.robot.control_started:
                     self.agent_started = True
-                    # self.vx_cmd = 0.0
-                    # self.vy_cmd = 0.0
-                    # self.vyaw_cmd = 0.0
-                    self.alpha = self.hold_angle
+                    self.current_cmd = self.hold_pos
+                    self.gait_frequency = 0.0
                     self.node.get_logger().info("Agent started.")
                 else:
                     self.node.get_logger().warn("Please start the control first by pressing LT + START.")
@@ -272,40 +259,29 @@ class RobotController:
             if self.agent_started:
                 if self.robot.joy_key.hat_u and self.robot.key_count == 1:
                     # up key
-                    # self.vx_cmd += 0.1
-                    self.alpha = self.fwd_angle
+                    self.current_cmd = self.fwd_pos
+                    self.gait_frequency = 1.0
                 elif self.robot.joy_key.hat_d and self.robot.key_count == 1:
                     # down key
-                    self.alpha = self.bwd_angle
-                    # self.vx_cmd -= 0.1
+                    self.current_cmd = self.bwd_pos
+                    self.gait_frequency = 1.0
                 elif self.robot.joy_key.hat_l and self.robot.key_count == 1:
                     # left key
-                    # self.vy_cmd += 0.1
-                    self.alpha = self.hold_angle
+                    self.current_cmd = self.hold_pos
+                    self.gait_frequency = 1.0
                 elif self.robot.joy_key.hat_r and self.robot.key_count == 1:
-                    # self.vy_cmd -= 0.1
-                    self.alpha = self.hold_angle
+                    # right key
+                    self.current_cmd = self.hold_pos
+                    self.gait_frequency = 0.0
                 elif self.robot.joy_key.rx * -1 >= 1.0:
-                    # self.vyaw_cmd += 0.1
-                    self.alpha = self.hold_angle
+                    pass
                 elif self.robot.joy_key.rx * -1 <= -1.0:
-                    # self.vyaw_cmd -= 0.1
-                    self.alpha = self.hold_angle
+                    pass
                 if (self.robot.joy_key.ls or self.robot.joy_key.rs) and self.robot.key_count == 1:
-                    # self.vx_cmd = 0.0
-                    # self.vy_cmd = 0.0
-                    # self.vyaw_cmd = 0.0
-                    self.alpha = self.hold_angle
-
-                # self.vx_cmd = np.clip(self.vx_cmd, -0.5, 0.5)
-                # self.vy_cmd = np.clip(self.vy_cmd, -0.5, 0.5)
-                # self.vyaw_cmd = np.clip(self.vyaw_cmd, -2.0, 2.0)
-                # print(f"Velocity commands - vx: {self.vx_cmd}, vy: {self.vy_cmd}, vyaw: {self.vyaw_cmd}")
+                    pass
             else:
-                # self.vx_cmd = 0.0
-                # self.vy_cmd = 0.0
-                # self.vyaw_cmd = 0.0
-                self.alpha = self.hold_angle
+                self.current_cmd = self.hold_pos
+                self.gait_frequency = 1.0
 
             self.robot.joy_key = None  # Reset joy_key
             self.robot.key_count = 0 # Reset true_count after processing

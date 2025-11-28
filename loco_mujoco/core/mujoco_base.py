@@ -24,6 +24,7 @@ from loco_mujoco.core.initial_state_handler import InitialStateHandler
 from loco_mujoco.core.terminal_state_handler.base import TerminalStateHandler
 from loco_mujoco.core.visuals import MjvScene, MujocoViewer
 from loco_mujoco.core.utils.mujoco import mj_jntid2qposid, mj_jntid2qvelid
+from loco_mujoco.core.terrain import ParkourTerrain
 
 
 @struct.dataclass
@@ -304,7 +305,7 @@ class Mujoco:
                 # register stop function to be called at exit
                 atexit.register(self.stop)
 
-        if self._terrain.is_dynamic:
+        if self._terrain.is_dynamic and not isinstance(self._terrain, ParkourTerrain):
             terrain_state = self._additional_carry.terrain_state
             assert hasattr(terrain_state, "height_field_raw"), "Terrain state does not have height_field_raw."
             assert self._terrain.hfield_id is not None, "Terrain hfield id is not set."
@@ -312,6 +313,19 @@ class Mujoco:
             hfield_data = np.array(terrain_state.height_field_raw)
             self._model.hfield_data = hfield_data
             self._viewer.upload_hfield(self._model, hfield_id=self._terrain.hfield_id)
+        elif isinstance(self._terrain, ParkourTerrain):
+            # manage more envs..
+            positions = np.array(terrain_state.positions)
+            sizes = np.array(terrain_state.sizes)
+            quats = np.array(terrain_state.quats)
+            if positions.ndim == 3:
+                positions = positions[0]
+                sizes = sizes[0]
+                quats = quats[0]
+            self._model.geom_pos[self._terrain._obstacle_geom_ids] = positions
+            self._model.geom_size[self._terrain._obstacle_geom_ids] = sizes / 2.
+            self._model.geom_quat[self._terrain._obstacle_geom_ids] = quats
+            self.viewer.load_new_model(self._model)
 
         return self._viewer.render(self._data, self._additional_carry, record)
 

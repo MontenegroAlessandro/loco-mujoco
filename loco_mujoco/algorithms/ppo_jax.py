@@ -255,18 +255,29 @@ class PPOJax(JaxRLAlgorithmBase):
         env = cls._wrap_env(env, config)
 
         # extract current agent state
-        if agent_state is not None:
-            train_state = agent_state.train_state
-        else:
+        if agent_state is None:
             train_state = None
-
-        if train_state is None:
             rng, _rng1, _rng2 = jax.random.split(rng, 3)
             init_x = jnp.zeros(env.info.observation_space.shape)
             network_params = network.init(_rng1, init_x)
         else:
+            train_state = agent_state.train_state
             network_params = train_state.params
-            # raise NotImplementedError("Loading of train state not implemented yet.")
+            
+        # if agent_state is not None:
+        #     train_state = agent_state.train_state
+        #     resuming_params = agent_state.train_state.params
+        # else:
+        #     train_state = None
+
+        # if train_state is None:
+        #     rng, _rng1, _rng2 = jax.random.split(rng, 3)
+        #     init_x = jnp.zeros(env.info.observation_space.shape)
+        #     network_params = network.init(_rng1, init_x)
+        # else:
+        #     network_params = resuming_params
+        #     train_state = None
+        #     raise NotImplementedError("Loading of train state not implemented yet.")
         
         if config.get("adaptive_lr", False):
             adaptive_lr_state = AdaptiveLRState(learning_rate=jnp.array(config.lr))

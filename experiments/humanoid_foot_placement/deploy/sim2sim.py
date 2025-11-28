@@ -125,8 +125,8 @@ if __name__ == "__main__":
     # The config_path should point to the directory containing your hydra config files
     # hydra.initialize(config_path="./") # Adjust path if your hydra config is elsewhere
     hydra.initialize(config_path="./")
-    # lmj_hydra_config = hydra.compose(config_name="conf_t1") # Use the appropriate config name
-    lmj_hydra_config = hydra.compose(config_name="conf")
+    lmj_hydra_config = hydra.compose(config_name="conf_t1") # Use the appropriate config name
+    # lmj_hydra_config = hydra.compose(config_name="conf")
 
     # policy = LMJPolicy(policy_path=args.path) # Removed control_func_path
     policy = LMJPolicy(policy_path=agent_path)
@@ -210,7 +210,7 @@ if __name__ == "__main__":
     # gait_swithces
     num_gaits = 0
     idx = 0
-    max_gaits = 20
+    max_gaits = 5
 
     # --- Start Simulation and Viewer ---
     with mujoco.viewer.launch_passive(m, d) as viewer:
@@ -251,8 +251,12 @@ if __name__ == "__main__":
                     swing_foot_idx = 0
                     num_gaits += 1
                 # switch walking scheme when needed
-                if num_gaits % max_gaits == 0:
+                if (counter * simulation_dt) % max_gaits == 0:
                     idx = (idx + 1) % len(pos_array)
+                    if idx in [0,2]:
+                        gait_frequency = float(np.random.rand() < 0.5)
+                    else:
+                        gait_frequency = 1.0
 
                 # MANAGE OBS
                 if swing_foot_idx == 0:
@@ -302,10 +306,10 @@ if __name__ == "__main__":
                 # Clip target_dof_pos to joint limits
                 target_dof_pos = np.clip(target_dof_pos, min_angles, max_angles)
                 # FIXME: FIX HEAD AND SHOULDERS
-                target_dof_pos[0] = 0
-                target_dof_pos[1] = 0
-                target_dof_pos[3] = -1.2
-                target_dof_pos[7] = 1.2
+                # target_dof_pos[0] = 0
+                # target_dof_pos[1] = 0
+                # target_dof_pos[3] = -1.2
+                # target_dof_pos[7] = 1.2
 
                 target_dof_kps = kps.copy()
                 target_dof_kds = kds.copy()
