@@ -707,7 +707,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # feet direction
             feet_direction=0.0,
             # still info
-            still_phase=True,
+            still_phase=False,
             # number of gait phase switches
             num_gaits=0,
         )
@@ -944,7 +944,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         # verify whether we are at reset time: in that case we initialize the goal to stay still
         # hold_still = backend.astype((state.still_phase == True) | (reset == True), backend.int32)
-        hold_still = state.still_phase | reset
+        hold_still = state.still_phase # state.still_phase | reset
 
         # ===========================================SWING / STANCE FOOT IDX===========================================
         # Select the swing foot based on the gait process

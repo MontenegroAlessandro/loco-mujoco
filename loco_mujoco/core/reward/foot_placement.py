@@ -843,6 +843,8 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             # if we are in the right phase (gait_process >= 0.5) we remove 0.5
             # the quantity we consider is always in 2 * [0, 0.5]
             gait_sharpness = 2 * (gait_process - backend.where(gait_process >= 0.5, 0.5, 0))
+            # if hold still, then gait sharpness is always 1
+            gait_sharpness = jax.lax.select(goal_state.still_phase, 1.0, gait_sharpness)
             
             # retrieve tragets for the swing and the stance feet
             swing_target_pos, swing_target_orn, stance_target_pos, stance_target_orn = jax.lax.cond(
