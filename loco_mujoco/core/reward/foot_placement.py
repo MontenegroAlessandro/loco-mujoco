@@ -1123,6 +1123,8 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         # left_gait_height_sharpness = 1.0 # by default
         # right_gait_height_sharpness = 1.0 # by default
         if self._goal_name in ["GoalDoubleFootPlacement"]:
+            hold_still = goal_state.still_phase
+            
             # compute the exponential sharpness of the gait height tracking
             # get feet positions
             stance_foot_pos = jax.lax.select(
@@ -1153,8 +1155,9 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             )
             
             feet_swing_reward = (
-                (left_swing & ~feet_on_ground[0]).astype(backend.float32) * left_gait_height_sharpness +
-                (right_swing & ~feet_on_ground[1]).astype(backend.float32) * right_gait_height_sharpness
+                (left_swing & ~feet_on_ground[0] & ~hold_still).astype(backend.float32) * left_gait_height_sharpness +
+                (right_swing & ~feet_on_ground[1] & ~hold_still).astype(backend.float32) * right_gait_height_sharpness +
+                backend.astype(hold_still & (feet_on_ground[0] | feet_on_ground[1]), backend.float32)
             ) 
         else:
             feet_swing_reward = (

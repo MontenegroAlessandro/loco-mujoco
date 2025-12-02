@@ -200,10 +200,11 @@ if __name__ == "__main__":
     counter = 0
     gait_frequency = cmd_params["gait_frequency"]
     des_dist = cmd_params["distance"]
+    feet_dist = cmd_params["feet_distance"]
     # directions
-    fwd_pos = np.array([[des_dist, des_dist, 0.0], [des_dist, -des_dist, 0.0]]) # left, right
-    bwd_pos = np.array([[-des_dist, des_dist, 0.0], [-des_dist, -des_dist, 0.0]]) # left, right
-    hold_pos = np.array([[0.0, des_dist, 0.0], [0.0, -des_dist, 0.0]]) # left, right
+    fwd_pos = np.array([[des_dist, feet_dist, 0.0], [des_dist, -feet_dist, 0.0]]) # left, right
+    bwd_pos = np.array([[-des_dist, feet_dist, 0.0], [-des_dist, -feet_dist, 0.0]]) # left, right
+    hold_pos = np.array([[0.0, feet_dist, 0.0], [0.0, -feet_dist, 0.0]]) # left, right
     pos_array = [hold_pos, fwd_pos, hold_pos, bwd_pos]
     # goals
     swing_foot_idx = 0
@@ -254,9 +255,9 @@ if __name__ == "__main__":
                 if (counter * simulation_dt) % max_gaits == 0:
                     idx = (idx + 1) % len(pos_array)
                     if idx in [0,2]:
-                        gait_frequency = float(np.random.rand() < 0.5)
+                        gait_info = np.array([0,0])
                     else:
-                        gait_frequency = 1.0
+                        gait_info = np.array([np.sin(2 * np.pi * gait_process),np.sin(2 * np.pi * gait_process + np.pi)])
 
                 # MANAGE OBS
                 if swing_foot_idx == 0:
@@ -269,11 +270,12 @@ if __name__ == "__main__":
                     l_orn_offset = stance_orn_offset
                     r_offset = swing_pos_offset
                     r_orn_offset = swing_orn_offset
-                        
-                # pack gait information
-                gait_cos = np.cos(2 * np.pi * gait_process) 
-                gait_sin = np.sin(2 * np.pi * gait_process)
-                gait_info = np.array([gait_cos, gait_sin])
+                
+                # pack the gait iun
+                if idx in [0,2]:
+                    gait_info = np.array([0,0])
+                else:
+                    gait_info = np.array([np.sin(2 * np.pi * gait_process),np.sin(2 * np.pi * gait_process + np.pi)])
                             
                 cmd = np.concatenate(
                     [l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32

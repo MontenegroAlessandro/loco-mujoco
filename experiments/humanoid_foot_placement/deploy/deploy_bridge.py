@@ -109,14 +109,15 @@ class RobotController:
         # new for foot placement
         self.counter = 0
         self.des_dist = self.command["distance"]
+        self.feet_dist = self.command["feet_distance"]
         # define angles for movements
-        self.fwd_pos = np.array([[self.des_dist, self.des_dist, 0.0], [self.des_dist, -self.des_dist, 0.0]]) # left, right
-        self.bwd_pos = np.array([[-self.des_dist, self.des_dist, 0.0], [-self.des_dist, -self.des_dist, 0.0]]) # left, right
-        self.hold_pos = np.array([[0.0, self.des_dist, 0.0], [0.0, -self.des_dist, 0.0]]) # left, right
+        self.fwd_pos = np.array([[self.des_dist, self.feet_dist, 0.0], [self.des_dist, -self.feet_dist, 0.0]]) # left, right
+        self.bwd_pos = np.array([[-self.des_dist, self.feet_dist, 0.0], [-self.des_dist, -self.feet_dist, 0.0]]) # left, right
+        self.hold_pos = np.array([[0.0, self.feet_dist, 0.0], [0.0, -self.feet_dist, 0.0]]) # left, right
         # initialize the angle to be still
         self.swing_foot_idx = 0
-        self.gait_frequency = 0.0 # self.command["gait_frequency"]
         self.current_cmd = self.hold_pos
+        self.mode = ["STILL", "FWD", "BWD"]
 
         print("Please press\n\t \"LT + START\" to start control, \n\t \"LT + A\" to start inferrence, \n\t \"BACK\" to stop control, \n\t \"LB\" for ready position, \n\t \"RB\" for zero position, \n\t \"LT + BACK\" for emergency stop.")
 
@@ -162,9 +163,10 @@ class RobotController:
             r_orn_offset = swing_orn_offset
 
         # pack gait information
-        gait_cos = np.cos(2 * np.pi * gait_process) 
-        gait_sin = np.sin(2 * np.pi * gait_process)
-        gait_info = np.array([gait_cos, gait_sin])
+        if self.mode == "STILL":
+            gait_info = np.array([0.0, 0.0])
+        else:
+            gait_info = np.array([np.sin(2 * np.pi * gait_process), np.sin(2 * np.pi * gait_process + np.pi)])
                     
         cmd = np.concatenate(
             [l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32
@@ -251,7 +253,7 @@ class RobotController:
                 if self.robot.control_started:
                     self.agent_started = True
                     self.current_cmd = self.hold_pos
-                    self.gait_frequency = 0.0
+                    self.mode = "STILL"
                     self.node.get_logger().info("Agent started.")
                 else:
                     self.node.get_logger().warn("Please start the control first by pressing LT + START.")
@@ -260,19 +262,19 @@ class RobotController:
                 if self.robot.joy_key.hat_u and self.robot.key_count == 1:
                     # up key
                     self.current_cmd = self.fwd_pos
-                    self.gait_frequency = 1.0
+                    self.mode = "FWD"
                 elif self.robot.joy_key.hat_d and self.robot.key_count == 1:
                     # down key
                     self.current_cmd = self.bwd_pos
-                    self.gait_frequency = 1.0
+                    self.mode = "BWD"
                 elif self.robot.joy_key.hat_l and self.robot.key_count == 1:
                     # left key
                     self.current_cmd = self.hold_pos
-                    self.gait_frequency = 1.0
+                    self.mode = "STILL"
                 elif self.robot.joy_key.hat_r and self.robot.key_count == 1:
                     # right key
                     self.current_cmd = self.hold_pos
-                    self.gait_frequency = 0.0
+                    self.mode = "STILL"
                 elif self.robot.joy_key.rx * -1 >= 1.0:
                     pass
                 elif self.robot.joy_key.rx * -1 <= -1.0:
@@ -281,7 +283,7 @@ class RobotController:
                     pass
             else:
                 self.current_cmd = self.hold_pos
-                self.gait_frequency = 1.0
+                self.mode = "STILL"
 
             self.robot.joy_key = None  # Reset joy_key
             self.robot.key_count = 0 # Reset true_count after processing

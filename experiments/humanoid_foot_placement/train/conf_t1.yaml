@@ -3,7 +3,7 @@ defaults:
   - _self_
 
 wandb:
-  project: "Steps"
+  project: "Foot Placement"
   note: ""
 
 experiment:
@@ -14,18 +14,18 @@ experiment:
     env_name: MjxBoosterT1
     horizon: 1000
 
-    terrain_type: ParkourTerrain
-    terrain_params: {
-      num_boxes: 15,
-      box_length_range: [0.2, 0.8],
-      box_width_range: [0.2, 0.8],
-      box_height_range: [0.05, 0.1],
-      box_x_range: [-2.5, 2.5],
-      box_y_range: [-2.5, 2.5],
-      box_yaw_range: [-180, 180],
-      inner_platform_size: 0.5,
-      feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
-    }
+    # terrain_type: ParkourTerrain
+    # terrain_params: {
+    #   num_boxes: 15,
+    #   box_length_range: [0.2, 0.8],
+    #   box_width_range: [0.2, 0.8],
+    #   box_height_range: [0.05, 0.1],
+    #   box_x_range: [-2.5, 2.5],
+    #   box_y_range: [-2.5, 2.5],
+    #   box_yaw_range: [-180, 180],
+    #   inner_platform_size: 0.5,
+    #   feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
+    # }
 
 
     terminal_state_type: HeightBasedTerminalStateHandler
@@ -56,7 +56,9 @@ experiment:
       track_movement_only: false
       feet_direction_range_deg: [0,0] # [-180, 180]
       # still proportion
-      still_proportion: 0.05
+      still_proportion: 0.1
+      still_feet_distance: 0.2
+      max_num_gaits: 10
       # observation group
       group: [prioritized, policy]
     
@@ -230,8 +232,8 @@ experiment:
       clip_actions: 1.0
       
       p_gain: 
-        - 10 # 40 # AAHead_yaw
-        - 10 # 40 # Head_pitch
+        - 20 # 40 # AAHead_yaw
+        - 20 # 40 # Head_pitch
         - 20 # 40 # Left_Shoulder_Pitch
         - 20 # 40 # Left_Shoulder_Roll
         - 20 # 40 # Left_Elbow_Pitch
@@ -327,10 +329,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 100e6
+      total_timesteps: 600e6
       num_curriculum_steps: 1
       num_environments: 8192
-      num_total_timesteps: 100e6
+      num_total_timesteps: 600e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -357,13 +359,13 @@ experiment:
 
       # joint properties
       randomize_joint_damping: true
-      joint_damping_range: [0.005, .015]
+      joint_damping_range: [0.005, 0.03] # [0.005, .015]
       randomize_joint_stiffness: false
       joint_stiffness_range: [0.9, 1.1]
       randomize_joint_friction_loss: true
       joint_friction_loss_range: [0.0, 0.5]
       randomize_joint_armature: true
-      joint_armature_range: [0.007, 0.013]
+      joint_armature_range: [0.007, 0.03] # [0.007, 0.013]
 
       #base mass
       randomize_base_mass: false
@@ -384,7 +386,7 @@ experiment:
       add_p_gains_noise: true
       add_d_gains_noise: true
       p_gains_noise_scale: 0.15
-      d_gains_noise_scale: 0.15
+      d_gains_noise_scale: 0.5 # 0.15
 
       # Observation Noise
       add_joint_pos_noise: true
@@ -442,7 +444,7 @@ experiment:
   len_obs_history: 1
   num_envs: 8192
   num_steps: 50
-  total_timesteps: 100e6
+  total_timesteps: 600e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995
@@ -468,8 +470,8 @@ experiment:
     num_envs: 100
     num: 10 # set to 0 to disable validation
   # parameter initialization
-  resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/T1/cluster_ll.pkl
-  resume_just_params: true
+  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/T1/cluster_ll.pkl
+  resume_just_params: false
 
 robot_joints_to_consider:
   - AAHead_yaw
