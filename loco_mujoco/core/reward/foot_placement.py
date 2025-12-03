@@ -829,6 +829,9 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         local_vel_root_lin = global_rot.inv().apply(global_vel_root[:3])
         local_vel_root_ang = global_rot.inv().apply(global_vel_root[3:])
         global_vel_root_ang = global_vel_root[3:]
+        
+        left_foot_pos = data.site_xpos[self._left_foot_site_id]
+        right_foot_pos = data.site_xpos[self._right_foot_site_id]
 
         # ==================== REWARD COMPONENTS ====================
         
@@ -840,12 +843,6 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         swing_foot_idx = goal_state.swing_foot_idx
         if self._goal_name in ["GoalDoubleFootPlacement", "GoalFootPlacementFromVelocity"]:
             gait_process = goal_state.gait_process
-            
-            # if we are in the right phase (gait_process >= 0.5) we remove 0.5
-            # the quantity we consider is always in 2 * [0, 0.5]
-            gait_sharpness = 2 * (gait_process - backend.where(gait_process >= 0.5, 0.5, 0))
-            # if hold still, then gait sharpness is always 1
-            gait_sharpness = jax.lax.select(goal_state.still_phase, 1.0, gait_sharpness)
             
             # retrieve tragets for the swing and the stance feet
             swing_target_pos, swing_target_orn, stance_target_pos, stance_target_orn = jax.lax.cond(
@@ -924,6 +921,14 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             #     lambda: (rpos_err_sq, rorn_err, lpos_err_sq, lorn_err)
             # )
             # FIXME: old code end
+            
+            # if we are in the right phase (gait_process >= 0.5) we remove 0.5
+            # the quantity we consider is always in 2 * [0, 0.5]
+            gait_sharpness = 2 * (gait_process - backend.where(gait_process >= 0.5, 0.5, 0))
+            # if hold still, then gait sharpness is always 1
+            cond_feet_near = backend.linalg.norm(left_foot_pos[:2] - right_foot_pos[:2]) <= self.epsilon_standing
+            hold_still = goal_state.still_phase & cond_feet_near
+            gait_sharpness = jax.lax.select(goal_state.still_phase, 0.0, gait_sharpness)
 
             # NOTE: adaptive sharpness is just for the swing targets
             swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq * gait_sharpness)
@@ -1093,8 +1098,8 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         feet_roll_reward = backend.square(left_foot_roll) + backend.square(right_foot_roll)
 
         # Feet distance reward
-        left_foot_pos = data.site_xpos[self._left_foot_site_id]
-        right_foot_pos = data.site_xpos[self._right_foot_site_id]
+        # left_foot_pos = data.site_xpos[self._left_foot_site_id]
+        # right_foot_pos = data.site_xpos[self._right_foot_site_id]
         
         feet_distance = (
             backend.cos(base_yaw) * (left_foot_pos[1] - right_foot_pos[1]) -
@@ -1156,7 +1161,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             )
             
             # compute the condition for holding still in the reward too
-            cond_feet_near = backend.abs(left_foot_pos[0] - right_foot_pos[0]) <= self.epsilon_standing
+            cond_feet_near = backend.linalg.norm(left_foot_pos[:2] - right_foot_pos[:2]) <= self.epsilon_standing
             hold_still = goal_state.still_phase & cond_feet_near
             
             feet_swing_reward = (

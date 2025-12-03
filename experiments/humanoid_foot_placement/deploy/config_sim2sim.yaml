@@ -4,7 +4,7 @@
 # Updated with parameters and correct joint limits for a 23 DoF robot model.
 
 # policy parameters
-agent_path: /home/alessandro/code/scripts/experiments/humanoid_foot_placement/policies/T1/still_fp_3.pkl 
+agent_path: /home/alessandro/code/scripts/experiments/humanoid_foot_placement/policies/T1/still_fp_5.pkl 
 train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
 train_config_name: conf.yaml
 # --- Simulation Parameters ---
@@ -153,7 +153,10 @@ num_actions: 23 # Base number of actions (one per joint). Script will handle var
 # These are default command values. The valid ranges are in the comments.
 command:
   feet_distance: 0.2
-  distance: 0.1
+  vertical_distance: 0.15
+  lateral_distance: 0.4
   gait_frequency: 1.0   # Target gait frequency in Hz (Range: 0.5 to 1.5)
+  max_gaits: 10
+  steering_angle: 0
 
   

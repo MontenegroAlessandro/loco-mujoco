@@ -88,6 +88,157 @@ def pd_control(target_q, q, kp, target_dq, dq, kd):
     """Calculates PD control torques."""
     return (target_q - q) * kp + (target_dq - dq) * kd
 
+class GaitGenerator:
+    def __init__(
+        self, 
+        feet_distance: float = 0.2,
+        vertical_dist: float = 0.1,
+        lateral_dist: float = 0.3,
+        steering_angle: float = 0.0,
+    ):
+        # map the parameters
+        self.feet_distance = feet_distance
+        self.vertical_dist = vertical_dist
+        self.lateral_dist = lateral_dist
+        self.steering_angle = steering_angle
+    
+    def query_cmd(self, mov_dir: str = "STILL", reset: bool = False, gp: float = 0.0):
+        err_msg = f"[GaitGenerator: query_cmd] Mode {mov_dir} is not valid."
+        assert mov_dir in ["STILL", "FWD", "BWD", "LEFT", "RIGHT", "DIAG-L", "DIAG-R"], err_msg
+        
+        if mov_dir == "STILL":
+            cmd = self._gen_still_cmd(reset=reset, gp=gp)
+        elif mov_dir in ["FWD", "BWD"]:
+            direction = 1 if mov_dir == "FWD" else -1
+            cmd = self._gen_vertical_cmd(gp=gp, direction=direction)
+        elif mov_dir in ["LEFT", "RIGHT"]:
+            direction = 1 if mov_dir == "LEFT" else -1
+            cmd = self._gen_lateral_cmd(gp=gp, direction=direction)
+        elif mov_dir in ["DIAG-L", "DIAG-R"]:
+            direction = 1 if mov_dir == "DIAG-L" else -1
+            cmd = self._gen_diag_cmd(gp=gp, direction=direction)
+        
+        return cmd
+    
+    def _gen_still_cmd(self, reset: bool = False, gp: float = 0.0):
+        # get the swing foot index
+        swing_foot_idx = 0 if (gp < 0.5) else 1
+        
+        # no changing targets
+        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
+        zero_pos_offset = np.zeros(3, dtype=np.float32)
+        
+        if reset:
+            # gait info gen
+            gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
+            # pos gen
+            l_pos_offset = np.array([0, self.feet_distance, 0]) if swing_foot_idx == 0 else zero_pos_offset
+            r_pos_offset = np.array([0, -self.feet_distance, 0]) if swing_foot_idx == 1 else zero_pos_offset
+            # orn gen
+            l_orn_offset = zero_orn_offset
+            r_orn_offset = zero_orn_offset
+        else:
+            # gait info gen
+            gait_info = np.zeros(2, dtype=np.float32)
+            # pos gen
+            l_pos_offset = np.array([0, self.feet_distance, 0])
+            r_pos_offset = np.array([0, -self.feet_distance, 0])
+            # orn gen
+            l_orn_offset = zero_orn_offset
+            r_orn_offset = zero_orn_offset
+        
+        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
+    
+    def _gen_vertical_cmd(self, gp: float = 0.0, direction: int = 1):
+        # NOTE: direction 1 means forward, -1 backward 
+        err_msg = f"[GaitGenerator: _gen_vertical_cmd] Direction {direction} is not valid."
+        assert direction in [-1, 1], err_msg
+        
+        # get the swing foot index
+        swing_foot_idx = 0 if (gp < 0.5) else 1
+        
+        # no changing targets
+        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
+        zero_pos_offset = np.zeros(3, dtype=np.float32)
+        
+        # adjust the steering angle
+        steering_angle = np.clip(self.steering_angle, -np.pi, np.pi) if direction == 1 else 0.0
+        steering_foot_idx = 0 if (steering_angle >= 0 and steering_angle <= np.pi) else 1
+        steering_orn_offset = np_R.from_euler("z", steering_angle).as_quat(scalar_first=True)
+        
+        # gait info gen
+        gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
+        # pos gen
+        l_pos_offset = np.array([direction * self.vertical_dist, self.feet_distance, 0]) if swing_foot_idx == 0 else zero_pos_offset
+        r_pos_offset = np.array([direction * self.vertical_dist, -self.feet_distance, 0]) if swing_foot_idx == 1 else zero_pos_offset
+        # orn gen
+        l_orn_offset = steering_orn_offset if steering_foot_idx == 0 else zero_orn_offset
+        r_orn_offset = steering_orn_offset if steering_foot_idx == 1 else zero_orn_offset
+
+        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
+    
+    def _gen_lateral_cmd(self, gp: float = 0.0, direction: int = 1):
+        # NOTE: direction 1 means left, -1 right 
+        err_msg = f"[GaitGenerator: _gen_lateral_cmd] Direction {direction} is not valid."
+        assert direction in [-1, 1], err_msg
+        
+        # get the swing foot index
+        swing_foot_idx = 0 if (gp < 0.5) else 1
+        
+        # no changing targets
+        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
+        zero_pos_offset = np.zeros(3, dtype=np.float32)
+        
+        # clip the movement for the "evil foot"
+        max_evil_movement = self.lateral_dist / 2.0 # np.clip(self.lateral_dist, 0, self.feet_distance)
+        
+        # craft gait_info
+        gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
+        
+        if direction == 1: # left movement
+            l_pos_offset = np.array([0.0, self.lateral_dist, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
+            r_pos_offset = np.array([0.0, -max_evil_movement, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
+            l_orn_offset = zero_orn_offset
+            r_orn_offset = zero_orn_offset
+        else: # right movement
+            l_pos_offset = np.array([0.0, max_evil_movement, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
+            r_pos_offset = np.array([0.0, -self.lateral_dist, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
+            l_orn_offset = zero_orn_offset
+            r_orn_offset = zero_orn_offset
+        
+        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
+
+    def _gen_diag_cmd(self, gp: float = 0.0, direction: int = 1):
+        # NOTE: direction 1 means left, -1 right 
+        err_msg = f"[GaitGenerator: _gen_diag_cmd] Direction {direction} is not valid."
+        assert direction in [-1, 1], err_msg
+        
+         # get the swing foot index
+        swing_foot_idx = 0 if (gp < 0.5) else 1
+        
+        # no changing targets
+        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
+        zero_pos_offset = np.zeros(3, dtype=np.float32)
+        
+        # gait info gen
+        gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
+        
+        # clip the movement for the "evil foot"
+        max_evil_movement = self.lateral_dist / 2.0
+        
+        if direction == 1: # left movement
+            l_pos_offset = np.array([self.lateral_dist, self.lateral_dist, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
+            r_pos_offset = np.array([-max_evil_movement, -max_evil_movement, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
+            l_orn_offset = zero_orn_offset
+            r_orn_offset = zero_orn_offset
+        else: # right movement
+            l_pos_offset = np.array([-max_evil_movement, max_evil_movement, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
+            r_pos_offset = np.array([self.lateral_dist, -self.lateral_dist, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
+            l_orn_offset = zero_orn_offset
+            r_orn_offset = zero_orn_offset
+
+        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
+
 if __name__ == "__main__":
     import argparse
 
@@ -197,21 +348,24 @@ if __name__ == "__main__":
     
     # command parameters
     cmd = np.zeros(16, dtype=np.float32) 
-    counter = 0
+    counter = 1
     gait_frequency = cmd_params["gait_frequency"]
-    des_dist = cmd_params["distance"]
+    vert_dist = cmd_params["vertical_distance"]
+    lat_dist = cmd_params["lateral_distance"]
     feet_dist = cmd_params["feet_distance"]
-    # directions
-    fwd_pos = np.array([[des_dist, feet_dist, 0.0], [des_dist, -feet_dist, 0.0]]) # left, right
-    bwd_pos = np.array([[-des_dist, feet_dist, 0.0], [-des_dist, -feet_dist, 0.0]]) # left, right
-    hold_pos = np.array([[0.0, feet_dist, 0.0], [0.0, -feet_dist, 0.0]]) # left, right
-    pos_array = [hold_pos, fwd_pos, hold_pos, bwd_pos]
-    # goals
+    steering_angle = np.deg2rad(cmd_params["steering_angle"])
+    # goal parameters
     swing_foot_idx = 0
     # gait_swithces
     num_gaits = 0
+    max_gaits = cmd_params["max_gaits"]
+    # movement list
+    movs = ["STILL", "FWD", "STILL", "BWD", "STILL", "LEFT", "STILL", "RIGHT", "STILL", "DIAG-L", "STILL", "DIAG-R"]
     idx = 0
-    max_gaits = 5
+    first_step = False
+    
+    # init the gait generator
+    GG = GaitGenerator(feet_distance=feet_dist, vertical_dist=vert_dist, lateral_dist=lat_dist, steering_angle=steering_angle)
 
     # --- Start Simulation and Viewer ---
     with mujoco.viewer.launch_passive(m, d) as viewer:
@@ -239,11 +393,6 @@ if __name__ == "__main__":
                 # --- Create Command Vector `cmd` ---
                 gait_process = (counter * simulation_dt * gait_frequency) % 1.0
                 
-                swing_pos_offset = pos_array[idx][swing_foot_idx]
-                stance_pos_offset = np.zeros(3, np.float32)
-                swing_orn_offset = np_R.from_euler('z', np.deg2rad(0)).as_quat(scalar_first=True)
-                stance_orn_offset = np_R.from_euler('z', 0).as_quat(scalar_first=True)
-                
                 # SET GOALS
                 if swing_foot_idx == 0 and (gait_process >= 0.5 and gait_process < 1):
                     swing_foot_idx = 1
@@ -253,34 +402,21 @@ if __name__ == "__main__":
                     num_gaits += 1
                 # switch walking scheme when needed
                 if (counter * simulation_dt) % max_gaits == 0:
-                    idx = (idx + 1) % len(pos_array)
-                    # if idx in [0,2]:
-                    #     gait_info = np.array([0,0])
-                    # else:
-                    #     gait_info = np.array([np.sin(2 * np.pi * gait_process),np.sin(2 * np.pi * gait_process + np.pi)])
-
-                # MANAGE OBS
-                if swing_foot_idx == 0:
-                    l_offset = swing_pos_offset
-                    l_orn_offset = swing_orn_offset
-                    r_offset = stance_pos_offset
-                    r_orn_offset = stance_orn_offset
-                else:
-                    l_offset = stance_pos_offset
-                    l_orn_offset = stance_orn_offset
-                    r_offset = swing_pos_offset
-                    r_orn_offset = swing_orn_offset
+                    idx = (idx + 1) % len(movs)
+                    print(movs[idx])
+                    # check if need to change the gait process or reset
+                    if movs[idx] == "STILL":
+                        first_step = True
+                    elif movs[idx] in ["LEFT", "RIGHT", "DIAG-L", "DIAG-R"]:
+                        counter = 0.0 if movs[idx] in ["LEFT", "DIAG-L"] else (0.5 / (simulation_dt * gait_frequency))
+                        gait_process = (counter * simulation_dt * gait_frequency) % 1.0
+                    
+                l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info = GG.query_cmd(
+                    mov_dir=movs[idx], reset=first_step, gp=gait_process
+                )
                 
-                # pack the gait iun
-                if idx in [0,2]:
-                    gait_info = np.array([0.0,0.0]) # gait_info = np.array([0,0])
-                    l_offset = hold_pos[0] # np.zeros(3)
-                    r_offset = hold_pos[1] # np.zeros(3)
-                    l_orn_offset = np.array([1,0,0,0])
-                    r_orn_offset = np.array([1,0,0,0])
-                else:
-                    # gait_info = np.array([np.sin(2 * np.pi * gait_process),np.sin(2 * np.pi * gait_process + np.pi)])
-                    gait_info = np.array([np.cos(2 * np.pi * gait_process),np.sin(2 * np.pi * gait_process)])
+                if first_step:
+                    first_step = False
                             
                 cmd = np.concatenate(
                     [l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32

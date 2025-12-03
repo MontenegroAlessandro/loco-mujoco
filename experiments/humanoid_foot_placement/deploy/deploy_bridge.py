@@ -71,6 +71,157 @@ class JAXPolicy:
         )
         return np.asarray(action).flatten()
 
+class GaitGenerator:
+    def __init__(
+        self, 
+        feet_distance: float = 0.2,
+        vertical_dist: float = 0.1,
+        lateral_dist: float = 0.3,
+        steering_angle: float = 0.0,
+    ):
+        # map the parameters
+        self.feet_distance = feet_distance
+        self.vertical_dist = vertical_dist
+        self.lateral_dist = lateral_dist
+        self.steering_angle = steering_angle
+    
+    def query_cmd(self, mov_dir: str = "STILL", reset: bool = False, gp: float = 0.0):
+        err_msg = f"[GaitGenerator: query_cmd] Mode {mov_dir} is not valid."
+        assert mov_dir in ["STILL", "FWD", "BWD", "LEFT", "RIGHT", "DIAG-L", "DIAG-R"], err_msg
+        
+        if mov_dir == "STILL":
+            cmd = self._gen_still_cmd(reset=reset, gp=gp)
+        elif mov_dir in ["FWD", "BWD"]:
+            direction = 1 if mov_dir == "FWD" else -1
+            cmd = self._gen_vertical_cmd(gp=gp, direction=direction)
+        elif mov_dir in ["LEFT", "RIGHT"]:
+            direction = 1 if mov_dir == "LEFT" else -1
+            cmd = self._gen_lateral_cmd(gp=gp, direction=direction)
+        elif mov_dir in ["DIAG-L", "DIAG-R"]:
+            direction = 1 if mov_dir == "DIAG-L" else -1
+            cmd = self._gen_diag_cmd(gp=gp, direction=direction)
+        
+        return cmd
+    
+    def _gen_still_cmd(self, reset: bool = False, gp: float = 0.0):
+        # get the swing foot index
+        swing_foot_idx = 0 if (gp < 0.5) else 1
+        
+        # no changing targets
+        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
+        zero_pos_offset = np.zeros(3, dtype=np.float32)
+        
+        if reset:
+            # gait info gen
+            gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
+            # pos gen
+            l_pos_offset = np.array([0, self.feet_distance, 0]) if swing_foot_idx == 0 else zero_pos_offset
+            r_pos_offset = np.array([0, -self.feet_distance, 0]) if swing_foot_idx == 1 else zero_pos_offset
+            # orn gen
+            l_orn_offset = zero_orn_offset
+            r_orn_offset = zero_orn_offset
+        else:
+            # gait info gen
+            gait_info = np.zeros(2, dtype=np.float32)
+            # pos gen
+            l_pos_offset = np.array([0, self.feet_distance, 0])
+            r_pos_offset = np.array([0, -self.feet_distance, 0])
+            # orn gen
+            l_orn_offset = zero_orn_offset
+            r_orn_offset = zero_orn_offset
+        
+        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
+    
+    def _gen_vertical_cmd(self, gp: float = 0.0, direction: int = 1):
+        # NOTE: direction 1 means forward, -1 backward 
+        err_msg = f"[GaitGenerator: _gen_vertical_cmd] Direction {direction} is not valid."
+        assert direction in [-1, 1], err_msg
+        
+        # get the swing foot index
+        swing_foot_idx = 0 if (gp < 0.5) else 1
+        
+        # no changing targets
+        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
+        zero_pos_offset = np.zeros(3, dtype=np.float32)
+        
+        # adjust the steering angle
+        steering_angle = np.clip(self.steering_angle, -np.pi, np.pi) if direction == 1 else 0.0
+        steering_foot_idx = 0 if (steering_angle >= 0 and steering_angle <= np.pi) else 1
+        steering_orn_offset = np_R.from_euler("z", steering_angle).as_quat(scalar_first=True)
+        
+        # gait info gen
+        gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
+        # pos gen
+        l_pos_offset = np.array([direction * self.vertical_dist, self.feet_distance, 0]) if swing_foot_idx == 0 else zero_pos_offset
+        r_pos_offset = np.array([direction * self.vertical_dist, -self.feet_distance, 0]) if swing_foot_idx == 1 else zero_pos_offset
+        # orn gen
+        l_orn_offset = steering_orn_offset if steering_foot_idx == 0 else zero_orn_offset
+        r_orn_offset = steering_orn_offset if steering_foot_idx == 1 else zero_orn_offset
+
+        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
+    
+    def _gen_lateral_cmd(self, gp: float = 0.0, direction: int = 1):
+        # NOTE: direction 1 means left, -1 right 
+        err_msg = f"[GaitGenerator: _gen_lateral_cmd] Direction {direction} is not valid."
+        assert direction in [-1, 1], err_msg
+        
+        # get the swing foot index
+        swing_foot_idx = 0 if (gp < 0.5) else 1
+        
+        # no changing targets
+        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
+        zero_pos_offset = np.zeros(3, dtype=np.float32)
+        
+        # clip the movement for the "evil foot"
+        max_evil_movement = self.lateral_dist / 2.0 # np.clip(self.lateral_dist, 0, self.feet_distance)
+        
+        # craft gait_info
+        gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
+        
+        if direction == 1: # left movement
+            l_pos_offset = np.array([0.0, self.lateral_dist, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
+            r_pos_offset = np.array([0.0, -max_evil_movement, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
+            l_orn_offset = zero_orn_offset
+            r_orn_offset = zero_orn_offset
+        else: # right movement
+            l_pos_offset = np.array([0.0, max_evil_movement, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
+            r_pos_offset = np.array([0.0, -self.lateral_dist, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
+            l_orn_offset = zero_orn_offset
+            r_orn_offset = zero_orn_offset
+        
+        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
+
+    def _gen_diag_cmd(self, gp: float = 0.0, direction: int = 1):
+        # NOTE: direction 1 means left, -1 right 
+        err_msg = f"[GaitGenerator: _gen_diag_cmd] Direction {direction} is not valid."
+        assert direction in [-1, 1], err_msg
+        
+         # get the swing foot index
+        swing_foot_idx = 0 if (gp < 0.5) else 1
+        
+        # no changing targets
+        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
+        zero_pos_offset = np.zeros(3, dtype=np.float32)
+        
+        # gait info gen
+        gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
+        
+        # clip the movement for the "evil foot"
+        max_evil_movement = self.lateral_dist / 2.0
+        
+        if direction == 1: # left movement
+            l_pos_offset = np.array([self.lateral_dist, self.lateral_dist, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
+            r_pos_offset = np.array([-max_evil_movement, -max_evil_movement, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
+            l_orn_offset = zero_orn_offset
+            r_orn_offset = zero_orn_offset
+        else: # right movement
+            l_pos_offset = np.array([-max_evil_movement, max_evil_movement, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
+            r_pos_offset = np.array([self.lateral_dist, -self.lateral_dist, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
+            l_orn_offset = zero_orn_offset
+            r_orn_offset = zero_orn_offset
+
+        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
+
 class RobotController:   
     def __init__(self, node, cfg):
         self.node = node  
@@ -108,16 +259,18 @@ class RobotController:
 
         # new for foot placement
         self.counter = 0
-        self.des_dist = self.command["distance"]
-        self.feet_dist = self.command["feet_distance"]
-        # define angles for movements
-        self.fwd_pos = np.array([[self.des_dist, self.feet_dist, 0.0], [self.des_dist, -self.feet_dist, 0.0]]) # left, right
-        self.bwd_pos = np.array([[-self.des_dist, self.feet_dist, 0.0], [-self.des_dist, -self.feet_dist, 0.0]]) # left, right
-        self.hold_pos = np.array([[0.0, self.feet_dist, 0.0], [0.0, -self.feet_dist, 0.0]]) # left, right
         # initialize the angle to be still
         self.swing_foot_idx = 0
-        self.current_cmd = self.hold_pos
-        self.mode = ["STILL", "FWD", "BWD"]
+        
+        # retrieve the parameters
+        self.gait_frequency = self.command["gait_frequency"]
+        self.vert_dist = self.command["vertical_distance"]
+        self.lat_dist = self.command["lateral_distance"]
+        self.feet_dist = self.command["feet_distance"]
+        self.steering_angle = np.deg2rad(self.command["steering_angle"])
+        self.mode = "STILL"
+        self.first_step = False
+        self.GG = GaitGenerator(feet_distance=self.feet_dist, vertical_dist=self.vert_dist, lateral_dist=self.lat_dist, steering_angle=self.steering_angle)
 
         print("Please press\n\t \"LT + START\" to start control, \n\t \"LT + A\" to start inferrence, \n\t \"BACK\" to stop control, \n\t \"LB\" for ready position, \n\t \"RB\" for zero position, \n\t \"LT + BACK\" for emergency stop.")
 
@@ -140,33 +293,12 @@ class RobotController:
         # Calculate gait phase based on time
         gait_process = (self.counter * self.policy_dt * self.gait_frequency) % 1.0 
         
-        swing_pos_offset = self.current_cmd[self.swing_foot_idx]
-        stance_pos_offset = np.zeros(3, np.float32)
-        swing_orn_offset = np_R.from_euler('z', np.deg2rad(0)).as_quat(scalar_first=True)
-        stance_orn_offset = np_R.from_euler('z', 0).as_quat(scalar_first=True)
+        l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info = self.GG.query_cmd(
+            mov_dir=self.mode, reset=self.first_step, gp=gait_process
+        )
         
-        # SET GOALS
-        if self.swing_foot_idx == 0 and (gait_process >= 0.5 and gait_process < 1):
-            self.swing_foot_idx = 1
-        elif self.swing_foot_idx == 1 and (gait_process < 0.5 and gait_process >= 0):
-            self.swing_foot_idx = 0
-        # MANAGE OBS
-        if self.swing_foot_idx == 0:
-            l_offset = swing_pos_offset
-            l_orn_offset = swing_orn_offset
-            r_offset = stance_pos_offset
-            r_orn_offset = stance_orn_offset
-        else:
-            l_offset = stance_pos_offset
-            l_orn_offset = stance_orn_offset
-            r_offset = swing_pos_offset
-            r_orn_offset = swing_orn_offset
-
-        # pack gait information
-        if self.mode == "STILL":
-            gait_info = np.array([1.0, 1.0]) # np.array([0.0, 0.0])
-        else:
-            gait_info = np.array([np.cos(2 * np.pi * gait_process), np.sin(2 * np.pi * gait_process)]) # np.array([np.sin(2 * np.pi * gait_process), np.sin(2 * np.pi * gait_process + np.pi)])
+        if self.first_step:
+            self.first_step = False
                     
         cmd = np.concatenate(
             [l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32
@@ -252,8 +384,8 @@ class RobotController:
             if self.robot.joy_key.lt and self.robot.joy_key.a and self.robot.key_count == 2:  # start: LT + A
                 if self.robot.control_started:
                     self.agent_started = True
-                    self.current_cmd = self.hold_pos
                     self.mode = "STILL"
+                    self.first_step = False
                     self.node.get_logger().info("Agent started.")
                 else:
                     self.node.get_logger().warn("Please start the control first by pressing LT + START.")
@@ -261,20 +393,33 @@ class RobotController:
             if self.agent_started:
                 if self.robot.joy_key.hat_u and self.robot.key_count == 1:
                     # up key
-                    self.current_cmd = self.fwd_pos
                     self.mode = "FWD"
+                    self.first_step = False
                 elif self.robot.joy_key.hat_d and self.robot.key_count == 1:
                     # down key
-                    self.current_cmd = self.bwd_pos
                     self.mode = "BWD"
+                    self.first_step = False
                 elif self.robot.joy_key.hat_l and self.robot.key_count == 1:
                     # left key
-                    self.current_cmd = self.hold_pos
-                    self.mode = "STILL"
+                    self.mode = "LEFT"
+                    self.first_step = False
+                    self.counter = 0.0
                 elif self.robot.joy_key.hat_r and self.robot.key_count == 1:
                     # right key
-                    self.current_cmd = self.hold_pos
+                    self.mode = "RIGHT"
+                    self.first_step = False
+                    self.counter = 0.5 / (self.policy_dt * self.gait_frequency)
+                elif self.robot.joy_key.a and self.robot.key_count == 1:
                     self.mode = "STILL"
+                    self.first_step = True
+                elif self.robot.joy_key.b and self.robot.key_count == 1:
+                    self.mode = "DIAG-R"
+                    self.first_step = False
+                    self.counter = 0.5 / (self.policy_dt * self.gait_frequency)
+                elif self.robot.joy_key.x and self.robot.key_count == 1:
+                    self.mode = "DIAG-L"
+                    self.first_step = False
+                    self.counter = 0.0
                 elif self.robot.joy_key.rx * -1 >= 1.0:
                     pass
                 elif self.robot.joy_key.rx * -1 <= -1.0:
@@ -282,8 +427,8 @@ class RobotController:
                 if (self.robot.joy_key.ls or self.robot.joy_key.rs) and self.robot.key_count == 1:
                     pass
             else:
-                self.current_cmd = self.hold_pos
                 self.mode = "STILL"
+                self.first_step = True
 
             self.robot.joy_key = None  # Reset joy_key
             self.robot.key_count = 0 # Reset true_count after processing
@@ -296,7 +441,7 @@ class RobotController:
 if __name__ == "__main__":
     rclpy.init()
     # cfg_file = "src/humanoid_bridge/robot_bridge/example/T1/configs/T1.yaml"
-    cfg_file = "config_lmj.yaml"
+    cfg_file = "config_sim2sim.yaml"
     with open(cfg_file, "r", encoding="utf-8") as f:
         policy_cfg = yaml.load(f.read(), Loader=yaml.FullLoader)
     node = rclpy.create_node('robot_client_node')
