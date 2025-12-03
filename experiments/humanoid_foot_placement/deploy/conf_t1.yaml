@@ -232,8 +232,8 @@ experiment:
       clip_actions: 1.0
       
       p_gain: 
-        - 10 # 40 # AAHead_yaw
-        - 10 # 40 # Head_pitch
+        - 20 # 40 # AAHead_yaw
+        - 20 # 40 # Head_pitch
         - 20 # 40 # Left_Shoulder_Pitch
         - 20 # 40 # Left_Shoulder_Roll
         - 20 # 40 # Left_Elbow_Pitch
@@ -359,13 +359,13 @@ experiment:
 
       # joint properties
       randomize_joint_damping: true
-      joint_damping_range: [0.005, .015]
+      joint_damping_range: [0.005, 0.03] # [0.005, .015]
       randomize_joint_stiffness: false
       joint_stiffness_range: [0.9, 1.1]
       randomize_joint_friction_loss: true
-      joint_friction_loss_range: [0.0, 0.5]
+      joint_friction_loss_range: [0.0, 1.0]
       randomize_joint_armature: true
-      joint_armature_range: [0.007, 0.013]
+      joint_armature_range: [0.007, 0.03] # [0.007, 0.013]
 
       #base mass
       randomize_base_mass: false
@@ -386,7 +386,7 @@ experiment:
       add_p_gains_noise: true
       add_d_gains_noise: true
       p_gains_noise_scale: 0.15
-      d_gains_noise_scale: 0.15
+      d_gains_noise_scale: 0.5 # 0.15
 
       # Observation Noise
       add_joint_pos_noise: true

@@ -684,6 +684,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         self._feet_swing_period = kwargs.get("feet_swing_period", 0.2)
         self._gait_height_sharp = kwargs.get("gait_height_sharp", 0.0)
         self._gait_height_coeff = kwargs.get("gait_height_coeff", 0.0)
+        self.epsilon_standing = 0.03 # FIXME
 
         # Air time and impact coefficients
         self._air_time_max = kwargs.get("air_time_max", 0.0)
@@ -1125,8 +1126,6 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         # left_gait_height_sharpness = 1.0 # by default
         # right_gait_height_sharpness = 1.0 # by default
         if self._goal_name in ["GoalDoubleFootPlacement"]:
-            hold_still = goal_state.still_phase
-            
             # compute the exponential sharpness of the gait height tracking
             # get feet positions
             stance_foot_pos = jax.lax.select(
@@ -1156,10 +1155,14 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
                 right_gait_height_sharpness # ... otherwise use the exponential
             )
             
+            # compute the condition for holding still in the reward too
+            cond_feet_near = backend.abs(left_foot_pos[0] - right_foot_pos[0]) <= self.epsilon_standing
+            hold_still = goal_state.still_phase & cond_feet_near
+            
             feet_swing_reward = (
                 (left_swing & ~feet_on_ground[0] & ~hold_still).astype(backend.float32) * left_gait_height_sharpness +
                 (right_swing & ~feet_on_ground[1] & ~hold_still).astype(backend.float32) * right_gait_height_sharpness +
-                backend.astype(hold_still & (feet_on_ground[0] | feet_on_ground[1]), backend.float32)
+                backend.astype(hold_still & (feet_on_ground[0] & feet_on_ground[1]), backend.float32)
             ) 
         else:
             feet_swing_reward = (

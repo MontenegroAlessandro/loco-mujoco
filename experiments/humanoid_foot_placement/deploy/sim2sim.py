@@ -254,10 +254,10 @@ if __name__ == "__main__":
                 # switch walking scheme when needed
                 if (counter * simulation_dt) % max_gaits == 0:
                     idx = (idx + 1) % len(pos_array)
-                    if idx in [0,2]:
-                        gait_info = np.array([0,0])
-                    else:
-                        gait_info = np.array([np.sin(2 * np.pi * gait_process),np.sin(2 * np.pi * gait_process + np.pi)])
+                    # if idx in [0,2]:
+                    #     gait_info = np.array([0,0])
+                    # else:
+                    #     gait_info = np.array([np.sin(2 * np.pi * gait_process),np.sin(2 * np.pi * gait_process + np.pi)])
 
                 # MANAGE OBS
                 if swing_foot_idx == 0:
@@ -273,9 +273,14 @@ if __name__ == "__main__":
                 
                 # pack the gait iun
                 if idx in [0,2]:
-                    gait_info = np.array([0,0])
+                    gait_info = np.array([0.0,0.0]) # gait_info = np.array([0,0])
+                    l_offset = hold_pos[0] # np.zeros(3)
+                    r_offset = hold_pos[1] # np.zeros(3)
+                    l_orn_offset = np.array([1,0,0,0])
+                    r_orn_offset = np.array([1,0,0,0])
                 else:
-                    gait_info = np.array([np.sin(2 * np.pi * gait_process),np.sin(2 * np.pi * gait_process + np.pi)])
+                    # gait_info = np.array([np.sin(2 * np.pi * gait_process),np.sin(2 * np.pi * gait_process + np.pi)])
+                    gait_info = np.array([np.cos(2 * np.pi * gait_process),np.sin(2 * np.pi * gait_process)])
                             
                 cmd = np.concatenate(
                     [l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32

@@ -8,7 +8,7 @@ wandb:
   log: false
 
 experiment:
-  agent_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/T1/new_fp.pkl 
+  agent_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/T1/still_fp_2.pkl 
   task_factory:
     name: RLFactory
     params: {}
@@ -37,13 +37,13 @@ experiment:
       # Names of the foot sites from the booster_t1_dfki.xml file
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
-      feet_distance: 0.5
+      feet_distance: 0.2
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
+      xy_distance_range: [0.4, 0.4] # [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [-30, 30] 
+      angle_range_deg: [0, 0] 
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-20, 20] # [-20, 20] # [-30, 30]
+      yaw_range_deg: [0, 0] # [-20, 20] # [-30, 30]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
@@ -54,7 +54,7 @@ experiment:
       direction_range_deg: [-180, 180] # [-180, 180]
       change_direction_range_deg: [0, 0]
       # feet direction range in deg
-      track_movement_only: false # if true remeber to mod how the angles are computed!
+      track_movement_only: false # if true remember to mod how the angles are computed!
       feet_direction_range_deg: [0,0] # [-180, 180]
       # observation group
       still_proportion: 0.1

@@ -630,6 +630,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # still proportion
             still_proportion: float = 0.05,
             still_feet_distance: float = 0.2,
+            still_threshold: float = 0.05,
             # number of gait phases for goal switching
             max_num_gaits: int = 20,
             **kwargs
@@ -642,7 +643,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.goal_height = goal_height
         self.gait_height = gait_height
         self.gait_frequency_range = gait_frequency_range
-        self.feet_distance = feet_distance
+        self.foot_safe_distance = feet_distance
         self.direction_range_rad = [jnp.deg2rad(direction_range_deg[0]), jnp.deg2rad(direction_range_deg[1])]
         self.change_direction_range_rad = [jnp.deg2rad(change_direction_range_deg[0]), jnp.deg2rad(change_direction_range_deg[1])]
         self.feet_direction_range_rad = [jnp.deg2rad(feet_direction_range_deg[0]), jnp.deg2rad(feet_direction_range_deg[1])] 
@@ -650,6 +651,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.still_proportion = still_proportion
         self.still_feet_distance = still_feet_distance
         self.max_num_gaits = max_num_gaits
+        self.still_threshold = still_threshold
         
         self._foot_site_ids = [-1, -1]
         self._root_joint_name = info_props["root_free_joint_xml_name"]
@@ -998,6 +1000,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         swing_foot_pos = data.site_xpos[swing_foot_site_id]
         swing_foot_orn_mat = data.site_xmat[swing_foot_site_id].reshape(3, 3)
         swing_foot_orn = R.from_matrix(swing_foot_orn_mat).as_quat(scalar_first=True)
+        current_swing_yaw = R.from_matrix(swing_foot_orn_mat).as_euler('xyz')[2]
 
         # how far to step
         # sampling for movement
@@ -1008,25 +1011,41 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         # get the ideal world coordinates
         def _generate_position_target_no_tracking():
+            # reference position and orientation
+            ref_pos = stance_foot_pos
+            ref_yaw = current_stance_yaw
+            
+            # sample the angle
             angle_rand = jax.random.uniform(subkey2, minval=angle_range_rad[0], maxval=angle_range_rad[1])
             angle = (R.from_euler('z', angle_rand) * mov_dir_rot).as_euler('xyz')[2]
             ideal_world_target = backend.array(
                 [distance * backend.cos(angle), distance * backend.sin(angle), 0.0]
             )
-            ideal_world_target = ideal_world_target + stance_foot_pos
+            # ideal_world_target = ideal_world_target + ref_pos
+            ideal_world_target = ideal_world_target
             
             # clip the coordinates to be in the safe areas
             # NOTE: we define a direction centered in self.feet_distance / 2.0 and with the same orientation of the 
             # NOTE: stance foot orientation, while the ideal targets are generated in the movement direction
             
             # take the rotation of the current stance yaw
-            current_stance_yaw_rot = R.from_euler('z', current_stance_yaw)
+            ref_yaw_rot = R.from_euler('z', ref_yaw)
             
             # convert the ideal target into the local frame of the stance foot
-            local_target = current_stance_yaw_rot.apply(ideal_world_target - stance_foot_pos, inverse=True)
+            # local_target = ref_yaw_rot.apply(ideal_world_target - ref_pos, inverse=True)
+            local_target = ref_yaw_rot.apply(ideal_world_target, inverse=True)
+
+            # FIXME: new code start
+            """danger_zone_flag = (backend.abs(local_target[0]) <= self.foot_safe_distance)
+            max_lateral = jax.lax.select(
+                danger_zone_flag,
+                self.foot_safe_distance,
+                0.1 # for safety 
+            )"""
+            # FIXME: new code end
 
             # define the maximum lateral step
-            max_lateral = 0.5 * self.feet_distance  # max allowed distance from foot
+            max_lateral = self.foot_safe_distance  # max allowed distance from foot FIXME
             
             # clip on the boundaries if it is needed
             if backend == jnp:
@@ -1052,7 +1071,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                     )
             
             # move the clipped foot placement from local coordinates back to world coordinates
-            target_pos_pre_z = current_stance_yaw_rot.apply(local_target, inverse=False) + stance_foot_pos
+            target_pos_pre_z = ref_yaw_rot.apply(local_target, inverse=False) + ref_pos
             return target_pos_pre_z
         
         def _generate_position_target_tracking():
@@ -1305,7 +1324,10 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 lambda: self._sample_gait_parameters(sk1),
                 lambda: prev_gait_parameters
             )
-            movement_dir, feet_dir, gp0, gait_frequency, distance_range, angle_range_rad = new_gait_parameters
+            # movement_dir, feet_dir, gp0, gait_frequency, distance_range, angle_range_rad = new_gait_parameters
+            movement_dir = state.movement_direction
+            gp0 = gp
+            _, feet_dir, _, gait_frequency, distance_range, angle_range_rad = new_gait_parameters
             
             # sample the probability of staying still
             hold_still = jax.lax.select(
@@ -1332,12 +1354,6 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             gp = state.gait_process
             swing_foot_idx = state.swing_foot_idx
 
-        # Get the rotation matrix to convert into the root frame
-        # global_pose_root = data.qpos[self._root_qpos_ids]
-        # global_pos = global_pose_root[:3] # root global position
-        # global_quat = global_pose_root[3:7] # root global orientation
-        # global_rot = R.from_quat(quat_scalarfirst2scalarlast(global_quat)) # root rotation matrix
-
         # retireve info about both feet
         left_pos_w  = data.site_xpos[self._foot_site_id_left]
         left_mat_w  = data.site_xmat[self._foot_site_id_left].reshape(3, 3)
@@ -1346,13 +1362,6 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         right_pos_w  = data.site_xpos[self._foot_site_id_right]
         right_mat_w  = data.site_xmat[self._foot_site_id_right].reshape(3, 3)
         right_quat_w = R.from_matrix(right_mat_w).as_quat(scalar_first=True)
-
-        # Compute the target position offset in base frame
-        # left_pos_offset_w = state.left_foot_target_pos - left_pos_w
-        # right_pos_offset_w = state.right_foot_target_pos - right_pos_w
-        # change coordinates into local frame
-        # left_pos_offset_local = global_rot.apply(left_pos_offset_w, inverse=True)
-        # right_pos_offset_local = global_rot.apply(right_pos_offset_w, inverse=True)
 
         # Compute the orientation offset in base frame
         left_foot_matrix = R.from_quat(quat_scalarfirst2scalarlast(left_quat_w))
@@ -1401,23 +1410,26 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             lambda: (pos_offset, orn_offset, hold_pos, hold_orn),
             lambda: (hold_pos, hold_orn, pos_offset, orn_offset)
         )
-        # observation = backend.concatenate(
-        #     [
-        #         left_pos_targ,
-        #         left_orn_targ,
-        #         right_pos_targ,
-        #         right_orn_targ,
-        #         backend.array([backend.cos(2 * backend.pi * gp), #  * (state.gait_frequency > 1.0e-8),
-        #         backend.sin(2 * backend.pi * gp)]) # * (state.gait_frequency > 1.0e-8)])
-        #     ]
-        # )
         
         # craft GP array
-        gp_info = jax.lax.select(
-            state.still_phase,
-            backend.array([0.0, 0.0]),
-            backend.array([backend.sin(2 * backend.pi * gp), backend.sin(2 * backend.pi * gp + backend.pi)])
+        gp_info = backend.array([backend.cos(2 * backend.pi * gp), backend.sin(2 * backend.pi * gp)])
+        
+        # steady still condition 
+        steady_still_flag = state.still_phase & (backend.abs(left_pos_w[0] - right_pos_w[0]) <= self.still_threshold)
+        zero_pos_off_l = backend.array([0.0, self.still_feet_distance, 0.0]) # backend.zeros(3, dtype=backend.float32)
+        zero_pos_off_r = backend.array([0.0, - self.still_feet_distance, 0.0])
+        zero_orn_off = backend.array([1, 0, 0, 0], dtype=backend.float32)
+        gp_both_stance = backend.array([0, 0], dtype=backend.float32)
+        left_pos_targ, left_orn_targ, right_pos_targ, right_orn_targ, gp_info = jax.lax.cond(
+            steady_still_flag,
+            lambda: (zero_pos_off_l, zero_orn_off, zero_pos_off_r, zero_orn_off, gp_both_stance),
+            lambda: (left_pos_targ, left_orn_targ, right_pos_targ, right_orn_targ, gp_info)
         )
+        """
+        NOTE: this condition is verified whenever
+        state.still_phase is True and the |x_left[0] - x_right[0]| <= epsilon
+        In this case the gait information are [0,0] and the offset are all zero
+        """
         
         observation = backend.concatenate(
             [
@@ -1425,7 +1437,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 left_orn_targ,
                 right_pos_targ,
                 right_orn_targ,
-                gp_info
+                gp_info, 
             ]
         )
 

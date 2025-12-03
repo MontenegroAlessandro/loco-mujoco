@@ -164,9 +164,9 @@ class RobotController:
 
         # pack gait information
         if self.mode == "STILL":
-            gait_info = np.array([0.0, 0.0])
+            gait_info = np.array([1.0, 1.0]) # np.array([0.0, 0.0])
         else:
-            gait_info = np.array([np.sin(2 * np.pi * gait_process), np.sin(2 * np.pi * gait_process + np.pi)])
+            gait_info = np.array([np.cos(2 * np.pi * gait_process), np.sin(2 * np.pi * gait_process)]) # np.array([np.sin(2 * np.pi * gait_process), np.sin(2 * np.pi * gait_process + np.pi)])
                     
         cmd = np.concatenate(
             [l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32
@@ -202,8 +202,8 @@ class RobotController:
 
         # Clip the final target angles to be within the robot's joint limits
         q_des = np.clip(q_des, self.min_angles, self.max_angles)
-        q_des[3] = -1.2 # arms contraint
-        q_des[7] = 1.2 # arms contraint
+        # q_des[3] = -1.2 # arms contraint
+        # q_des[7] = 1.2 # arms contraint
 
         # 6. SEND COMMAND TO ROBOT
         self.robot.send_cmd(q_target_pos=q_des, target_kp=self.kps, target_kd=self.kds)
