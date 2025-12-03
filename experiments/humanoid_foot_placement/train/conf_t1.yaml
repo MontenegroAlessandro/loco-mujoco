@@ -329,10 +329,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 600e6
+      total_timesteps: 1200e6
       num_curriculum_steps: 1
       num_environments: 8192
-      num_total_timesteps: 600e6
+      num_total_timesteps: 1200e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -444,7 +444,7 @@ experiment:
   len_obs_history: 1
   num_envs: 8192
   num_steps: 50
-  total_timesteps: 600e6
+  total_timesteps: 1200e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995
@@ -470,8 +470,8 @@ experiment:
     num_envs: 100
     num: 10 # set to 0 to disable validation
   # parameter initialization
-  resume_from_path: /home/alessandro/code/scripts/experiments/humanoid_foot_placement/policies/T1/still_fp_4.pkl 
-  resume_just_params: true
+  # resume_from_path: /home/alessandro/code/scripts/experiments/humanoid_foot_placement/policies/T1/still_fp_4.pkl 
+  resume_just_params: false
 
 robot_joints_to_consider:
   - AAHead_yaw
