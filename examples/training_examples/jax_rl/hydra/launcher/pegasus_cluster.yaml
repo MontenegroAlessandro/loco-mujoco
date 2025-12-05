@@ -1,0 +1,12 @@
+defaults: 
+  - submitit_slurm
+
+_target_: hydra_plugins.hydra_submitit_launcher.submitit_launcher.SlurmLauncher
+
+timeout_min: 1000
+cpus_per_task: 2
+partition: RTX3090,RTXA6000
+gres: gpu:1 
+mem_gb: 15
+nodes: 1
+name: ${wandb.project}

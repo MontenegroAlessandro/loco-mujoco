@@ -10,20 +10,23 @@ hydra:
   hydra_logging: {}
   sweeper:
     params:
-      wandb.note: "feet roll sweep"
+      wandb.note: "joint_vel_coeff sweep"
 
       experiment.env_params.reward_params.action_rate_coeff: -1.0
-      experiment.env_params.reward_params.survival: 0.25  
-      experiment.env_params.reward_params.tracking_w_sum_linvel_x: 1.5
-      experiment.env_params.reward_params.tracking_w_sum_linvel_y: 1.5
-      experiment.env_params.reward_params.tracking_w_sum_angvel: 1.0
-      experiment.env_params.reward_params.feet_swing_coeff: 6.0
-      experiment.env_params.reward_params.feet_yaw_diff_coeff: -1.0
-      experiment.env_params.reward_params.feet_yaw_mean_coeff: -1.0
+      experiment.env_params.reward_params.tracking_w_sum_angvel: 2.0
+      experiment.env_params.reward_params.joint_vel_coeff: -5.e-4, -7.e-4, -9.e-4, -1.e-3 
       experiment.env_params.reward_params.feet_roll_coeff: -1.0
-      experiment.env_params.reward_params.joint_vel_coeff: -3.e-4 
-
-      experiment.env_params.control_params.clip_actions: 1.0
+      experiment.env_params.reward_params.feet_yaw_diff_coeff: -0.5
+      experiment.env_params.reward_params.feet_yaw_mean_coeff: -0.5
+      experiment.env_params.domain_randomization_params.kick_at_reset: true
+      
+      experiment.env_params.reward_params.feet_swing_coeff: 6.0
+      experiment.env_params.domain_randomization_params.kick_max_vel: 0.4
+      experiment.env_params.reward_params.orientation_coeff: -5.0
+      experiment.env_params.reward_params.base_height_coeff: -10.0
+      experiment.env_params.reward_params.roll_pitch_vel_coeff: -0.5
+      experiment.env_params.reward_params.joint_deviation_l1_coeff: -2.0 
+      
 
 wandb:
   project: "UnitreeG1"
@@ -41,17 +44,16 @@ experiment:
 
     goal_type: GoalChangingRandomRootVelocity
     goal_params:
-      max_x_vel: 0.9
+      max_x_vel: 0.7
       max_y_vel: 0.5
-      max_yaw_vel: 2
+      max_yaw_vel: 1.0
       max_height: 0.78
-      min_height: 0.77
+      min_height: 0.78
       resample_rate: 0.002
       still_proportion: 0.2
-      gait_frequency_range: [1.0, 2.0] # Hz
+      gait_frequency_range: [1.0, 1.5] # Hz
       visualize_goal: true
       group: [prioritized, policy]
-
     
     headless: true
 
@@ -67,7 +69,9 @@ experiment:
       tracking_w_sum_angvel: 1.0
       tracking_nominal_joint_pos_exp: 4
       tracking_nominal_joint_pos_coeff: 0
-      tracking_nominal_joint_pos_names: 
+      tracking_nominal_joint_pos_names:
+        - left_hip_roll_joint
+        - right_hip_roll_joint 
         - waist_yaw_joint
         - waist_roll_joint
         - waist_pitch_joint
@@ -88,8 +92,8 @@ experiment:
       # penalties
       joint_deviation_l1_coeff: -0.3
       base_height_target: 0.78
-      base_height_coeff: -5
-      orientation_coeff: -2
+      base_height_coeff: -5.0
+      orientation_coeff: -4.0
       joint_torque_coeff: -1e-5
       torque_tiredness_coeff: 0
       energy_coeff: -1e-4
@@ -98,7 +102,7 @@ experiment:
       joint_vel_coeff: -1e-4
       joint_acc_coeff: -1e-7
       root_acc_coeff: -5e-6
-      action_rate_coeff: -0.25
+      action_rate_coeff: -1.0
       joint_position_limit_scale: 0.98
       joint_position_limit_coeff: -5.0
       feet_slip_coeff: -0.1
@@ -106,7 +110,7 @@ experiment:
       feet_yaw_mean_coeff: 0.0
       feet_roll_coeff: 0.0
       feet_distance_target: 0.3
-      feet_swing_coeff: 7.0
+      feet_swing_coeff: 6.0
       feet_swing_period: 0.2
       feet_distance_coeff: 0.0
       # extra regularization / penalties
@@ -147,6 +151,9 @@ experiment:
       - right_wrist_roll_joint
       - right_wrist_pitch_joint
       - right_wrist_yaw_joint
+
+    timestep: 0.005 # 250 Hz
+    n_substeps: 4  # 50 Hz
 
     observation_spec:
       # Critic observations (privileged)
@@ -235,9 +242,9 @@ experiment:
         - 20
         - 20
         
-        - 100 # waist yaw
-        - 100 # waist roll
-        - 100 # waist pitch
+        - 50 # waist yaw
+        - 50 # waist roll
+        - 50 # waist pitch
         
         - 30
         - 30
@@ -323,7 +330,7 @@ experiment:
 
     init_state_type: DefaultInitialStateHandler
     init_state_params:
-      
+  
       qpos_init: [0, 0, 0.8, 
                   1, 0, 0, 0,
                   -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
@@ -345,10 +352,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 500e6
+      total_timesteps: 1100e6
       num_curriculum_steps: 1
       num_environments: 8192
-      num_total_timesteps: 500e6
+      num_total_timesteps: 1100e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -371,7 +378,7 @@ experiment:
       randomize_geom_damping: false
       geom_damping_range: [100, 500]
       randomize_geom_stiffness: false
-      geom_stiffness_range: [50000, 300000]
+      geom_stiffness_range: [100000, 300000]
 
       # joint properties
       randomize_joint_damping: true
@@ -379,7 +386,7 @@ experiment:
       randomize_joint_stiffness: false
       joint_stiffness_range: [0.9, 1.1]
       randomize_joint_friction_loss: true
-      joint_friction_loss_range: [0.0, 2.0]
+      joint_friction_loss_range: [0.0, 0.5]
       randomize_joint_armature: true
       joint_armature_range: [0.007, 0.013]
 
@@ -408,7 +415,7 @@ experiment:
       add_joint_pos_noise: true
       joint_pos_noise_scale: 0.03
       add_joint_vel_noise: true
-      joint_vel_noise_scale: 1.2
+      joint_vel_noise_scale: 0.3
       add_gravity_noise: true
       gravity_noise_scale: 0.015
       add_free_joint_lin_vel_noise: false
@@ -443,7 +450,7 @@ experiment:
       # Kicking
       kick_robots: true
       kick_min_vel: 0.0
-      kick_max_vel: 0.6 # m/s
+      kick_max_vel: 0.4 # m/s
       kick_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 kick per second
       kick_at_reset: false
 
@@ -459,14 +466,14 @@ experiment:
   kl_lr_scale: 1.5        # How much to scale LR by (multiply or divide)
   len_obs_history: 1
   num_envs: 8192
-  num_steps: 24
-  total_timesteps: 500e6
+  num_steps: 50
+  total_timesteps: 1100e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995
   gae_lambda: 0.95
   clip_eps: 0.2
-  init_std: 0.2
+  init_std: 0.135
   learnable_std: True
   ent_coef: 0.005
   vf_coef: 0.5

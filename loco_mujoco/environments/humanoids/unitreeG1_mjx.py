@@ -102,7 +102,10 @@ class MjxUnitreeG1(UnitreeG1):
         # --- Define specific contact pairs ---
 
         # first with the floor
-        for g_name in left_foot_geoms + right_foot_geoms + left_leg_geoms + right_leg_geoms + torso_geoms + left_forearm_geoms + right_forearm_geoms:
+        # for g_name in left_foot_geoms + right_foot_geoms + left_leg_geoms + right_leg_geoms + torso_geoms + left_forearm_geoms + right_forearm_geoms:
+        #     spec.add_pair(geomname1="floor", geomname2=g_name)
+
+        for g_name in left_foot_geoms + right_foot_geoms:
             spec.add_pair(geomname1="floor", geomname2=g_name)
         
 
