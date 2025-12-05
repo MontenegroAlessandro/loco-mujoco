@@ -1,0 +1,450 @@
+defaults:
+  - override hydra/job_logging: default
+  - override hydra/launcher: pegasus_cluster # comment out when running locally
+  - _self_
+
+
+hydra:
+  mode: MULTIRUN
+  job_logging: {}
+  hydra_logging: {}
+  sweeper:
+    params:
+      wandb.note: "roll_pitch_vel_coeff sweep"
+
+      experiment.env_params.reward_params.feet_yaw_diff_coeff: -0.0
+      experiment.env_params.reward_params.feet_yaw_mean_coeff: -0.0
+      experiment.env_params.reward_params.feet_roll_coeff: -0.0
+      experiment.env_params.reward_params.joint_vel_coeff: -1.e-4
+      experiment.env_params.reward_params.joint_deviation_l1_coeff: -0.45
+      experiment.env_params.reward_params.roll_pitch_vel_coeff: -0.5
+      experiment.max_grad_norm: 0.8
+      experiment.clip_eps: 0.15, 0.2
+
+
+
+wandb:
+  project: "UnitreeH1_Locomotion"
+  note: ""
+
+experiment:
+  task_factory:
+    name: RLFactory
+    params: {}
+  env_params:
+    env_name: MjxUnitreeH1
+    horizon: 1000
+
+    terminal_state_type: HeightBasedTerminalStateHandler
+
+    goal_type: GoalRandomRootVelocityAndPhase
+    goal_params:
+      max_x_vel: 0.8
+      max_y_vel: 0.5
+      max_yaw_vel: 1.0
+      max_height: 0.8
+      min_height: 0.8
+      resample_rate: 0.002
+      still_proportion: 0.2
+      gait_frequency_range: [1.0, 1.5] # Hz
+      visualize_goal: true
+      group: [prioritized, policy]
+
+    
+    headless: true
+
+    reward_type: HumanoidLocomotionReward
+    reward_params:
+      survival: 0.25
+      # tracking rewards
+      tracking_w_exp_linvel_x: 4
+      tracking_w_sum_linvel_x: 1.5
+      tracking_w_exp_linvel_y: 4
+      tracking_w_sum_linvel_y: 1.5
+      tracking_w_exp_angvel: 4
+      tracking_w_sum_angvel: 2.0
+      tracking_nominal_joint_pos_exp: 4
+      tracking_nominal_joint_pos_coeff: 0
+      tracking_nominal_joint_pos_names:
+        - hip_adduction_l
+        - hip_adduction_r
+        - back_bkz
+        - l_arm_shy
+        - l_arm_shx
+        - l_arm_shz
+        - left_elbow
+        - r_arm_shy
+        - r_arm_shx
+        - r_arm_shz
+        - right_elbow
+      feet_swing_coeff: 6.0
+      feet_swing_period: 0.2
+      # penalties
+      joint_deviation_l1_coeff: -1.8
+      base_height_coeff: -3.0
+      orientation_coeff: -5.0
+      joint_torque_coeff: -1e-5
+      energy_coeff: -1e-4
+      z_vel_coeff: -0.0
+      roll_pitch_vel_coeff: -0.5
+      joint_vel_coeff: -5.e-4
+      joint_acc_coeff: -1e-7
+      root_acc_coeff: -5e-6
+      action_rate_coeff: -1.0
+      joint_position_limit_scale: 0.98
+      joint_position_limit_coeff: -5.0
+      feet_slip_coeff: -0.1
+      feet_yaw_diff_coeff: -0.5
+      feet_yaw_mean_coeff: -0.5
+      feet_roll_coeff: -1.0
+      # extra regularization / penalties
+      feet_distance_target: 0.3
+      feet_distance_coeff: 0.0
+      air_time_max: 0.3
+      air_time_coeff: 0
+      no_fly_coeff: 0
+      impact_threshold: 150
+      impact_coeff: 0
+
+    actuation_spec:
+    - hip_rotation_l_actuator
+    - hip_adduction_l_actuator
+    - hip_flexion_l_actuator
+    - knee_angle_l_actuator
+    - ankle_angle_l_actuator
+    - hip_rotation_r_actuator
+    - hip_adduction_r_actuator
+    - hip_flexion_r_actuator
+    - knee_angle_r_actuator
+    - ankle_angle_r_actuator
+    - back_bkz_actuator
+    - l_arm_shy_actuator
+    - l_arm_shx_actuator
+    - l_arm_shz_actuator
+    - left_elbow_actuator
+    - r_arm_shy_actuator
+    - r_arm_shx_actuator
+    - r_arm_shz_actuator
+    - right_elbow_actuator
+
+    timestep: 0.005 # 250 Hz
+    n_substeps: 4  # 50 Hz
+
+    observation_spec:
+      # Critic observations (privileged)
+      - type: ProjectedGravityVector
+        obs_name: q_root_proj
+        xml_name: root
+        group: prioritized
+        allow_randomization: false
+      - type: JointPosArray
+        obs_name: joint_positions
+        group: prioritized
+        allow_randomization: false
+        xml_names: ${robot_joints_to_consider}
+      - type: FreeJointVel
+        obs_name: dq_root
+        xml_name: root
+        group: prioritized
+        allow_randomization: false
+      - type: JointVelArray
+        obs_name: joint_velocities
+        xml_names: ${robot_joints_to_consider}
+        group: prioritized
+        allow_randomization: false
+      - type: LastAction
+        obs_name: last_action
+        group: prioritized
+        allow_randomization: false
+
+      # Actor observations (unprivileged)
+      - type: ProjectedGravityVector
+        obs_name: q_root_pi
+        xml_name: root
+        group: policy
+        allow_randomization: true
+      - type: JointPosArray
+        obs_name: joint_positions_pi
+        group: policy
+        allow_randomization: true
+        xml_names: ${robot_joints_to_consider}
+      - type: EntryFromFreeJointVel
+        obs_name: dq_root_pi_r
+        xml_name: root
+        entry_index: 3
+        group: policy
+        allow_randomization: true
+      - type: EntryFromFreeJointVel
+        obs_name: dq_root_pi_p
+        xml_name: root
+        entry_index: 4
+        group: policy
+        allow_randomization: true
+      - type: EntryFromFreeJointVel
+        obs_name: dq_root_pi_y
+        xml_name: root
+        entry_index: 5
+        group: policy
+        allow_randomization: true
+      - type: JointVelArray
+        obs_name: joint_velocities_pi
+        xml_names: ${robot_joints_to_consider}
+        group: policy
+        allow_randomization: true
+      - type: LastAction
+        obs_name: last_action_pi
+        group: policy
+        allow_randomization: false
+
+    control_type: PDControl
+    control_params:
+      scale_action_to_jnt_limits: False
+      action_scale: 1.0
+      clip_actions: 1.0
+      
+      p_gain: 
+        - 150 # hip_rotation_l_actuator -> hip_yaw
+        - 150 # hip_adduction_l_actuator -> hip_roll
+        - 150 # hip_flexion_l_actuator -> hip_pitch
+        - 150 # knee_angle_l_actuator -> knee
+        - 40  # ankle_angle_l_actuator -> ankle
+        - 150 # hip_rotation_r_actuator -> hip_yaw
+        - 150 # hip_adduction_r_actuator -> hip_roll
+        - 150 # hip_flexion_r_actuator -> hip_pitch
+        - 150 # knee_angle_r_actuator -> knee
+        - 40  # ankle_angle_r_actuator -> ankle
+        - 200 # back_bkz_actuator -> torso
+        - 80  # l_arm_shy_actuator -> shoulder
+        - 80  # l_arm_shx_actuator -> shoulder
+        - 80  # l_arm_shz_actuator -> shoulder
+        - 80  # left_elbow_actuator -> elbow
+        - 80  # r_arm_shy_actuator -> shoulder
+        - 80  # r_arm_shx_actuator -> shoulder
+        - 80  # r_arm_shz_actuator -> shoulder
+        - 80  # right_elbow_actuator -> elbow
+
+      d_gain:
+        - 2 # hip_rotation_l_actuator -> hip_yaw
+        - 2 # hip_adduction_l_actuator -> hip_roll
+        - 2 # hip_flexion_l_actuator -> hip_pitch
+        - 4 # knee_angle_l_actuator -> knee
+        - 2 # ankle_angle_l_actuator -> ankle
+        - 2 # hip_rotation_r_actuator -> hip_yaw
+        - 2 # hip_adduction_r_actuator -> hip_roll
+        - 2 # hip_flexion_r_actuator -> hip_pitch
+        - 4 # knee_angle_r_actuator -> knee
+        - 2 # ankle_angle_r_actuator -> ankle
+        - 6  # back_bkz_actuator -> torso
+        - 2  # l_arm_shy_actuator -> shoulder
+        - 2 # l_arm_shx_actuator -> shoulder
+        - 2  # l_arm_shz_actuator -> shoulder
+        - 2  # left_elbow_actuator -> elbow
+        - 2  # r_arm_shy_actuator -> shoulder
+        - 2  # r_arm_shx_actuator -> shoulder
+        - 2  # r_arm_shz_actuator -> shoulder
+        - 2  # right_elbow_actuator -> elbow
+
+      nominal_joint_positions:
+        - 0.0 
+        - 0.0 
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0 
+        - 0.0
+        - 0.0 
+
+    init_state_type: DefaultInitialStateHandler
+    init_state_params:
+      qpos_init: [0, 0, 1.08, 
+                  1, 0, 0, 0, 
+                  0, 0, 0, 0, 0,
+                  0, 0, 0, 0, 0,
+                  0,
+                  0, 0, 0, 0, 
+                  0, 0, 0, 0]
+
+      qvel_init: [0, 0, 0, 
+                  0, 0, 0, 
+                  0, 0, 0, 0, 0,
+                  0, 0, 0, 0, 0,
+                  0,
+                  0, 0, 0, 0, 
+                  0, 0, 0, 0]
+
+    domain_randomization_type: CustomRandomizer
+    domain_randomization_params: 
+
+      total_timesteps: 995e6
+      num_curriculum_steps: 1
+      num_environments: 8192
+      num_total_timesteps: 995e6
+      # gravity
+      randomize_gravity: true
+      gravity_range: [9.51, 10.11]
+
+      # geom properties
+      randomize_model_geom_friction_tangential: false
+      model_geom_friction_tangential_range: [0.5, 1.5]
+      randomize_model_geom_friction_torsional: false
+      model_geom_friction_torsional_range: [0.1, 0.3]
+      randomize_model_geom_friction_rolling: false
+      model_geom_friction_rolling_range: [0.00008, 0.00012]
+
+      randomize_floor_geom_friction_tangential: true
+      floor_geom_friction_tangential_range: [0.5, 1.5]
+      randomize_floor_geom_friction_torsional: true
+      floor_geom_friction_torsional_range: [0.1, 0.3]
+      randomize_floor_geom_friction_rolling: true
+      floor_geom_friction_rolling_range: [0.00008, 0.00012]
+
+      randomize_geom_damping: false
+      geom_damping_range: [100, 500]
+      randomize_geom_stiffness: false
+      geom_stiffness_range: [100000, 300000]
+
+      # joint properties
+      randomize_joint_damping: true
+      joint_damping_range: [0.005, .015]
+      randomize_joint_stiffness: false
+      joint_stiffness_range: [0.9, 1.1]
+      randomize_joint_friction_loss: true
+      joint_friction_loss_range: [0.0, 0.5]
+      randomize_joint_armature: true
+      joint_armature_range: [0.007, 0.013]
+
+      #base mass
+      randomize_base_mass: false
+      base_mass_to_add_range: [-0.01, 0.01]
+
+      #COM
+      randomize_com_displacement: true
+      com_displacement_range: [-0.05, 0.05] 
+
+      #link mass
+      randomize_link_mass: true
+      link_mass_multiplier_range: {
+                                    "root_body":[0.8, 1.2],
+                                    "other_bodies":[0.9, 1.1],
+                                  }
+
+      #PD Gains
+      add_p_gains_noise: true
+      add_d_gains_noise: true
+      p_gains_noise_scale: 0.15
+      d_gains_noise_scale: 0.15
+
+      # Observation Noise
+      add_joint_pos_noise: true
+      joint_pos_noise_scale: 0.03
+      add_joint_vel_noise: true
+      joint_vel_noise_scale: 0.3
+      add_gravity_noise: true
+      gravity_noise_scale: 0.015
+      add_free_joint_lin_vel_noise: false
+      lin_vel_noise_scale: 0.1
+      add_free_joint_ang_vel_noise: true
+      ang_vel_noise_scale: 0.2
+      add_policy_ang_vel_noise: true
+      policy_ang_vel_noise_scale: 0.2
+
+      #Observation Normalization
+      normalize_observations: true
+      norm_factors: {
+                      "joint_pos": 1.0,
+                      "joint_vel": 0.1,
+                      "gravity": 1.0,
+                      "lin_vel": 1.0,
+                      "ang_vel": 1.0,
+                    }
+
+      # Pushing
+      push_robots: false
+      push_force_amplitude: 20 # Newtons
+      push_torque_amplitude: 2 # Newton-meters
+      push_active_duration: 1.0 # seconds
+      push_relief_duration: 2.0 # seconds
+      push_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 push per second
+
+      #Lowpass filter
+      apply_action_filtering: false
+      filter_action_alpha: 0.0
+
+      # Kicking
+      kick_robots: true
+      kick_min_vel: 0.2
+      kick_max_vel: 0.6 # m/s
+      kick_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 kick per second
+      kick_at_reset: true
+
+  actor_obs_group: policy
+  critic_obs_group: prioritized
+  hidden_layers: [512, 256, 128]
+  lr: 1e-5
+  adaptive_lr: true       # The main flag to enable/disable the feature
+  lr_min: 1.0e-6          # Minimum learning rate
+  lr_max: 0.01            # Maximum learning rate
+  kl_target: 0.02         # Target KL divergence
+  kl_margin: 1.5          # Margin for scaling (e.g., if KL > 0.02*1.5, decrease LR)
+  kl_lr_scale: 1.5        # How much to scale LR by (multiply or divide)
+  len_obs_history: 1
+  num_envs: 8192
+  num_steps: 50
+  total_timesteps: 995e6
+  update_epochs: 20
+  num_minibatches: 1
+  gamma: 0.995
+  gae_lambda: 0.95
+  clip_eps: 0.2
+  init_std: 0.135
+  learnable_std: True
+  ent_coef: 0.01
+  vf_coef: 0.5
+  max_grad_norm: 1.0
+  activation: elu
+  actor_output_activation: none
+  use_observationnorm: true
+  anneal_lr: false
+  weight_decay: 0.0
+  normalize_env: true
+  debug: false
+  n_seeds: 1  # while automatically take seeds from 1 to n_seeds
+  vmap_across_seeds: true
+  validation:
+    active: false
+    num_steps: 100
+    num_envs: 100
+    num: 10 # set to 0 to disable validation
+
+
+robot_joints_to_consider:
+  - hip_rotation_l
+  - hip_adduction_l
+  - hip_flexion_l
+  - knee_angle_l
+  - ankle_angle_l
+  - hip_rotation_r
+  - hip_adduction_r
+  - hip_flexion_r
+  - knee_angle_r
+  - ankle_angle_r
+  - back_bkz
+  - l_arm_shy
+  - l_arm_shx
+  - l_arm_shz
+  - left_elbow
+  - r_arm_shy
+  - r_arm_shx
+  - r_arm_shz
+  - right_elbow

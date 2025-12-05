@@ -367,3 +367,16 @@ class UnitreeH1(BaseRobotHumanoid):
         Returns the healthy range of the root height. This is only used when HeightBasedTerminalStateHandler is used.
         """
         return (0.6, 1.5)
+
+    @info_property
+    def foot_geom_names(self) -> List[str]:
+        """
+        Returns the names of the foot geometries.
+
+        Returns:
+            List[str]: The names of the foot geometries.
+        """
+        # print("---------using new foot geom names for H1---------------")
+        return ["left_foot1_col", "left_foot2_col",
+                "right_foot1_col", "right_foot2_col"
+                ]

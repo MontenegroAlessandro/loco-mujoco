@@ -1131,7 +1131,7 @@ class GoalRandomRootVelocityAndFrequencyState:
     goal_height: float
     gait_frequency: float
 
-class GoalChangingRandomRootVelocity(Goal, RootVelocityArrowVisualizer):
+class GoalRandomRootVelocityAndPhase(Goal, RootVelocityArrowVisualizer):
     """
     A class representing a random root velocity goal that changes over time.
 
@@ -1269,7 +1269,6 @@ class GoalChangingRandomRootVelocity(Goal, RootVelocityArrowVisualizer):
                 ]
             )
         else:
-            # randomly set the goal to zero with a probability of still_proportion
             key, subkey = jax.random.split(key)
             hold_still = jax.random.uniform(subkey) < self.still_proportion
 
