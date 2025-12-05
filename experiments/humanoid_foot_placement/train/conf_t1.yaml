@@ -42,11 +42,11 @@ experiment:
       # Range for omnidirectional step angle [-180, 180] for a full circle
       angle_range_deg: [-90, 90] 
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-90, 90] 
+      yaw_range_deg: [-30, 60] # mirrored for the left foot when swinging
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
-      gait_height: 0.06 
+      gait_height: 0.15 
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
@@ -470,7 +470,7 @@ experiment:
     num_envs: 100
     num: 10 # set to 0 to disable validation
   # parameter initialization
-  # resume_from_path: /home/alessandro/code/scripts/experiments/humanoid_foot_placement/policies/T1/still_fp_4.pkl 
+  # resume_from_path: /home/alessandro/code/scripts/policies/T1/complete/still_fp_75.pkl 
   resume_just_params: false
 
 robot_joints_to_consider:

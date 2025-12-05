@@ -971,7 +971,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # =====================================MODIFY FEET and MOVEMENT DIRECTIONS=====================================
         # define the movement direction
         key, subkey1, subkey2, subkey3 = jax.random.split(key, 4)
-        rand_direction_change = jax.random.uniform(
+        sign = backend.where(swing_foot_idx == 0, -1, 1)
+        rand_direction_change = sign * jax.random.uniform(
             subkey3, minval=self.change_direction_range_rad[0], maxval=self.change_direction_range_rad[1]
         )
         rand_direction_change = jax.lax.select(hold_still, 0.0, rand_direction_change) # if reset do not change the direction
@@ -1415,7 +1416,9 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         gp_info = backend.array([backend.cos(2 * backend.pi * gp), backend.sin(2 * backend.pi * gp)])
         
         # steady still condition 
-        steady_still_flag = state.still_phase & (backend.abs(left_pos_w[0] - right_pos_w[0]) <= self.still_threshold)
+        steady_still_flag = state.still_phase & \
+            (backend.abs(left_pos_w[0] - right_pos_w[0]) <= self.still_threshold) & \
+            (backend.abs(left_pos_w[1] - right_pos_w[1] - self.still_feet_distance) <= self.still_threshold)
         zero_pos_off_l = backend.array([0.0, self.still_feet_distance, 0.0]) # backend.zeros(3, dtype=backend.float32)
         zero_pos_off_r = backend.array([0.0, - self.still_feet_distance, 0.0])
         zero_orn_off = backend.array([1, 0, 0, 0], dtype=backend.float32)

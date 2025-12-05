@@ -3,12 +3,10 @@ defaults:
   - _self_
 
 wandb:
-  project: "BoosterT1 Foot Placement - Eval"
+  project: "Steps"
   note: ""
-  log: false
 
 experiment:
-  agent_path: /home/alessandro/code/scripts/policies/T1/complete/still_fp_6.pkl 
   task_factory:
     name: RLFactory
     params: {}
@@ -16,18 +14,18 @@ experiment:
     env_name: MjxBoosterT1
     horizon: 1000
 
-    # terrain_type: ParkourTerrain
-    # terrain_params: {
-    #   num_boxes: 30,
-    #   box_length_range: [0.2, 0.8],
-    #   box_width_range: [0.3, 3],
-    #   box_height_range: [0.05, 0.08],
-    #   box_x_range: [-2.0, 2.0],
-    #   box_y_range: [-2.0, 2.0],
-    #   box_yaw_range: [-180, 180],
-    #   inner_platform_size: 0.5,
-    #   feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
-    # }
+    terrain_type: ParkourTerrain
+    terrain_params: {
+      num_boxes: 1,
+      box_length_range: [0.2, 0.8],
+      box_width_range: [10, 10],
+      box_height_range: [0.05, 0.05],
+      box_x_range: [2.0, 2.0],
+      box_y_range: [0, 0],
+      box_yaw_range: [0, 0],
+      inner_platform_size: 0.5,
+      feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
+    }
 
 
     terminal_state_type: HeightBasedTerminalStateHandler
@@ -42,20 +40,20 @@ experiment:
       # Range for the random step length [min, max] in meters
       xy_distance_range: [0.2, 0.5] 
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [-90, 90] 
+      angle_range_deg: [30, 45] 
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-30, 60] # mirrored for the left foot when swinging
+      yaw_range_deg: [0, 0] 
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
-      gait_height: 0.15 
+      gait_height: 0.06 
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
-      direction_range_deg: [-180, 180] # [-180, 180]
+      direction_range_deg: [0, 0] # [-180, 180]
       change_direction_range_deg: [0, 0]
       # feet direction range in deg
-      track_movement_only: false
+      track_movement_only: true
       feet_direction_range_deg: [0,0] # [-180, 180]
       # still proportion
       still_proportion: 0.1
@@ -63,7 +61,7 @@ experiment:
       max_num_gaits: 10
       # observation group
       group: [prioritized, policy]
-
+    
     headless: true
 
     reward_type: CrispBoosterLocomotionFootPlacementReward
@@ -74,16 +72,19 @@ experiment:
       survival: 0.25
       # feet tracking rewards
       swing_pos_w: 4.0 # 4.0 # 1.0
-      swing_orn_w: 2.0 # 3.0 # 1.0
-      stance_pos_w: 2.0 # 1.0
-      stance_orn_w: 2.0 # 1.0
-      sharp_pos: 100 # 50 # 10
-      sharp_orn: 100 # 10
-      stance_sharp_pos: 100
-      stance_sharp_orn: 100 
+      swing_orn_w: 4.0 # 2.0 # 3.0 # 1.0
+      stance_pos_w: 4.0 # 1.0
+      stance_orn_w: 4.0 # 1.0
+      sharp_pos: 100.0 # 50 # 10
+      sharp_orn: 100.0 # 10
+      stance_sharp_pos: 100.0
+      stance_sharp_orn: 100.0 
+      # gait
+      gait_height_sharp: 1.0
+      gait_height_coeff: 1.0
       # other tracking rewards
-      tracking_nominal_joint_pos_exp: 4
-      tracking_nominal_joint_pos_coeff: 0
+      tracking_nominal_joint_pos_exp: 4.0
+      tracking_nominal_joint_pos_coeff: 4 # 0.0
       tracking_nominal_joint_pos_names: 
         - AAHead_yaw
         - Head_pitch
@@ -96,12 +97,12 @@ experiment:
         - Right_Elbow_Pitch
         - Right_Elbow_Yaw
         - Waist
-        - Right_Ankle_Roll
-        - Left_Ankle_Roll
+        # - Right_Ankle_Roll
+        # - Left_Ankle_Roll
       # penalties
       joint_deviation_l1_coeff: -0.3
       base_height_target: 0.68
-      base_height_coeff: -10.
+      base_height_coeff: -2 # -10.
       orientation_coeff: -5.
       joint_torque_coeff: -2.e-4
       torque_tiredness_coeff: 0.0
@@ -115,8 +116,8 @@ experiment:
       joint_position_limit_scale: 0.98
       joint_position_limit_coeff: -1.
       feet_slip_coeff: -0.1
-      feet_yaw_diff_coeff: 0.0 # -1.0 # -0.5
-      feet_yaw_mean_coeff: 0.0 # -1.0 # -0.5
+      feet_yaw_diff_coeff: -1.0 # -0.5
+      feet_yaw_mean_coeff: -1.0 # -0.5
       feet_roll_coeff: -4.0 # -0.1
       feet_distance_target: 0.2
       feet_swing_coeff: 6 # 3.
@@ -231,8 +232,8 @@ experiment:
       clip_actions: 1.0
       
       p_gain: 
-        - 10 # 40 # AAHead_yaw
-        - 10 # 40 # Head_pitch
+        - 20 # 40 # AAHead_yaw
+        - 20 # 40 # Head_pitch
         - 20 # 40 # Left_Shoulder_Pitch
         - 20 # 40 # Left_Shoulder_Roll
         - 20 # 40 # Left_Elbow_Pitch
@@ -310,7 +311,7 @@ experiment:
       qpos_init: [0, 0, 0.72, 
                   1, 0, 0, 0, 
                   0, 0,
-                  0.2, -1.2, 0, -0.5,
+                  0.2,-1.2, 0, -0.5,
                   0.2, 1.2, 0, 0.5,
                   0,
                   -0.2, 0, 0, 0.4, -0.25, 0,
@@ -358,13 +359,13 @@ experiment:
 
       # joint properties
       randomize_joint_damping: true
-      joint_damping_range: [0.005, .015]
+      joint_damping_range: [0.005, 0.03] # [0.005, .015]
       randomize_joint_stiffness: false
       joint_stiffness_range: [0.9, 1.1]
       randomize_joint_friction_loss: true
-      joint_friction_loss_range: [0.0, 0.5]
+      joint_friction_loss_range: [0.0, 1.0]
       randomize_joint_armature: true
-      joint_armature_range: [0.007, 0.013]
+      joint_armature_range: [0.007, 0.03] # [0.007, 0.013]
 
       #base mass
       randomize_base_mass: false
@@ -385,7 +386,7 @@ experiment:
       add_p_gains_noise: true
       add_d_gains_noise: true
       p_gains_noise_scale: 0.15
-      d_gains_noise_scale: 0.15
+      d_gains_noise_scale: 0.5 # 0.15
 
       # Observation Noise
       add_joint_pos_noise: true
@@ -468,7 +469,9 @@ experiment:
     num_steps: 100
     num_envs: 100
     num: 10 # set to 0 to disable validation
-
+  # parameter initialization
+  resume_from_path: /home/alessandro/code/scripts/policies/T1/complete/still_fp_6.pkl 
+  resume_just_params: true
 
 robot_joints_to_consider:
   - AAHead_yaw

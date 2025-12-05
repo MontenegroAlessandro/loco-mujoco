@@ -833,7 +833,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         left_foot_pos = data.site_xpos[self._left_foot_site_id]
         right_foot_pos = data.site_xpos[self._right_foot_site_id]
 
-        # ==================== REWARD COMPONENTS ====================
+        # ==============================================REWARD COMPONENTS==============================================
         
         # Survival reward
         survival_reward = 1.0
@@ -858,7 +858,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
                 lambda: (data.site_xpos[self._right_foot_site_id], data.site_xmat[self._right_foot_site_id], data.site_xpos[self._left_foot_site_id], data.site_xmat[self._left_foot_site_id]),
             )
             
-            # take just the xy components for the swing positions
+            # take just the xy components for the swing positions (just x and y)
             swing_target_pos = swing_target_pos[:2]
             swing_curr_pos = swing_curr_pos[:2]
             
@@ -881,62 +881,23 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             swing_orn_error = backend.square(_wrap_to_pi(swing_target_orn - swing_curr_orn))
             stance_orn_error = backend.square(_wrap_to_pi(stance_target_orn - stance_curr_orn))
             
-            # FIXME: old code start
-            # Retrieve targets
-            # left_target_pos = jax.lax.select(swing_foot_idx==0, goal_state.left_foot_target_pos, goal_state.left_foot_target_pos) # (x,y,z)
-            # left_target_orn = goal_state.left_foot_target_orn
-            # right_target_pos = jax.lax.select(swing_foot_idx==1, goal_state.right_foot_target_pos, goal_state.right_foot_target_pos) # (x,y,z)
-            # right_target_orn = goal_state.right_foot_target_orn
-
-            # # Current pose
-            # left_pos = jax.lax.select(swing_foot_idx==0, data.site_xpos[self._left_foot_site_id], data.site_xpos[self._left_foot_site_id]) # (x,y,z)
-            # left_orn = R.from_matrix(data.site_xmat[self._left_foot_site_id].reshape(3, 3)).as_quat(scalar_first=True)
-            # right_pos = jax.lax.select(swing_foot_idx==0, data.site_xpos[self._right_foot_site_id], data.site_xpos[self._right_foot_site_id]) # (x,y,z)
-            # right_orn = R.from_matrix(data.site_xmat[self._right_foot_site_id].reshape(3, 3)).as_quat(scalar_first=True)
-
-            # # Position tracking error
-            # lpos_err_sq = backend.sum(backend.square(left_pos - left_target_pos))
-            # rpos_err_sq = backend.sum(backend.square(right_pos - right_target_pos))
-
-            # # Orientation tracking error
-            # # NOTE: we are going to consider just the yaw misalignment, since we accept the possibility of having 
-            # # NOTE: uneven terrains
-            # # target yaws
-            # l_targ_yaw = (R.from_quat(quat_scalarfirst2scalarlast(left_target_orn))).as_euler('xyz')[2]
-            # r_targ_yaw = (R.from_quat(quat_scalarfirst2scalarlast(right_target_orn))).as_euler('xyz')[2]
-            # # current feet yaws
-            # l_cur_yaw = (R.from_quat(quat_scalarfirst2scalarlast(left_orn))).as_euler('xyz')[2]
-            # r_cur_yaw = R.from_quat(quat_scalarfirst2scalarlast(right_orn)).as_euler('xyz')[2]
-            # # get the yaw error
-            # l_yaw_err = (l_targ_yaw - l_cur_yaw + backend.pi) % (2 * backend.pi) - backend.pi
-            # lorn_err = backend.square(l_yaw_err)
-            # r_yaw_err = (r_targ_yaw - r_cur_yaw + backend.pi) % (2 * backend.pi) - backend.pi
-            # rorn_err = backend.square(r_yaw_err)
-
-            # # discrimate left and right foot basing on the swing idx
-            # swing_left = (swing_foot_idx == 0)
-            # (swing_pos_error_sq, swing_orn_error, stance_pos_error_sq, stance_orn_error) = jax.lax.cond(
-            #     swing_left,
-            #     lambda: (lpos_err_sq, lorn_err, rpos_err_sq, rorn_err),
-            #     lambda: (rpos_err_sq, rorn_err, lpos_err_sq, lorn_err)
-            # )
-            # FIXME: old code end
-            
             # if we are in the right phase (gait_process >= 0.5) we remove 0.5
             # the quantity we consider is always in 2 * [0, 0.5]
             gait_sharpness = 2 * (gait_process - backend.where(gait_process >= 0.5, 0.5, 0))
             # if hold still, then gait sharpness is always 1
             cond_feet_near_x = backend.abs(left_foot_pos[0] - right_foot_pos[0]) <= self.epsilon_standing
-            cond_feet_near_y = backend.abs(left_foot_pos[1] - right_foot_pos[1]) <= self._feet_distance_target + self.epsilon_standing
+            cond_feet_near_y = backend.abs(left_foot_pos[1] - right_foot_pos[1] - self._feet_distance_target) <= self.epsilon_standing
             hold_still = goal_state.still_phase & cond_feet_near_x & cond_feet_near_y
-            gait_sharpness = jax.lax.select(goal_state.still_phase, 0.0, gait_sharpness)
+            # gait_sharpness = jax.lax.select(goal_state.still_phase, 0.0, gait_sharpness)
+            still_coeff = jax.lax.select(hold_still, 0.0, 1.0)
+            """NOTE: if hold still condition is met, then we say the agent not to move"""
 
             # NOTE: adaptive sharpness is just for the swing targets
-            swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq * gait_sharpness)
-            stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq)
+            swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq * gait_sharpness * still_coeff)
+            stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq * still_coeff)
 
-            swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * swing_orn_error * gait_sharpness) 
-            stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error)
+            swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * swing_orn_error * gait_sharpness * still_coeff) 
+            stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error * still_coeff)
         else:
             # swing_target_pos = goal_state.swing_target_pos[:2] # just (x,y)
             swing_target_pos = goal_state.swing_target_pos # (x,y,z)
@@ -1163,7 +1124,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             
             # compute the condition for holding still in the reward too
             cond_feet_near_x = backend.abs(left_foot_pos[0] - right_foot_pos[0]) <= self.epsilon_standing
-            cond_feet_near_y = backend.abs(left_foot_pos[1] - right_foot_pos[1]) <= self._feet_distance_target + self.epsilon_standing
+            cond_feet_near_y = backend.abs(left_foot_pos[1] - right_foot_pos[1] - self._feet_distance_target) <= self.epsilon_standing
             hold_still = goal_state.still_phase & cond_feet_near_x & cond_feet_near_y
             
             feet_swing_reward = (
