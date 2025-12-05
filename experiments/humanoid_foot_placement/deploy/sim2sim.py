@@ -250,6 +250,7 @@ if __name__ == "__main__":
 
     # --- Load Configuration ---
     print(f"Loading configuration from {args.config}")
+    args.config = "/home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/deploy/config_sim2sim.yaml"
     with open(args.config, "r") as f:
         config = yaml.safe_load(f)
 
@@ -302,6 +303,29 @@ if __name__ == "__main__":
 
     # Load robot model
     spec = mujoco.MjSpec.from_file(xml_path)
+    wb = spec.worldbody
+        
+    # ==================================================OBSTACLEs==================================================
+    # this part is only needed for initialization, then the boxes will be added when doing the reset
+    wb.add_site(
+        name=f"pillar_0",
+        type=mujoco.mjtGeom.mjGEOM_BOX,
+        size=(0.1, 0.04, 0.01),   # *      
+        pos=(0.1, 0.0, 0.0),    # **             
+        quat=(0, 0, 0, 1),     
+        group=0,
+        rgba=(0.5, 0.0, 1.0, 1.0),
+    )
+    
+    wb.add_site(
+        name=f"pillar_1",
+        type=mujoco.mjtGeom.mjGEOM_BOX,
+        size=(0.1, 0.04, 0.01),   # *      
+        pos=(0.1, 0.0, 0.0),    # **             
+        quat=(0, 0, 0, 1),     
+        group=0,
+        rgba=(1.0, 0.0, 0.5, 1.0),
+    )
 
     # m = mujoco.MjModel.from_xml_path(xml_path)
 
@@ -355,7 +379,7 @@ if __name__ == "__main__":
     feet_dist = cmd_params["feet_distance"]
     steering_angle = np.deg2rad(cmd_params["steering_angle"])
     # goal parameters
-    swing_foot_idx = 0
+    swing_foot_idx = 0 if ((counter * simulation_dt * gait_frequency) % 1.0 < 0.5) else 1
     # gait_swithces
     num_gaits = 0
     max_gaits = cmd_params["max_gaits"]
@@ -363,6 +387,7 @@ if __name__ == "__main__":
     movs = ["STILL", "FWD", "STILL", "BWD", "STILL", "LEFT", "STILL", "RIGHT", "STILL", "DIAG-L", "STILL", "DIAG-R"]
     idx = 0
     first_step = False
+    sample_goal = True
     
     # init the gait generator
     GG = GaitGenerator(feet_distance=feet_dist, vertical_dist=vert_dist, lateral_dist=lat_dist, steering_angle=steering_angle)
@@ -379,6 +404,56 @@ if __name__ == "__main__":
             
             mujoco.mj_step(m, d)
             # counter += 1
+            
+            # SET GOALS
+            # gait_process = (counter * simulation_dt * gait_frequency) % 1.0
+            # if swing_foot_idx == 0 and (gait_process >= 0.5 and gait_process < 1):
+            #     swing_foot_idx = 1
+            #     num_gaits += 1
+            #     sample_goal = True
+            # elif swing_foot_idx == 1 and (gait_process < 0.5 and gait_process >= 0):
+            #     swing_foot_idx = 0
+            #     num_gaits += 1
+            #     sample_goal = True
+            # # switch walking scheme when needed
+            # if (counter * simulation_dt) % max_gaits == 0:
+            #     idx = (idx + 1) % len(movs)
+            #     print(movs[idx])
+            #     # check if need to change the gait process or reset
+            #     if movs[idx] == "STILL":
+            #         first_step = True
+            #     elif movs[idx] in ["LEFT", "RIGHT", "DIAG-L", "DIAG-R"]:
+            #         counter = 0.0 if movs[idx] in ["LEFT", "DIAG-L"] else (0.5 / (simulation_dt * gait_frequency))
+            #         gait_process = (counter * simulation_dt * gait_frequency) % 1.0
+    
+            # l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info = GG.query_cmd(
+            #     mov_dir=movs[idx], reset=first_step, gp=gait_process
+            # ) 
+            
+            # if sample_goal:
+            #     sample_goal = False
+                
+            #     # l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info = GG.query_cmd(
+            #     #     mov_dir=movs[idx], reset=first_step, gp=gait_process
+            #     # )
+    
+            # if swing_foot_idx == 0:
+            #     rot_l = np_R.from_matrix(d.site("right_foot").xmat.reshape(3, 3))
+            #     l_yaw = rot_l.as_euler("xyz")[2]
+            #     rot_l = np_R.from_euler("z", l_yaw)
+            #     m.site("pillar_1").pos = d.site_xpos[right_foot_id] + rot_l.apply(l_offset)
+            #     m.site("pillar_1").pos[2] = 0
+            #     m.site("pillar_1").quat = rot_l.as_quat(scalar_first=True)
+            # else:
+            #     rot_r =  np_R.from_matrix(d.site("left_foot").xmat.reshape(3, 3))
+            #     r_yaw = rot_r.as_euler("xyz")[2]
+            #     rot_r = np_R.from_euler("z", r_yaw)
+            #     m.site("pillar_0").pos = d.site_xpos[left_foot_id] + rot_r.apply(r_offset) 
+            #     m.site("pillar_0").pos[2] = 0                 
+            #     m.site("pillar_0").quat = rot_r.as_quat(scalar_first=True)
+                
+            # if first_step:
+            #     first_step = False
 
             # Run the policy at the defined control frequency
             if counter % control_decimation == 0:
@@ -397,9 +472,16 @@ if __name__ == "__main__":
                 if swing_foot_idx == 0 and (gait_process >= 0.5 and gait_process < 1):
                     swing_foot_idx = 1
                     num_gaits += 1
+                    sample_goal = True
+                    if first_step:
+                        first_step = False
                 elif swing_foot_idx == 1 and (gait_process < 0.5 and gait_process >= 0):
                     swing_foot_idx = 0
                     num_gaits += 1
+                    sample_goal = True
+                    if first_step:
+                        first_step = False
+                    
                 # switch walking scheme when needed
                 if (counter * simulation_dt) % max_gaits == 0:
                     idx = (idx + 1) % len(movs)
@@ -410,17 +492,36 @@ if __name__ == "__main__":
                     elif movs[idx] in ["LEFT", "RIGHT", "DIAG-L", "DIAG-R"]:
                         counter = 0.0 if movs[idx] in ["LEFT", "DIAG-L"] else (0.5 / (simulation_dt * gait_frequency))
                         gait_process = (counter * simulation_dt * gait_frequency) % 1.0
-                    
+        
                 l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info = GG.query_cmd(
                     mov_dir=movs[idx], reset=first_step, gp=gait_process
-                )
+                ) 
                 
-                if first_step:
-                    first_step = False
+                if sample_goal:
+                    sample_goal = False
+        
+                    if swing_foot_idx == 0:
+                        rot_l = np_R.from_matrix(d.site("right_foot").xmat.reshape(3, 3))
+                        l_yaw = rot_l.as_euler("xyz")[2]
+                        rot_l = np_R.from_euler("z", l_yaw)
+                        m.site("pillar_1").pos = d.site_xpos[right_foot_id] + rot_l.apply(l_offset)
+                        m.site("pillar_1").pos[2] = 0
+                        m.site("pillar_1").quat = rot_l.as_quat(scalar_first=True)
+                    else:
+                        rot_r =  np_R.from_matrix(d.site("left_foot").xmat.reshape(3, 3))
+                        r_yaw = rot_r.as_euler("xyz")[2]
+                        rot_r = np_R.from_euler("z", r_yaw)
+                        m.site("pillar_0").pos = d.site_xpos[left_foot_id] + rot_r.apply(r_offset) 
+                        m.site("pillar_0").pos[2] = 0                 
+                        m.site("pillar_0").quat = rot_r.as_quat(scalar_first=True)
+                        
+
+                    print("new goal")
                             
                 cmd = np.concatenate(
                     [l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32
                 )
+                print(cmd)
 
                 # --- Construct Observation Vector ---
                 obs_list = []

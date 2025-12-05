@@ -213,3 +213,14 @@ class Terrain(StatefulObject):
         ) -> Any:
         # to be implemneted by inheriting classes
         return 0
+    
+    def set_height_at_xy(
+            self, 
+            terrain_state: Any, 
+            xy_pos: Union[np.ndarray, jnp.ndarray], 
+            desired_z: float,
+            pillar_id: int, 
+            backend: ModuleType
+        ) -> Any:
+        # to be implemneted by inheriting classes
+        return terrain_state

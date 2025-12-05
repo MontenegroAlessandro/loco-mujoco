@@ -143,7 +143,7 @@
                   <geom class="visual" material="gray" mesh="left_foot_link"/>
                   <geom size="0.02 0.0915" pos="0.01 0.035 -0.01"  quat="0.707105 0 0.707108 0" type="capsule" class="collision" name="left_foot_1"/>
                   <geom size="0.02 0.0915" pos="0.01 -0.035 -0.01"  quat="0.707105 0 0.707108 0" type="capsule" class="collision" name="left_foot_2"/>
-                  <site name="left_foot" size="0.015" pos="0.0 0 -0.025"/>
+                  <site name="left_foot" size="0.015" pos="0.0 0 -0.025" type="box"/>
                 </body>
               </body>
             </body>
@@ -178,7 +178,7 @@
                   <geom class="visual" material="gray" mesh="right_foot_link"/>
                   <geom size="0.02 0.0915" pos="0.01 0.035 -0.01"  quat="0.707105 0 0.707108 0" type="capsule" class="collision" name="right_foot_1"/>
                   <geom size="0.02 0.0915" pos="0.01 -0.035 -0.01"  quat="0.707105 0 0.707108 0" type="capsule" class="collision" name="right_foot_2"/>
-                  <site name="right_foot" size="0.015" pos="0.0 0 -0.025"/>
+                  <site name="right_foot" size="0.015" pos="0.0 0 -0.025" type="box"/>
                 </body>
               </body>
             </body>
@@ -187,6 +187,8 @@
       </body>
     </body>
     </body>
+    <!-- <site name="pillar_0" size="0.1 0.04 0.01" quat="0 0 0 1" pos="0.0 0 -0.025" type="box"/> -->
+    <!-- <site name="pillar_1" size="0.1 0.04 0.01" quat="0 0 0 1" pos="0.0 0 -0.025" type="box"/> -->
   </worldbody>
 
   <actuator>

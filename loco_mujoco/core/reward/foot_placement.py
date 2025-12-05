@@ -885,9 +885,10 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             # the quantity we consider is always in 2 * [0, 0.5]
             gait_sharpness = 2 * (gait_process - backend.where(gait_process >= 0.5, 0.5, 0))
             # if hold still, then gait sharpness is always 1
-            cond_feet_near_x = backend.abs(left_foot_pos[0] - right_foot_pos[0]) <= self.epsilon_standing
-            cond_feet_near_y = backend.abs(left_foot_pos[1] - right_foot_pos[1] - self._feet_distance_target) <= self.epsilon_standing
-            hold_still = goal_state.still_phase & cond_feet_near_x & cond_feet_near_y
+            # cond_feet_near_x = backend.abs(left_foot_pos[0] - right_foot_pos[0]) <= self.epsilon_standing
+            # cond_feet_near_y = backend.abs(left_foot_pos[1] - right_foot_pos[1] - self._feet_distance_target) <= self.epsilon_standing
+            # hold_still = goal_state.still_phase & cond_feet_near_x & cond_feet_near_y
+            hold_still = goal_state.still_phase & (state.num_gaits >= 2)
             # gait_sharpness = jax.lax.select(goal_state.still_phase, 0.0, gait_sharpness)
             still_coeff = jax.lax.select(hold_still, 0.0, 1.0)
             """NOTE: if hold still condition is met, then we say the agent not to move"""
@@ -1123,9 +1124,10 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             )
             
             # compute the condition for holding still in the reward too
-            cond_feet_near_x = backend.abs(left_foot_pos[0] - right_foot_pos[0]) <= self.epsilon_standing
-            cond_feet_near_y = backend.abs(left_foot_pos[1] - right_foot_pos[1] - self._feet_distance_target) <= self.epsilon_standing
-            hold_still = goal_state.still_phase & cond_feet_near_x & cond_feet_near_y
+            # cond_feet_near_x = backend.abs(left_foot_pos[0] - right_foot_pos[0]) <= self.epsilon_standing
+            # cond_feet_near_y = backend.abs(left_foot_pos[1] - right_foot_pos[1] - self._feet_distance_target) <= self.epsilon_standing
+            # hold_still = goal_state.still_phase & cond_feet_near_x & cond_feet_near_y
+            hold_still = goal_state.still_phase & (state.num_gaits >= 2)
             
             feet_swing_reward = (
                 (left_swing & ~feet_on_ground[0] & ~hold_still).astype(backend.float32) * left_gait_height_sharpness +

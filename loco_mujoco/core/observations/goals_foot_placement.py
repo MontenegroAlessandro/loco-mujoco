@@ -633,6 +633,9 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             still_threshold: float = 0.05,
             # number of gait phases for goal switching
             max_num_gaits: int = 20,
+            # define terrain type and height sampling parameters
+            adaptive_terrain: bool = False,
+            z_distance_range: List[float] = [0.0, 0.0],
             **kwargs
         ):
         
@@ -652,6 +655,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.still_feet_distance = still_feet_distance
         self.max_num_gaits = max_num_gaits
         self.still_threshold = still_threshold
+        self.adaptive_tarrain = adaptive_terrain
+        self.z_distance_range = z_distance_range
         
         self._foot_site_ids = [-1, -1]
         self._root_joint_name = info_props["root_free_joint_xml_name"]
@@ -1148,9 +1153,27 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         )
         
         # adjust the height of the target based on the terrain properties
-        target_pos_xy = target_pos_pre_z[:2]
-        target_z_from_terrain = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
-        target_pos = target_pos_pre_z.at[2].set(target_z_from_terrain)
+        # target_pos_xy = target_pos_pre_z[:2]
+        # target_z_from_terrain = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
+        # target_pos = target_pos_pre_z.at[2].set(target_z_from_terrain)
+        
+        # =============================================FOOT HEIGHT TARGET=============================================
+        # case 1: the terrain is non-adaptive
+        def _set_height_non_adaptive_t():
+            return env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
+        
+        # case 2: the terrain is adaptive
+        key, zkey = jax.random.split(key)
+        def _set_height_adaptive_t():        
+            z_sampled = jax.random.uniform(zkey, minval=self.z_distance_range[0], maxval=self.z_distance_range[1])
+            return backend.clip(z_sampled + swing_foot_pos[2], 0, backend.inf)
+        
+        target_z = jax.lax.cond(
+            self.adaptive_tarrain,
+            _set_height_adaptive_t,
+            _set_height_non_adaptive_t
+        )
+        target_pos = target_pos_pre_z.at[2].set(target_z)
 
         # ===========================================FOOT ORIENTATION TARGET===========================================
         feet_dir_rot = R.from_euler('z', feet_direction)

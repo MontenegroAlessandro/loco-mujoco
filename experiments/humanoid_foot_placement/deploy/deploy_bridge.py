@@ -260,7 +260,6 @@ class RobotController:
         # new for foot placement
         self.counter = 0
         # initialize the angle to be still
-        self.swing_foot_idx = 0
         
         # retrieve the parameters
         self.gait_frequency = self.command["gait_frequency"]
@@ -271,6 +270,8 @@ class RobotController:
         self.mode = "STILL"
         self.first_step = False
         self.GG = GaitGenerator(feet_distance=self.feet_dist, vertical_dist=self.vert_dist, lateral_dist=self.lat_dist, steering_angle=self.steering_angle)
+        
+        self.swing_foot_idx = 0 if ((self.counter * self.policy_dt * self.gait_frequency) % 1.0 < 0.5) else 1
 
         print("Please press\n\t \"LT + START\" to start control, \n\t \"LT + A\" to start inferrence, \n\t \"BACK\" to stop control, \n\t \"LB\" for ready position, \n\t \"RB\" for zero position, \n\t \"LT + BACK\" for emergency stop.")
 
@@ -292,6 +293,15 @@ class RobotController:
 
         # Calculate gait phase based on time
         gait_process = (self.counter * self.policy_dt * self.gait_frequency) % 1.0 
+        
+        if self.swing_foot_idx == 0 and (gait_process >= 0.5 and gait_process < 1):
+            self.swing_foot_idx = 1
+            if self.first_step:
+                self.first_step = False
+        elif self.swing_foot_idx == 1 and (gait_process < 0.5 and gait_process >= 0):
+            self.swing_foot_idx = 0
+            if self.first_step:
+                self.first_step = False
         
         l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info = self.GG.query_cmd(
             mov_dir=self.mode, reset=self.first_step, gp=gait_process

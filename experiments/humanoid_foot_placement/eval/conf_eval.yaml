@@ -8,7 +8,7 @@ wandb:
   log: false
 
 experiment:
-  agent_path: /home/alessandro/code/scripts/policies/T1/complete/still_fp_6.pkl 
+  agent_path: /home/alessandro/code/scripts/policies/T1/complete/still_fp_8.pkl 
   task_factory:
     name: RLFactory
     params: {}
@@ -29,10 +29,15 @@ experiment:
     #   feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
     # }
 
+    terrain_type: AdaPillarsTerrain
+    terrain_params:
+      num_pillars: 2
+      diameter: 0.3
+      feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
-    goal_type: GoalDoubleFootPlacement # GoalRandomChangingFootPlacement # GoalRandomFootPlacement
+    goal_type: GoalDoubleFootPlacement 
     goal_params:
       visualize_goal: true
       # Names of the foot sites from the booster_t1_dfki.xml file
@@ -61,6 +66,9 @@ experiment:
       still_proportion: 0.1
       still_feet_distance: 0.2
       max_num_gaits: 10
+      # terrain stuff
+      adaptive_terrain: true
+      z_distance_range: [-0.05, 0.05]
       # observation group
       group: [prioritized, policy]
 
