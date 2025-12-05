@@ -1159,21 +1159,21 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         # =============================================FOOT HEIGHT TARGET=============================================
         # case 1: the terrain is non-adaptive
-        def _set_height_non_adaptive_t():
-            return env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
+        # def _set_height_non_adaptive_t():
+        #     return env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
         
-        # case 2: the terrain is adaptive
-        key, zkey = jax.random.split(key)
-        def _set_height_adaptive_t():        
-            z_sampled = jax.random.uniform(zkey, minval=self.z_distance_range[0], maxval=self.z_distance_range[1])
-            return backend.clip(z_sampled + swing_foot_pos[2], 0, backend.inf)
+        # # case 2: the terrain is adaptive
+        # key, zkey = jax.random.split(key)
+        # def _set_height_adaptive_t():        
+        #     z_sampled = jax.random.uniform(zkey, minval=self.z_distance_range[0], maxval=self.z_distance_range[1])
+        #     return backend.clip(z_sampled + swing_foot_pos[2], 0, backend.inf)
         
-        target_z = jax.lax.cond(
-            self.adaptive_tarrain,
-            _set_height_adaptive_t,
-            _set_height_non_adaptive_t
-        )
-        target_pos = target_pos_pre_z.at[2].set(target_z)
+        # target_z = jax.lax.cond(
+        #     self.adaptive_tarrain,
+        #     _set_height_adaptive_t,
+        #     _set_height_non_adaptive_t
+        # )
+        target_pos = target_pos_pre_z.at[2].set(0)
 
         # ===========================================FOOT ORIENTATION TARGET===========================================
         feet_dir_rot = R.from_euler('z', feet_direction)
