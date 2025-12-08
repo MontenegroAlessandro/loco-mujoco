@@ -328,10 +328,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 300e6
+      total_timesteps: 600e6
       num_curriculum_steps: 1
       num_environments: 4096 # 8192
-      num_total_timesteps: 300e6
+      num_total_timesteps: 600e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -443,7 +443,7 @@ experiment:
   len_obs_history: 1
   num_envs: 4096 # 8192
   num_steps: 50
-  total_timesteps: 300e6
+  total_timesteps: 600e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995
