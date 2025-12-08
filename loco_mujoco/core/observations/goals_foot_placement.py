@@ -636,6 +636,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # define terrain type and height sampling parameters
             adaptive_terrain: bool = False,
             z_distance_range: List[float] = [0.0, 0.0],
+            # start still flag
+            start_still: bool = False,
             **kwargs
         ):
         
@@ -657,6 +659,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.still_threshold = still_threshold
         self.adaptive_tarrain = adaptive_terrain
         self.z_distance_range = z_distance_range
+        self.start_still = start_still
         
         self._foot_site_ids = [-1, -1]
         self._root_joint_name = info_props["root_free_joint_xml_name"]
@@ -714,7 +717,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # feet direction
             feet_direction=0.0,
             # still info
-            still_phase=False,
+            still_phase=self.start_still,
             # number of gait phase switches
             num_gaits=0,
         )
@@ -728,7 +731,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         movement_dir, feet_dir, gp0, gait_frequency, distance_range, angle_range_rad = self._sample_gait_parameters(sk1)
         
         # Sample the initial goal
-        goal_state = self.sample_goal(
+        goal_state, carry = self.sample_goal(
             env=env, 
             data=data,
             carry=carry.replace(key=sk2),
@@ -920,7 +923,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         angle_range_rad = backend.array(self.angle_range_rad)
         
         # Sample the initial goal
-        goal_state = self.sample_goal(
+        goal_state, carry = self.sample_goal(
             env=env, 
             data=data,
             carry=carry.replace(key=subkey4),
@@ -950,8 +953,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         state = getattr(carry.observation_states, self.name)
         
         # verify whether we are at reset time: in that case we initialize the goal to stay still
-        # hold_still = backend.astype((state.still_phase == True) | (reset == True), backend.int32)
-        hold_still = state.still_phase # state.still_phase | reset
+        hold_still = state.still_phase 
 
         # ===========================================SWING / STANCE FOOT IDX===========================================
         # Select the swing foot based on the gait process
@@ -1123,14 +1125,11 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             return target_pos_pre_z
         
         def _generate_position_target_hold_still():
-            # preset the angle to be pi / 2
-            angle = 0.5 * backend.pi  
-            
             # get the displacement sign
             sign = jnp.where((swing_foot_idx == 0), 1, -1)
             
             # compute the desired foot placement target in local coordinates
-            ideal_local_target = backend.array([0.0, sign * distance * backend.sign(angle), 0.0])
+            ideal_local_target = backend.array([0.0, sign * distance, 0.0])
             
             # revert into global coordinates
             current_stance_yaw_rot = R.from_euler('z', current_stance_yaw)
@@ -1159,21 +1158,29 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         # =============================================FOOT HEIGHT TARGET=============================================
         # case 1: the terrain is non-adaptive
-        # def _set_height_non_adaptive_t():
-        #     return env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
+        def _set_height_non_adaptive_t():
+            return env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
         
-        # # case 2: the terrain is adaptive
-        # key, zkey = jax.random.split(key)
-        # def _set_height_adaptive_t():        
-        #     z_sampled = jax.random.uniform(zkey, minval=self.z_distance_range[0], maxval=self.z_distance_range[1])
-        #     return backend.clip(z_sampled + swing_foot_pos[2], 0, backend.inf)
+        # case 2: the terrain is adaptive
+        key, zkey = jax.random.split(key)
+        def _set_height_adaptive_t():        
+            z_sampled = jax.random.uniform(zkey, minval=self.z_distance_range[0], maxval=self.z_distance_range[1])
+            return backend.maximum(z_sampled + swing_foot_pos[2], 0.0)
         
-        # target_z = jax.lax.cond(
-        #     self.adaptive_tarrain,
-        #     _set_height_adaptive_t,
-        #     _set_height_non_adaptive_t
-        # )
-        target_pos = target_pos_pre_z.at[2].set(0)
+        target_z = jax.lax.cond(
+            self.adaptive_tarrain,
+            _set_height_adaptive_t,
+            _set_height_non_adaptive_t
+        )
+        target_pos = target_pos_pre_z.at[2].set(target_z)
+        
+        # when the terrain is adaptive, we need to build a pillar below the foot
+        terrain_state = jax.lax.cond(
+            self.adaptive_tarrain,
+            lambda: env._terrain.set_height_at_xy(carry.terrain_state, target_pos[:2], target_z, swing_foot_idx, backend),
+            lambda: carry.terrain_state
+        )
+        carry = carry.replace(terrain_state=terrain_state)
 
         # ===========================================FOOT ORIENTATION TARGET===========================================
         feet_dir_rot = R.from_euler('z', feet_direction)
@@ -1307,7 +1314,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 operand=state
             )
 
-        return state
+        return state, carry
 
     def get_obs_and_update_state(self, env, model, data, carry, backend):
         R = jnp_R if backend == jnp else np_R
@@ -1326,7 +1333,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         if backend == np:
             # TODO: implement the resampling of the gait parameters
             if resample_goal:
-                new_goal = self.sample_goal(
+                new_goal, carry = self.sample_goal(
                     env=env, data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency,
                     distance_range=state.distance_range, angle_range_rad=state.angle_range_rad, 
                     movement_direction=state.movement_direction, feet_direction=state.feet_direction
@@ -1364,14 +1371,14 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             carry = carry.replace(observation_states=observation_states)
             
             # sample new goal
-            state = jax.lax.cond(
+            state, carry = jax.lax.cond(
                 resample_goal,
                 lambda: self.sample_goal(
                     env=env, data=data, carry=carry, backend=backend, initial_gait=gp0, gait_frequency=gait_frequency,
                     distance_range=distance_range, angle_range_rad=angle_range_rad, 
                     movement_direction=movement_dir, feet_direction=feet_dir, reset=False
                 ),
-                lambda: state
+                lambda: (state, carry)
             )
     
             # newly get the gait process details
@@ -1439,9 +1446,10 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         gp_info = backend.array([backend.cos(2 * backend.pi * gp), backend.sin(2 * backend.pi * gp)])
         
         # steady still condition 
-        steady_still_flag = state.still_phase & \
-            (backend.abs(left_pos_w[0] - right_pos_w[0]) <= self.still_threshold) & \
-            (backend.abs(left_pos_w[1] - right_pos_w[1] - self.still_feet_distance) <= self.still_threshold)
+        # steady_still_flag = state.still_phase & \
+        #     (backend.abs(left_pos_w[0] - right_pos_w[0]) <= self.still_threshold) & \
+        #     (backend.abs(left_pos_w[1] - right_pos_w[1] - self.still_feet_distance) <= self.still_threshold)
+        steady_still_flag = state.still_phase & (state.num_gaits >= 2)
         zero_pos_off_l = backend.array([0.0, self.still_feet_distance, 0.0]) # backend.zeros(3, dtype=backend.float32)
         zero_pos_off_r = backend.array([0.0, - self.still_feet_distance, 0.0])
         zero_orn_off = backend.array([1, 0, 0, 0], dtype=backend.float32)
@@ -1463,7 +1471,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 left_orn_targ,
                 right_pos_targ,
                 right_orn_targ,
-                gp_info, 
+                gp_info
             ]
         )
 

@@ -8,7 +8,7 @@ wandb:
   log: false
 
 experiment:
-  agent_path: /home/alessandro/code/scripts/policies/T1/complete/still_fp_8.pkl 
+  agent_path: /home/alessandro/code/scripts/policies/T1/steps/steps_4.pkl 
   task_factory:
     name: RLFactory
     params: {}
@@ -32,28 +32,28 @@ experiment:
     terrain_type: AdaPillarsTerrain
     terrain_params:
       num_pillars: 2
-      diameter: 0.3
+      diameter: 0.25
       feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
-    goal_type: GoalDoubleFootPlacement 
+    goal_type: GoalDoubleFootPlacement # GoalRandomChangingFootPlacement # GoalRandomFootPlacement
     goal_params:
       visualize_goal: true
       # Names of the foot sites from the booster_t1_dfki.xml file
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
-      feet_distance: 0.2
+      feet_distance: 0.15
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.2, 0.5] 
+      xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [-90, 90] 
+      angle_range_deg: [-30, 30] # [-20, 20] # [20, 90] 
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-30, 60] # mirrored for the left foot when swinging
+      yaw_range_deg: [-10, 60] # [-20, 20] # [-30, 30]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
-      gait_height: 0.15 
+      gait_height: 0.15
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
@@ -63,12 +63,14 @@ experiment:
       track_movement_only: false
       feet_direction_range_deg: [0,0] # [-180, 180]
       # still proportion
-      still_proportion: 0.1
-      still_feet_distance: 0.2
+      still_proportion: 0.0
+      still_feet_distance: 0.25
       max_num_gaits: 10
-      # terrain stuff
+      # adaptive terrains 
       adaptive_terrain: true
       z_distance_range: [-0.05, 0.05]
+      # start still flag
+      start_still: false
       # observation group
       group: [prioritized, policy]
 

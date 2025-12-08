@@ -3,8 +3,8 @@ defaults:
   - _self_
 
 wandb:
-  project: "Foot Placement"
-  note: ""
+  project: "FP"
+  note: "No still."
 
 experiment:
   task_factory:
@@ -14,19 +14,11 @@ experiment:
     env_name: MjxBoosterT1
     horizon: 1000
 
-    # terrain_type: ParkourTerrain
-    # terrain_params: {
-    #   num_boxes: 15,
-    #   box_length_range: [0.2, 0.8],
-    #   box_width_range: [0.2, 0.8],
-    #   box_height_range: [0.05, 0.1],
-    #   box_x_range: [-2.5, 2.5],
-    #   box_y_range: [-2.5, 2.5],
-    #   box_yaw_range: [-180, 180],
-    #   inner_platform_size: 0.5,
+    # terrain_type: AdaPillarsTerrain
+    # terrain_params:
+    #   num_pillars: 2
+    #   diameter: 0.25
     #   feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
-    # }
-
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
@@ -36,17 +28,17 @@ experiment:
       # Names of the foot sites from the booster_t1_dfki.xml file
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
-      feet_distance: 0.2
+      feet_distance: 0.15
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.2, 0.5] 
+      xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [-90, 90] 
+      angle_range_deg: [-30, 30] # [-20, 20] # [20, 90] 
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-30, 60] # mirrored for the left foot when swinging
+      yaw_range_deg: [-10, 60] # [-20, 20] # [-30, 30]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
-      gait_height: 0.15 
+      gait_height: 0.15
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
@@ -57,8 +49,13 @@ experiment:
       feet_direction_range_deg: [0,0] # [-180, 180]
       # still proportion
       still_proportion: 0.1
-      still_feet_distance: 0.2
+      still_feet_distance: 0.25
       max_num_gaits: 10
+      # adaptive terrains 
+      adaptive_terrain: false
+      z_distance_range: [0.0, 0.0] # [-0.05, 0.05]
+      # start still flag
+      start_still: false
       # observation group
       group: [prioritized, policy]
     
@@ -80,8 +77,10 @@ experiment:
       stance_sharp_pos: 100.0
       stance_sharp_orn: 100.0 
       # gait
-      gait_height_sharp: 1.0
-      gait_height_coeff: 1.0
+      gait_height_sharp: 100.0
+      gait_height_coeff: 4.0
+      tracking_swing_z_coeff: 4.0
+      tracking_swing_z_sharp: 100.0
       # other tracking rewards
       tracking_nominal_joint_pos_exp: 4.0
       tracking_nominal_joint_pos_coeff: 4 # 0.0
@@ -112,10 +111,10 @@ experiment:
       joint_vel_coeff: -9.e-4 # -1.e-4
       joint_acc_coeff: -1.e-7
       root_acc_coeff: -1.e-4
-      action_rate_coeff: -1.
+      action_rate_coeff: -3 # -1.
       joint_position_limit_scale: 0.98
       joint_position_limit_coeff: -1.
-      feet_slip_coeff: -0.1
+      feet_slip_coeff: -1.0 # -0.1
       feet_yaw_diff_coeff: -1.0 # -0.5
       feet_yaw_mean_coeff: -1.0 # -0.5
       feet_roll_coeff: -4.0 # -0.1
@@ -329,10 +328,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 1200e6
+      total_timesteps: 300e6
       num_curriculum_steps: 1
-      num_environments: 8192
-      num_total_timesteps: 1200e6
+      num_environments: 4096 # 8192
+      num_total_timesteps: 300e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -442,9 +441,9 @@ experiment:
   kl_margin: 1.5          # Margin for scaling (e.g., if KL > 0.02*1.5, decrease LR)
   kl_lr_scale: 1.5        # How much to scale LR by (multiply or divide)
   len_obs_history: 1
-  num_envs: 8192
+  num_envs: 4096 # 8192
   num_steps: 50
-  total_timesteps: 1200e6
+  total_timesteps: 300e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995
@@ -470,7 +469,7 @@ experiment:
     num_envs: 100
     num: 10 # set to 0 to disable validation
   # parameter initialization
-  # resume_from_path: /home/alessandro/code/scripts/policies/T1/complete/still_fp_75.pkl 
+  # resume_from_path: /home/alessandro/code/scripts/policies/T1/n_complete/mov_1.pkl 
   resume_just_params: false
 
 robot_joints_to_consider:

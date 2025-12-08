@@ -28,6 +28,7 @@ import copy
 class AdaPillarsTerrainState:
     sizes: Union[np.ndarray, jax.Array]
     positions: Union[np.ndarray, jax.Array]
+    quats: Union[np.ndarray, jax.Array]
 
 # ===================================================AdaPillar Class===================================================
 class AdaPillarsTerrain(DynamicTerrain):
@@ -43,6 +44,7 @@ class AdaPillarsTerrain(DynamicTerrain):
         num_pillars: int = 2, # thought for humanoids, but can be used with quadrupeds too, just put 4
         diameter: float = 0.3, # the foot should be able to properly stand on the pillar
         feet_collision: List[str] = [],
+        foot_dimension: List[float] = [0.1, 0.04, 0.01],
         **kwargs: Any
     ):
         # super class initialization
@@ -52,6 +54,7 @@ class AdaPillarsTerrain(DynamicTerrain):
         self.num_pillars = num_pillars
         self.diameter = diameter
         self.feet_collision = feet_collision
+        self.foot_dimension = foot_dimension
 
         # flat floor height 
         self._floor_height = 0.0
@@ -75,7 +78,8 @@ class AdaPillarsTerrain(DynamicTerrain):
 
         return AdaPillarsTerrainState(
             positions=backend.zeros((self.num_pillars, 3)),
-            sizes=backend.zeros((self.num_pillars, 3))
+            sizes=backend.zeros((self.num_pillars, 3)),
+            quats=backend.zeros((self.num_pillars, 4))
         )
 
     def modify_spec(self, spec: MjSpec) -> MjSpec:
@@ -88,9 +92,9 @@ class AdaPillarsTerrain(DynamicTerrain):
             wb.add_geom(
                 name=f"pillar_{i}",
                 type=mujoco.mjtGeom.mjGEOM_CYLINDER,
-                size=(0.1, 0.1, 0.1),   # *      
+                size=(0.3, 0.5, 0.0),   # *      
                 pos=(0.1, 0.0, 0.0),    # **             
-                quat=(1, 0, 0, 0),     
+                quat=(0.0, 0.0, 0.0, 1.0),     
                 group=0,
                 rgba=(0.5, 0.0, 1.0, 1.0),
                 contype=0,
@@ -147,17 +151,21 @@ class AdaPillarsTerrain(DynamicTerrain):
         # define the sizes (which has not to be modified)
         sizes_x = backend.ones(self.num_pillars, dtype=backend.float32) * (self.diameter / 2.0)
         sizes_y = backend.zeros(self.num_pillars, dtype=backend.float32) # half of the height
-        sizes_z = backend.zeros(self.num_pillars, dtype=backend.float32) # will be ingored for cylilnders
+        sizes_z = backend.ones(self.num_pillars, dtype=backend.float32) * self._floor_height # will be ingored for cylilnders
         
         # define the positions (at reset we hide the pillars for safety reasons)
         pos_x = backend.zeros(self.num_pillars, dtype=backend.float32)
         pos_y = backend.zeros(self.num_pillars, dtype=backend.float32)
-        pos_z = backend.ones(self.num_pillars, dtype=backend.float32) * self._floor_height - 1
+        pos_z = backend.ones(self.num_pillars, dtype=backend.float32) * self._floor_height
+
+        quat = backend.array([1.0, 0.0, 0.0, 0.0])
+        quats = backend.tile(quat, (self.num_pillars, 1))
 
         # update the terrain state
         terrain_state = AdaPillarsTerrainState(
             positions=backend.stack([pos_x, pos_y, pos_z], axis=1),
-            sizes=backend.stack([sizes_x, sizes_y, sizes_z], axis=1)
+            sizes=backend.stack([sizes_x, sizes_y, sizes_z], axis=1),
+            quats=quats
         )
         carry = carry.replace(terrain_state=terrain_state)
         return data, carry
@@ -178,16 +186,17 @@ class AdaPillarsTerrain(DynamicTerrain):
 
         if backend == jnp:
             idx = jnp.array(self._obstacle_geom_ids, dtype=jnp.int32)
-            geom_size = (model.geom_size).at[idx].set(terrain_state.sizes / 2.0)
+            geom_size = (model.geom_size).at[idx].set(terrain_state.sizes)
             geom_pos = (model.geom_pos).at[idx].set(terrain_state.positions)
             model = self._set_attribute_in_model(model, "geom_pos", geom_pos, backend)
             model = self._set_attribute_in_model(model, "geom_size", geom_size, backend)
         else:
             idx = np.array(self._obstacle_geom_ids, dtype=np.int32)
-            model.geom_size[idx] = terrain_state.sizes / 2.0
+            model.geom_size[idx] = terrain_state.sizes
             model.geom_pos[idx] = terrain_state.positions
             model = self._set_attribute_in_model(model, "geom_pos", geom_pos, backend)
             model = self._set_attribute_in_model(model, "geom_size", geom_size, backend)
+            
         return model, data, carry
 
     def set_height_at_xy(
@@ -205,11 +214,14 @@ class AdaPillarsTerrain(DynamicTerrain):
         sizes = terrain_state.sizes
         poss = terrain_state.positions
         
+        # adjust the z
+        desired_z = backend.maximum((desired_z / 2.0) - (self.foot_dimension[2] / 2.0), 0.0)
+        
         # set at x and y coordinates the new cylinder height to be the desired_z for the desired foot
-        new_pos = backend.concatenate([xy_pos, desired_z / 2.0], dtype=backend.float32)
+        new_pos = backend.concatenate([xy_pos, backend.array([desired_z])], dtype=backend.float32)
         if backend == jnp:
             # modify the size (diameter not touched)
-            sizes = (sizes[pillar_id]).at[1].set(desired_z)
+            sizes = sizes.at[pillar_id, 1].set(desired_z)
             
             # modify the positions
             poss = poss.at[pillar_id].set(new_pos)

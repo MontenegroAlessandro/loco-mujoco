@@ -13,7 +13,7 @@ import copy
 from loco_mujoco.core.mujoco_base import Mujoco, AdditionalCarry
 from loco_mujoco.core.visuals import MujocoViewer
 from loco_mujoco.trajectory import TrajectoryData
-from loco_mujoco.core.terrain import ParkourTerrain
+from loco_mujoco.core.terrain import ParkourTerrain, AdaPillarsTerrain
 
 
 @struct.dataclass
@@ -532,13 +532,13 @@ class Mjx(Mujoco):
             model = copy.deepcopy(self._model)
             
             # check whether to consider the hfield
-            if not isinstance(self._terrain, ParkourTerrain):
+            if not (isinstance(self._terrain, ParkourTerrain) or isinstance(self._terrain, AdaPillarsTerrain)):
                 assert hasattr(terrain_state, "height_field_raw"), "Terrain state does not have height_field_raw."
                 assert self._terrain.hfield_id is not None, "Terrain hfield id is not set."
                 hfield_data = np.array(terrain_state.height_field_raw)
                 model.hfield_data = hfield_data[0]
                 self._viewer.upload_hfield(model, hfield_id=self._terrain.hfield_id)
-            else: 
+            elif isinstance(self._terrain, ParkourTerrain): 
                 model = copy.deepcopy(self._model)
                 terrain_state = state.additional_carry.terrain_state
                 positions = np.array(terrain_state.positions)
@@ -551,6 +551,16 @@ class Mjx(Mujoco):
                 model.geom_pos[self._terrain._obstacle_geom_ids] = positions
                 model.geom_size[self._terrain._obstacle_geom_ids] = sizes / 2.
                 model.geom_quat[self._terrain._obstacle_geom_ids] = quats
+            else:
+                model = copy.deepcopy(self._model)
+                terrain_state = state.additional_carry.terrain_state
+                positions = np.array(terrain_state.positions)
+                sizes = np.array(terrain_state.sizes)
+                if positions.ndim == 3:
+                    positions = positions[0]
+                    sizes = sizes[0]
+                model.geom_pos[self._terrain._obstacle_geom_ids] = positions
+                model.geom_size[self._terrain._obstacle_geom_ids] = sizes
             # upload the model
             self.viewer.load_new_model(model)
 

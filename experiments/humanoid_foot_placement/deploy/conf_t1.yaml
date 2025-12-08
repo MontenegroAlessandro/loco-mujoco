@@ -3,8 +3,8 @@ defaults:
   - _self_
 
 wandb:
-  project: "Foot Placement"
-  note: ""
+  project: "FP"
+  note: "Walk in a direction then stay still."
 
 experiment:
   task_factory:
@@ -36,17 +36,17 @@ experiment:
       # Names of the foot sites from the booster_t1_dfki.xml file
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
-      feet_distance: 0.5
+      feet_distance: 0.15
       # Range for the random step length [min, max] in meters
       xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [-90, 90] # [-20, 20] # [20, 90] 
+      angle_range_deg: [-20, 20] # [-20, 20] # [20, 90] 
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-30, 30] # [-20, 20] # [-30, 30]
+      yaw_range_deg: [-10, 30] # [-20, 20] # [-30, 30]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
-      gait_height: 0.06 
+      gait_height: 0.15
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
@@ -56,9 +56,12 @@ experiment:
       track_movement_only: false
       feet_direction_range_deg: [0,0] # [-180, 180]
       # still proportion
-      still_proportion: 0.1
-      still_feet_distance: 0.2
+      still_proportion: 1.0
+      still_feet_distance: 0.25
       max_num_gaits: 10
+      # adaptive terrains 
+      adaptive_terrain: false
+      z_distance_range: [0.0, 0.0]
       # observation group
       group: [prioritized, policy]
     
@@ -329,10 +332,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 600e6
+      total_timesteps: 300e6
       num_curriculum_steps: 1
       num_environments: 8192
-      num_total_timesteps: 600e6
+      num_total_timesteps: 300e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -444,7 +447,7 @@ experiment:
   len_obs_history: 1
   num_envs: 8192
   num_steps: 50
-  total_timesteps: 600e6
+  total_timesteps: 300e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995
