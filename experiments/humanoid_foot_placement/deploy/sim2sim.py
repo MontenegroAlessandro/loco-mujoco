@@ -383,7 +383,7 @@ if __name__ == "__main__":
     max_gaits = cmd_params["max_gaits"]
     # movement list
     movs = ["STILL", "FWD", "STILL", "BWD", "STILL", "LEFT", "STILL", "RIGHT", "STILL", "DIAG-L", "STILL", "DIAG-R"]
-    # movs = ["STILL"]
+    # movs = ["STILL", "DIAG-L", "STILL", "DIAG-R"]
     idx = 0
     first_step = False
     sample_goal = True

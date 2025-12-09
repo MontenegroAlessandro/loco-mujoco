@@ -525,6 +525,7 @@ class Mjx(Mujoco):
             if "default_camera_mode" not in self._viewer_params.keys():
                 self._viewer_params["default_camera_mode"] = "static"
             self._viewer = MujocoViewer(self._model, self.dt, record=record, **self._viewer_params)
+            # self._viewer = MujocoViewer(self._model, self.dt, record=False, **self._viewer_params)
 
         if self._terrain.is_dynamic:
             # retrieve the state and copy the model

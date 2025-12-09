@@ -78,8 +78,8 @@ def experiment(config: DictConfig):
         agent_conf, 
         agent_state, 
         deterministic=True, 
-        n_steps=1000, 
-        n_envs=1, 
+        n_steps=10000, 
+        n_envs=10, 
         record=True,
         train_state_seed=0
     )

@@ -597,6 +597,8 @@ class GoalDoubleFootPlacementState:
     distance_range: List[float]
     movement_direction: float           # angle in rad defining the movement direction
     feet_direction: float               # angle in rad defining the feet direction
+    z_distance_range: float
+    steps: int
     # still process parameters
     still_phase: bool                   # boolean number indicating if the goal to provide is the one to be still
     # number of gait phase switches
@@ -636,11 +638,16 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # define terrain type and height sampling parameters
             adaptive_terrain: bool = False,
             z_distance_range: List[float] = [0.0, 0.0],
+            max_z_distance: float = 0.0,
+            # curriculum parameters
+            n_envs: float = 0,
+            num_total_timesteps: float = 0,
+            curriculum_starts_from: float = 0, 
             # start still flag
             start_still: bool = False,
             **kwargs
         ):
-        
+        # store parameters
         self.foot_site_names = [left_foot_site_name, right_foot_site_name]
         self.xy_distance_range = xy_distance_range
         self.angle_range_rad = [jnp.deg2rad(angle_range_deg[0]), jnp.deg2rad(angle_range_deg[1])]
@@ -659,18 +666,17 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.still_threshold = still_threshold
         self.adaptive_tarrain = adaptive_terrain
         self.z_distance_range = z_distance_range
+        self.max_z_distance = max_z_distance
         self.start_still = start_still
+        
+        # curriculum parmeters
+        self.curriculum_start = int(curriculum_starts_from // n_envs)
+        self.incremental_z = max_z_distance / ((num_total_timesteps - curriculum_starts_from) // n_envs)
         
         self._foot_site_ids = [-1, -1]
         self._root_joint_name = info_props["root_free_joint_xml_name"]
         self._root_qpos_ids = []
 
-        # Walking Schemes
-        self._scheme_direction = jnp.array([0.0, np.pi, np.pi/2.0, -np.pi/2.0, 0.0])  # [forward, back, left, right, stand]
-        self._scheme_forward = jnp.array([1.0, 1.0, 0.0, 0.0, 0.0])
-        self._scheme_lateral = jnp.array([0.0, 0.0, 1.0, 1.0, 0.0])
-        self._scheme_height = jnp.array([0.0, 0.0, 0.0, 0.0, 0.0])
-        self._scheme_yaw = jnp.array([0.0, 0.0, 0.0, 0.0, 0.0])
         # local safe range for foot placement computation
         self.local_angle_range_rad = [jnp.deg2rad(20.0), jnp.deg2rad(160.0)]
 
@@ -712,6 +718,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # ranges
             angle_range_rad=self.angle_range_rad,
             distance_range=self.xy_distance_range,
+            z_distance_range=backend.array(self.z_distance_range),
+            steps=0,
             # movement direction
             movement_direction=0.0,
             # feet direction
@@ -742,7 +750,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             angle_range_rad=angle_range_rad,
             movement_direction=movement_dir,
             feet_direction=feet_dir,
-            reset=True
+            reset=True,
+            z_distance_range=backend.array(self.z_distance_range)
         )
 
         # update observation with the new goal state in the carry
@@ -945,7 +954,11 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         """Wrap any angle (in rad) to be in [-pi, pi]"""
         return (angle + backend.pi) % (2 * backend.pi) - backend.pi
 
-    def sample_goal(self, env, data, carry, backend, initial_gait, gait_frequency, distance_range, angle_range_rad, reset = False, movement_direction = 0.0, feet_direction = 0.0):
+    def sample_goal(
+        self, env, data, carry, backend, initial_gait, gait_frequency, 
+        distance_range, angle_range_rad, z_distance_range, 
+        reset = False, movement_direction = 0.0, feet_direction = 0.0
+    ):
         """Sample a new random foot placement goal for a random foot in any direction."""
         # take rotation backend; key for jax randomness; goal state
         R = jnp_R if backend == jnp else np_R
@@ -1164,7 +1177,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # case 2: the terrain is adaptive
         key, zkey = jax.random.split(key)
         def _set_height_adaptive_t():        
-            z_sampled = jax.random.uniform(zkey, minval=self.z_distance_range[0], maxval=self.z_distance_range[1])
+            z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
             return backend.maximum(z_sampled + swing_foot_pos[2], 0.0)
         
         target_z = jax.lax.cond(
@@ -1328,7 +1341,20 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
     
         # check if it is needed to resample the goal
         resample_goal = (swing_foot_idx != state.swing_foot_idx)
-
+        
+        # manage the curriculum on the z just in case
+        if self.curriculum_start > 0:
+            new_z_range = state.z_distance_range + backend.array([-self.incremental_z, self.incremental_z])
+            
+            if backend == np:
+                state = state.replace(z_distance_range=new_z_range) if  state.steps >= self.curriculum_start else state
+            else:
+                state = jax.lax.cond(
+                    state.steps >= self.curriculum_start,
+                    lambda: state.replace(z_distance_range=new_z_range),
+                    lambda: state
+                )
+        
         # resample goal if needed
         if backend == np:
             # TODO: implement the resampling of the gait parameters
@@ -1336,7 +1362,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 new_goal, carry = self.sample_goal(
                     env=env, data=data, carry=carry, backend=backend, initial_gait=gp, gait_frequency=state.gait_frequency,
                     distance_range=state.distance_range, angle_range_rad=state.angle_range_rad, 
-                    movement_direction=state.movement_direction, feet_direction=state.feet_direction
+                    movement_direction=state.movement_direction, feet_direction=state.feet_direction, 
+                    z_distance_range=state.z_distance_range
                 )
                 state = new_goal
         else:
@@ -1376,7 +1403,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 lambda: self.sample_goal(
                     env=env, data=data, carry=carry, backend=backend, initial_gait=gp0, gait_frequency=gait_frequency,
                     distance_range=distance_range, angle_range_rad=angle_range_rad, 
-                    movement_direction=movement_dir, feet_direction=feet_dir, reset=False
+                    movement_direction=movement_dir, feet_direction=feet_dir, reset=False, 
+                    z_distance_range=state.z_distance_range
                 ),
                 lambda: (state, carry)
             )
@@ -1477,7 +1505,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
 
         # make the gait process progress
         gp = backend.fmod(gp + env.dt * state.gait_frequency, 1.0)
-        state = state.replace(gait_process=gp)
+        state = state.replace(gait_process=gp, steps=(state.steps + 1)) # update the steps too
         observation_states = carry.observation_states.replace(**{self.name: state})
         carry = carry.replace(observation_states=observation_states)
 

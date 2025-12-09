@@ -3,12 +3,19 @@ defaults:
   - _self_
 
 wandb:
-  project: "BoosterT1 Foot Placement - Eval"
+  project: "FP"
   note: ""
   log: false
 
+# GLOBAL VARs
+n_envs: &n_envs 4096
+num_total_timesteps: &num_total_timesteps 800e6
+curriculum_starts_from: &curriculum_starts_from 0
+
+# Experiment Vars
 experiment:
-  agent_path: /home/alessandro/code/scripts/policies/T1/steps/steps_4.pkl 
+  agent_path: /home/alessandro/code/scripts/policies/T1/n_complete/mov_cluster.pkl
+
   task_factory:
     name: RLFactory
     params: {}
@@ -16,24 +23,11 @@ experiment:
     env_name: MjxBoosterT1
     horizon: 1000
 
-    # terrain_type: ParkourTerrain
-    # terrain_params: {
-    #   num_boxes: 30,
-    #   box_length_range: [0.2, 0.8],
-    #   box_width_range: [0.3, 3],
-    #   box_height_range: [0.05, 0.08],
-    #   box_x_range: [-2.0, 2.0],
-    #   box_y_range: [-2.0, 2.0],
-    #   box_yaw_range: [-180, 180],
-    #   inner_platform_size: 0.5,
+    # terrain_type: AdaPillarsTerrain
+    # terrain_params:
+    #   num_pillars: 2
+    #   diameter: 0.25
     #   feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
-    # }
-
-    terrain_type: AdaPillarsTerrain
-    terrain_params:
-      num_pillars: 2
-      diameter: 0.25
-      feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
@@ -63,17 +57,22 @@ experiment:
       track_movement_only: false
       feet_direction_range_deg: [0,0] # [-180, 180]
       # still proportion
-      still_proportion: 0.0
+      still_proportion: 0.1
       still_feet_distance: 0.25
       max_num_gaits: 10
       # adaptive terrains 
-      adaptive_terrain: true
-      z_distance_range: [-0.05, 0.05]
+      adaptive_terrain: false
+      z_distance_range: [0.0, 0.0]
+      max_z_distance: 0.1
       # start still flag
       start_still: false
+      # curriculum parameters
+      n_envs: *n_envs
+      num_total_timesteps: *num_total_timesteps
+      curriculum_starts_from: *curriculum_starts_from
       # observation group
       group: [prioritized, policy]
-
+    
     headless: true
 
     reward_type: CrispBoosterLocomotionFootPlacementReward
@@ -84,16 +83,21 @@ experiment:
       survival: 0.25
       # feet tracking rewards
       swing_pos_w: 4.0 # 4.0 # 1.0
-      swing_orn_w: 2.0 # 3.0 # 1.0
-      stance_pos_w: 2.0 # 1.0
-      stance_orn_w: 2.0 # 1.0
-      sharp_pos: 100 # 50 # 10
-      sharp_orn: 100 # 10
-      stance_sharp_pos: 100
-      stance_sharp_orn: 100 
+      swing_orn_w: 4.0 # 2.0 # 3.0 # 1.0
+      stance_pos_w: 4.0 # 1.0
+      stance_orn_w: 4.0 # 1.0
+      sharp_pos: 100.0 # 50 # 10
+      sharp_orn: 100.0 # 10
+      stance_sharp_pos: 100.0
+      stance_sharp_orn: 100.0 
+      # gait
+      gait_height_sharp: 100.0
+      gait_height_coeff: 4.0
+      tracking_swing_z_coeff: 4.0
+      tracking_swing_z_sharp: 100.0
       # other tracking rewards
-      tracking_nominal_joint_pos_exp: 4
-      tracking_nominal_joint_pos_coeff: 0
+      tracking_nominal_joint_pos_exp: 4.0
+      tracking_nominal_joint_pos_coeff: 4 # 0.0
       tracking_nominal_joint_pos_names: 
         - AAHead_yaw
         - Head_pitch
@@ -106,12 +110,12 @@ experiment:
         - Right_Elbow_Pitch
         - Right_Elbow_Yaw
         - Waist
-        - Right_Ankle_Roll
-        - Left_Ankle_Roll
+        # - Right_Ankle_Roll
+        # - Left_Ankle_Roll
       # penalties
       joint_deviation_l1_coeff: -0.3
       base_height_target: 0.68
-      base_height_coeff: -10.
+      base_height_coeff: -2 # -10.
       orientation_coeff: -5.
       joint_torque_coeff: -2.e-4
       torque_tiredness_coeff: 0.0
@@ -121,12 +125,12 @@ experiment:
       joint_vel_coeff: -9.e-4 # -1.e-4
       joint_acc_coeff: -1.e-7
       root_acc_coeff: -1.e-4
-      action_rate_coeff: -1.
+      action_rate_coeff: -3 # -1.
       joint_position_limit_scale: 0.98
       joint_position_limit_coeff: -1.
-      feet_slip_coeff: -0.1
-      feet_yaw_diff_coeff: 0.0 # -1.0 # -0.5
-      feet_yaw_mean_coeff: 0.0 # -1.0 # -0.5
+      feet_slip_coeff: -1.0 # -0.1
+      feet_yaw_diff_coeff: -1.0 # -0.5
+      feet_yaw_mean_coeff: -1.0 # -0.5
       feet_roll_coeff: -4.0 # -0.1
       feet_distance_target: 0.2
       feet_swing_coeff: 6 # 3.
@@ -241,8 +245,8 @@ experiment:
       clip_actions: 1.0
       
       p_gain: 
-        - 10 # 40 # AAHead_yaw
-        - 10 # 40 # Head_pitch
+        - 20 # 40 # AAHead_yaw
+        - 20 # 40 # Head_pitch
         - 20 # 40 # Left_Shoulder_Pitch
         - 20 # 40 # Left_Shoulder_Roll
         - 20 # 40 # Left_Elbow_Pitch
@@ -320,7 +324,7 @@ experiment:
       qpos_init: [0, 0, 0.72, 
                   1, 0, 0, 0, 
                   0, 0,
-                  0.2, -1.2, 0, -0.5,
+                  0.2,-1.2, 0, -0.5,
                   0.2, 1.2, 0, 0.5,
                   0,
                   -0.2, 0, 0, 0.4, -0.25, 0,
@@ -338,10 +342,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 300e6
+      total_timesteps: *num_total_timesteps
       num_curriculum_steps: 1
-      num_environments: 8192
-      num_total_timesteps: 300e6
+      num_environments: *n_envs
+      num_total_timesteps: *num_total_timesteps
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -368,13 +372,13 @@ experiment:
 
       # joint properties
       randomize_joint_damping: true
-      joint_damping_range: [0.005, .015]
+      joint_damping_range: [0.005, 0.03] # [0.005, .015]
       randomize_joint_stiffness: false
       joint_stiffness_range: [0.9, 1.1]
       randomize_joint_friction_loss: true
-      joint_friction_loss_range: [0.0, 0.5]
+      joint_friction_loss_range: [0.0, 1.0]
       randomize_joint_armature: true
-      joint_armature_range: [0.007, 0.013]
+      joint_armature_range: [0.007, 0.03] # [0.007, 0.013]
 
       #base mass
       randomize_base_mass: false
@@ -395,7 +399,7 @@ experiment:
       add_p_gains_noise: true
       add_d_gains_noise: true
       p_gains_noise_scale: 0.15
-      d_gains_noise_scale: 0.15
+      d_gains_noise_scale: 0.5 # 0.15
 
       # Observation Noise
       add_joint_pos_noise: true
@@ -440,6 +444,7 @@ experiment:
       kick_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 kick per second
       kick_at_reset: false
 
+  # PPO parameters
   actor_obs_group: policy
   critic_obs_group: prioritized
   hidden_layers: [512, 256, 128]
@@ -451,9 +456,9 @@ experiment:
   kl_margin: 1.5          # Margin for scaling (e.g., if KL > 0.02*1.5, decrease LR)
   kl_lr_scale: 1.5        # How much to scale LR by (multiply or divide)
   len_obs_history: 1
-  num_envs: 8192
+  num_envs: *n_envs
   num_steps: 50
-  total_timesteps: 300e6
+  total_timesteps: *num_total_timesteps
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995
@@ -478,7 +483,9 @@ experiment:
     num_steps: 100
     num_envs: 100
     num: 10 # set to 0 to disable validation
-
+  # parameter initialization
+  # resume_from_path: /home/alessandro/code/scripts/policies/T1/n_complete/mov_1.pkl 
+  resume_just_params: false
 
 robot_joints_to_consider:
   - AAHead_yaw
