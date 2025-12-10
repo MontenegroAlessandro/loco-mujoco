@@ -896,12 +896,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             # if we are in the right phase (gait_process >= 0.5) we remove 0.5
             # the quantity we consider is always in 2 * [0, 0.5]
             gait_sharpness = 2 * (gait_process - backend.where(gait_process >= 0.5, 0.5, 0))
-            # if hold still, then gait sharpness is always 1
-            # cond_feet_near_x = backend.abs(left_foot_pos[0] - right_foot_pos[0]) <= self.epsilon_standing
-            # cond_feet_near_y = backend.abs(left_foot_pos[1] - right_foot_pos[1] - self._feet_distance_target) <= self.epsilon_standing
-            # hold_still = goal_state.still_phase & cond_feet_near_x & cond_feet_near_y
             hold_still = goal_state.still_phase & (goal_state.num_gaits >= 2)
-            # gait_sharpness = jax.lax.select(goal_state.still_phase, 0.0, gait_sharpness)
             still_coeff = jax.lax.select(hold_still, 0.0, 1.0)
             """NOTE: if hold still condition is met, then we say the agent not to move"""
 
@@ -1056,6 +1051,13 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         right_foot_yaw = R.from_matrix(data.site_xmat[self._right_foot_site_id]).as_euler('xyz')[2]
         right_foot_yaw = (right_foot_yaw + backend.pi) % (2 * backend.pi) - backend.pi
         
+        feet_yaw_diff_coeff = self._feet_yaw_diff_coeff
+        feet_yaw_mean_coeff = self._feet_yaw_mean_coeff
+        if self._goal_name in ["GoalDoubleFootPlacement"]:
+            hold_still = goal_state.still_phase & (goal_state.num_gaits >= 2)
+            feet_yaw_diff_coeff, feet_yaw_mean_coeff = jax.lax.cond(
+                ~hold_still, lambda: (0.0, 0.0), lambda: (self._feet_yaw_diff_coeff, self._feet_yaw_mean_coeff)
+            )
         feet_yaw_diff_reward = backend.square(
             (left_foot_yaw - right_foot_yaw + backend.pi) % (2 * backend.pi) - backend.pi
         )
@@ -1238,8 +1240,8 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         low_gains_reward *= (self._low_gains_coeff * env.dt)
         joint_position_limit_reward *= (self._joint_position_limit_coeff * env.dt)
         feet_slip_reward *= (self._feet_slip_coeff * env.dt)
-        feet_yaw_diff_reward *= (self._feet_yaw_diff_coeff * env.dt)
-        feet_yaw_mean_reward *= (self._feet_yaw_mean_coeff * env.dt)
+        feet_yaw_diff_reward *= (feet_yaw_diff_coeff * env.dt)
+        feet_yaw_mean_reward *= (feet_yaw_mean_coeff * env.dt)
         feet_roll_reward *= (self._feet_roll_coeff * env.dt)
         feet_distance_reward *= (self._feet_distance_coeff * env.dt)
         feet_swing_reward *= (self._feet_swing_coeff * env.dt)

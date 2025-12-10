@@ -4,7 +4,7 @@
 # Updated with parameters and correct joint limits for a 23 DoF robot model.
 
 # policy parameters
-agent_path: /home/alessandro/code/scripts/policies/T1/n_complete/mov_cluster_long.pkl 
+agent_path: /home/alessandro/code/scripts/policies/T1/n_complete/mov_no_stance.pkl 
 # agent_path: /Users/ale/code/PyProjects/scripts/experiments/humanoid_foot_placement/policies/T1/still_fp_6.pkl 
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
 # train_config_name: conf.yaml

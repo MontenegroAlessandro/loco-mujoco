@@ -3,13 +3,13 @@ defaults:
   - _self_
 
 wandb:
-  project: "FP - steps"
+  project: "FP"
   note: ""
 
 # GLOBAL VARs
 n_envs: &n_envs 8192
-num_total_timesteps: &num_total_timesteps 1200e6
-curriculum_starts_from: &curriculum_starts_from 600e6
+num_total_timesteps: &num_total_timesteps 900e6
+curriculum_starts_from: &curriculum_starts_from 0
 
 # Experiment Vars
 experiment:
@@ -20,11 +20,11 @@ experiment:
     env_name: MjxBoosterT1
     horizon: 1000
 
-    terrain_type: AdaPillarsTerrain
-    terrain_params:
-      num_pillars: 2
-      diameter: 0.25
-      feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
+    # terrain_type: AdaPillarsTerrain
+    # terrain_params:
+    #   num_pillars: 2
+    #   diameter: 0.25
+    #   feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
@@ -58,9 +58,9 @@ experiment:
       still_feet_distance: 0.25
       max_num_gaits: 10
       # adaptive terrains 
-      adaptive_terrain: true
+      adaptive_terrain: false
       z_distance_range: [0.0, 0.0]
-      max_z_distance: 0.05
+      max_z_distance: 0.0
       # start still flag
       start_still: false
       # curriculum parameters
@@ -79,10 +79,10 @@ experiment:
       right_foot_site_name: right_foot
       survival: 0.25
       # feet tracking rewards
-      swing_pos_w: 6.0 # 4.0 # 1.0
+      swing_pos_w: 5.0 # 4.0 # 1.0
       swing_orn_w: 4.0 # 2.0 # 3.0 # 1.0
-      stance_pos_w: 0.0 # 6.0 # 1.0
-      stance_orn_w: 0.0 # 4.0 # 1.0
+      stance_pos_w: 5.0 # 6.0 # 1.0
+      stance_orn_w: 4.0 # 4.0 # 1.0
       sharp_pos: 100.0 # 50 # 10
       sharp_orn: 100.0 # 10
       stance_sharp_pos: 100.0
@@ -126,8 +126,8 @@ experiment:
       joint_position_limit_scale: 0.98
       joint_position_limit_coeff: -1.
       feet_slip_coeff: -1.0 # -0.1
-      feet_yaw_diff_coeff: -1.0 # -0.5
-      feet_yaw_mean_coeff: -1.0 # -0.5
+      feet_yaw_diff_coeff: -2.0 # -0.5
+      feet_yaw_mean_coeff: -2.0 # -0.5
       feet_roll_coeff: -4.0 # -0.1
       feet_distance_target: 0.2
       feet_swing_coeff: 6 # 3.
