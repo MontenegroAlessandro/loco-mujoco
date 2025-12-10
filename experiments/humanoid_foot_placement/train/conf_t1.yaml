@@ -8,7 +8,7 @@ wandb:
 
 # GLOBAL VARs
 n_envs: &n_envs 8192
-num_total_timesteps: &num_total_timesteps 2000e6
+num_total_timesteps: &num_total_timesteps 900e6
 curriculum_starts_from: &curriculum_starts_from 0
 
 # Experiment Vars
@@ -81,8 +81,8 @@ experiment:
       # feet tracking rewards
       swing_pos_w: 6.0 # 4.0 # 1.0
       swing_orn_w: 4.0 # 2.0 # 3.0 # 1.0
-      stance_pos_w: 6.0 # 1.0
-      stance_orn_w: 4.0 # 1.0
+      stance_pos_w: 0.0 # 6.0 # 1.0
+      stance_orn_w: 0.0 # 4.0 # 1.0
       sharp_pos: 100.0 # 50 # 10
       sharp_orn: 100.0 # 10
       stance_sharp_pos: 100.0

@@ -14,7 +14,7 @@ curriculum_starts_from: &curriculum_starts_from 0
 
 # Experiment Vars
 experiment:
-  agent_path: /home/alessandro/code/scripts/policies/T1/n_complete/mov_cluster.pkl
+  agent_path: /home/alessandro/code/scripts/policies/T1/n_complete/mov_cluster_long.pkl
 
   task_factory:
     name: RLFactory
