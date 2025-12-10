@@ -132,8 +132,8 @@ class GaitGenerator:
             # gait info gen
             gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
             # pos gen
-            l_pos_offset = np.array([0, self.feet_distance, 0]) if swing_foot_idx == 0 else zero_pos_offset
-            r_pos_offset = np.array([0, -self.feet_distance, 0]) if swing_foot_idx == 1 else zero_pos_offset
+            l_pos_offset = np.array([0, self.feet_distance, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
+            r_pos_offset = np.array([0, -self.feet_distance, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
             # orn gen
             l_orn_offset = zero_orn_offset
             r_orn_offset = zero_orn_offset
@@ -141,8 +141,8 @@ class GaitGenerator:
             # gait info gen
             gait_info = np.zeros(2, dtype=np.float32)
             # pos gen
-            l_pos_offset = np.array([0, self.feet_distance, 0])
-            r_pos_offset = np.array([0, -self.feet_distance, 0])
+            l_pos_offset = np.array([0, self.feet_distance, 0.0])
+            r_pos_offset = np.array([0, -self.feet_distance, 0.0])
             # orn gen
             l_orn_offset = zero_orn_offset
             r_orn_offset = zero_orn_offset
@@ -308,7 +308,7 @@ if __name__ == "__main__":
     # ==================================================OBSTACLEs==================================================
     # this part is only needed for initialization, then the boxes will be added when doing the reset
     wb.add_site(
-        name=f"pillar_0",
+        name=f"foot_0",
         type=mujoco.mjtGeom.mjGEOM_BOX,
         size=(0.1, 0.04, 0.01),   # *      
         pos=(0.1, 0.0, 0.0),    # **             
@@ -318,7 +318,7 @@ if __name__ == "__main__":
     )
     
     wb.add_site(
-        name=f"pillar_1",
+        name=f"foot_1",
         type=mujoco.mjtGeom.mjGEOM_BOX,
         size=(0.1, 0.04, 0.01),   # *      
         pos=(0.1, 0.0, 0.0),    # **             
@@ -326,6 +326,30 @@ if __name__ == "__main__":
         group=0,
         rgba=(1.0, 0.0, 0.5, 1.0),
     )
+    
+    # wb.add_geom(
+    #     name=f"pillar_0",
+    #     type=mujoco.mjtGeom.mjGEOM_CYLINDER,
+    #     size=(0.25 / 2.0, 0.01, 0.0),   # *      
+    #     pos=(0.1, 0.0, 0.0),    # **             
+    #     quat=(0.0, 0.0, 0.0, 1.0),     
+    #     group=0,
+    #     rgba=(0.5, 0.0, 1.0, 1.0),
+    #     contype=0,
+    #     conaffinity=0,
+    # )
+    
+    # wb.add_geom(
+    #     name=f"pillar_1",
+    #     type=mujoco.mjtGeom.mjGEOM_CYLINDER,
+    #     size=(0.25 / 2.0, 0.01, 0.0),   # *      
+    #     pos=(0.1, 0.0, 0.0),    # **             
+    #     quat=(0.0, 0.0, 0.0, 1.0),     
+    #     group=0,
+    #     rgba=(0.5, 0.0, 1.0, 1.0),
+    #     contype=0,
+    #     conaffinity=0,
+    # )
 
     # get model spec
     # delete all geoms whose names end in "_col" from spec
@@ -453,16 +477,30 @@ if __name__ == "__main__":
                         rot_l = np_R.from_matrix(d.site("right_foot").xmat.reshape(3, 3))
                         l_yaw = rot_l.as_euler("xyz")[2]
                         rot_l = np_R.from_euler("z", l_yaw)
-                        m.site("pillar_1").pos = d.site_xpos[right_foot_id] + rot_l.apply(l_offset)
-                        m.site("pillar_1").pos[2] = 0
-                        m.site("pillar_1").quat = rot_l.as_quat(scalar_first=True)
+                        # update foot placement target
+                        m.site("foot_1").pos = d.site_xpos[right_foot_id] + rot_l.apply(l_offset)
+                        m.site("foot_1").pos[2] = 0
+                        m.site("foot_1").quat = rot_l.as_quat(scalar_first=True)
+                        # update pillar
+                        # des_z = np.maximum(0.0, (d.site_xpos[right_foot_id][2] / 2.0)) - (0.01 / 2.0)
+                        # m.geom("pillar_1").pos = d.site_xpos[right_foot_id] + rot_l.apply(l_offset)
+                        # m.geom("pillar_1").pos[2] = np.maximum(0.0, d.site_xpos[right_foot_id][2] / 2.0) - 0.01
+                        # m.geom("pillar_1").quat = rot_l.as_quat(scalar_first=True)
+                        # m.geom("pillar_1").size[1] = des_z
                     else:
                         rot_r =  np_R.from_matrix(d.site("left_foot").xmat.reshape(3, 3))
                         r_yaw = rot_r.as_euler("xyz")[2]
                         rot_r = np_R.from_euler("z", r_yaw)
-                        m.site("pillar_0").pos = d.site_xpos[left_foot_id] + rot_r.apply(r_offset) 
-                        m.site("pillar_0").pos[2] = 0                 
-                        m.site("pillar_0").quat = rot_r.as_quat(scalar_first=True)
+                        # update foot placement target
+                        m.site("foot_0").pos = d.site_xpos[left_foot_id] + rot_r.apply(r_offset) 
+                        m.site("foot_0").pos[2] = 0                 
+                        m.site("foot_0").quat = rot_r.as_quat(scalar_first=True)
+                        # update pillar
+                        # des_z = np.maximum(0.0, (d.site_xpos[left_foot_id][2] / 2.0)) - (0.01 / 2.0)
+                        # m.geom("pillar_0").pos = d.site_xpos[left_foot_id] + rot_r.apply(r_offset)
+                        # m.geom("pillar_0").pos[2] = des_z
+                        # m.geom("pillar_0").quat = rot_r.as_quat(scalar_first=True)
+                        # m.geom("pillar_0").size[1] = des_z
                             
                 cmd = np.concatenate(
                     [l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32

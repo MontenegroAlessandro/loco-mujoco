@@ -902,10 +902,10 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
 
             # NOTE: adaptive sharpness is just for the swing targets
             swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq * gait_sharpness * still_coeff)
-            stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq * still_coeff)
+            stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq) # removed still coeff
 
             swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * swing_orn_error * gait_sharpness * still_coeff) 
-            stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error * still_coeff) 
+            stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error) # removed still coeff 
             
             swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq * gait_sharpness * still_coeff)
         else:
