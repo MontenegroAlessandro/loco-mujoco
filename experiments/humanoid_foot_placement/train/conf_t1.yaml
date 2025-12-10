@@ -3,13 +3,13 @@ defaults:
   - _self_
 
 wandb:
-  project: "FP"
+  project: "FP - steps"
   note: ""
 
 # GLOBAL VARs
 n_envs: &n_envs 8192
-num_total_timesteps: &num_total_timesteps 900e6
-curriculum_starts_from: &curriculum_starts_from 0
+num_total_timesteps: &num_total_timesteps 1200e6
+curriculum_starts_from: &curriculum_starts_from 600e6
 
 # Experiment Vars
 experiment:
@@ -20,11 +20,11 @@ experiment:
     env_name: MjxBoosterT1
     horizon: 1000
 
-    # terrain_type: AdaPillarsTerrain
-    # terrain_params:
-    #   num_pillars: 2
-    #   diameter: 0.25
-    #   feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
+    terrain_type: AdaPillarsTerrain
+    terrain_params:
+      num_pillars: 2
+      diameter: 0.25
+      feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
@@ -58,9 +58,9 @@ experiment:
       still_feet_distance: 0.25
       max_num_gaits: 10
       # adaptive terrains 
-      adaptive_terrain: false
+      adaptive_terrain: true
       z_distance_range: [0.0, 0.0]
-      max_z_distance: 0.0
+      max_z_distance: 0.05
       # start still flag
       start_still: false
       # curriculum parameters
