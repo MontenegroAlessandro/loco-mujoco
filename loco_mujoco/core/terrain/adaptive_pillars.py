@@ -215,7 +215,7 @@ class AdaPillarsTerrain(DynamicTerrain):
         poss = terrain_state.positions
         
         # adjust the z
-        desired_z = backend.maximum((desired_z / 2.0) - (self.foot_dimension[2] / 2.0), 0.0)
+        desired_z = backend.maximum((desired_z / 2.0), 0.0) - (self.foot_dimension[2] / 2.0)
         
         # set at x and y coordinates the new cylinder height to be the desired_z for the desired foot
         new_pos = backend.concatenate([xy_pos, backend.array([desired_z])], dtype=backend.float32)

@@ -26,8 +26,12 @@ class CrispBoosterLocomotionRewardFootPlacementState:
     last_action: Union[np.ndarray, jax.Array]
     time_since_last_touchdown: Union[np.ndarray, jax.Array]
     reward_components: Dict[str, Union[np.ndarray, jax.Array]]
+    # new state components
     last_swing_pos_reward: float
     last_swing_orn_reward: float
+    stance_pos_reward: float
+    stance_orn_reward: float
+    swing_foot_idx: int
 
 class CrispBoosterLocomotionFootPlacementReward(Reward):
     """
@@ -237,8 +241,11 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             last_action=backend.zeros(env.info.action_space.shape[0]),
             time_since_last_touchdown=backend.zeros(2, dtype=backend.float32),
             reward_components=reward_components,
-            last_swing_pos_reward=0.0,
-            last_swing_orn_reward=0.0,
+            last_swing_pos_reward=self._tracking_swing_pos_w, # give by default the max reward
+            last_swing_orn_reward=self._tracking_swing_orn_w, # give by default the max reward
+            stance_pos_reward=self._tracking_stance_pos_w,
+            stance_orn_reward=self._tracking_stance_orn_w,
+            swing_foot_idx=0 
         )
 
     def reset(self, env: Any, model: Union[MjModel, Model], data: Union[MjData, Data], 
@@ -256,7 +263,14 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         Returns:
             Tuple[Union[MjData, Data], Any]: The updated data and carry.
         """
+        # initialize the reward state
         reward_state = self.init_state(env, None, model, data, backend)
+        
+        # synchronize the swing foot index
+        goal_state = getattr(carry.observation_states, self._goal_name)
+        reward_state = reward_state.replace(swing_foot_idx=goal_state.swing_foot_idx)
+        
+        # carry update
         carry = carry.replace(reward_state=reward_state)
         return data, carry
 
@@ -307,18 +321,29 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         
         left_foot_pos = data.site_xpos[self._left_foot_site_id]
         right_foot_pos = data.site_xpos[self._right_foot_site_id]
-
-        # ==============================================REWARD COMPONENTS==============================================
         
+        # Common terms
+        gait_process = goal_state.gait_process
+        hold_still = goal_state.still_phase & (goal_state.num_gaits >= 2)
+        swing_foot_idx = goal_state.swing_foot_idx
+        goal_resampled = (reward_state.swing_foot_idx ^ swing_foot_idx)
+        # update reward when needed        
+        reward_state = jax.lax.cond(
+            goal_resampled,
+            lambda: reward_state.replace(
+                stance_pos_reward=reward_state.last_swing_pos_reward, 
+                stance_orn_reward=reward_state.last_swing_orn_reward,
+                swing_foot_idx=swing_foot_idx
+            ),
+            lambda: reward_state
+        )
+        
+        # ==============================================REWARD COMPONENTS==============================================
         # Survival reward
         survival_reward = 1.0
 
         # Goal tracking rewards
-        # Goal info
-        swing_foot_idx = goal_state.swing_foot_idx
         if self._goal_name in ["GoalDoubleFootPlacement"]:
-            gait_process = goal_state.gait_process
-            
             # retrieve tragets for the swing and the stance feet
             swing_target_pos, swing_target_orn, stance_target_pos, stance_target_orn = jax.lax.cond(
                 swing_foot_idx == 0, # left foot swing
@@ -363,23 +388,27 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             # if we are in the right phase (gait_process >= 0.5) we remove 0.5
             # the quantity we consider is always in 2 * [0, 0.5]
             gait_sharpness = 2 * (gait_process - backend.where(gait_process >= 0.5, 0.5, 0))
-            hold_still = goal_state.still_phase & (goal_state.num_gaits >= 2)
             still_coeff = jax.lax.select(hold_still, 0.0, 1.0)
             """NOTE: if hold still condition is met, then we say the agent not to move"""
 
             # NOTE: adaptive sharpness is just for the swing targets
             # swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq * gait_sharpness) * still_coeff
-            # stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq) * still_coeff # removed still coeff
+            # stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq) * still_coeff 
             swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq * gait_sharpness * still_coeff)
             stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq * still_coeff)
+            # stance_pos_reward = reward_state.stance_pos_reward
 
             # swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * swing_orn_error * gait_sharpness) * still_coeff 
-            # stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error) * still_coeff # removed still coeff 
+            # stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error) * still_coeff 
             swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * swing_orn_error * gait_sharpness * still_coeff)
             stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error * still_coeff)
+            # stance_orn_reward = reward_state.stance_orn_reward
             
             # swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq * gait_sharpness) * still_coeff
             swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq * gait_sharpness * still_coeff)
+            
+            # update in the state the last reward
+            reward_state = reward_state.replace(last_swing_pos_reward=swing_pos_reward, last_swing_orn_reward=swing_orn_reward)
         else:
             # swing_target_pos = goal_state.swing_target_pos[:2] # just (x,y)
             swing_target_pos = goal_state.swing_target_pos # (x,y,z)
@@ -453,7 +482,6 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         # Action rate penalty
         action_rate_coeff = self._action_rate_coeff
         if self._goal_name in ["GoalDoubleFootPlacement"]:
-            hold_still = goal_state.still_phase & (goal_state.num_gaits >= 2)
             action_rate_coeff = jax.lax.cond(hold_still, lambda: 2 * self._action_rate_coeff, lambda: self._action_rate_coeff)
         action_rate_reward = (backend.square(action - reward_state.last_action)).sum()
 
@@ -526,7 +554,6 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         feet_yaw_diff_coeff = self._feet_yaw_diff_coeff
         feet_yaw_mean_coeff = self._feet_yaw_mean_coeff
         if self._goal_name in ["GoalDoubleFootPlacement"]:
-            hold_still = goal_state.still_phase & (goal_state.num_gaits >= 2)
             feet_yaw_diff_coeff, feet_yaw_mean_coeff = jax.lax.cond(
                 ~hold_still, lambda: (0.0, 0.0), lambda: (self._feet_yaw_diff_coeff, self._feet_yaw_mean_coeff)
             )
@@ -598,12 +625,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
                 goal_state.left_foot_target_pos,
                 goal_state.right_foot_target_pos
             )
-            # compute the condition for holding still in the reward too
-            # cond_feet_near_x = backend.abs(left_foot_pos[0] - right_foot_pos[0]) <= self.epsilon_standing
-            # cond_feet_near_y = backend.abs(left_foot_pos[1] - right_foot_pos[1] - self._feet_distance_target) <= self.epsilon_standing
-            # hold_still = goal_state.still_phase & cond_feet_near_x & cond_feet_near_y
-            hold_still = goal_state.still_phase & (goal_state.num_gaits >= 2)
-            
+       
             feet_swing_reward = (
                 (left_swing & ~feet_on_ground[0] & ~hold_still).astype(backend.float32) +
                 (right_swing & ~feet_on_ground[1] & ~hold_still).astype(backend.float32) +
