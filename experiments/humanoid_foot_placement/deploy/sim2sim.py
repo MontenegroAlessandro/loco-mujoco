@@ -101,6 +101,8 @@ class GaitGenerator:
         self.vertical_dist = vertical_dist
         self.lateral_dist = lateral_dist
         self.steering_angle = steering_angle
+        # additional controlling parameters
+        self.gaits_to_still = 0
     
     def query_cmd(self, mov_dir: str = "STILL", reset: bool = False, gp: float = 0.0):
         err_msg = f"[GaitGenerator: query_cmd] Mode {mov_dir} is not valid."
@@ -128,7 +130,7 @@ class GaitGenerator:
         zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
         zero_pos_offset = np.zeros(3, dtype=np.float32)
         
-        if reset:
+        if self.gaits_to_still > 0: #reset:
             # gait info gen
             gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
             # pos gen
@@ -446,14 +448,12 @@ if __name__ == "__main__":
                     swing_foot_idx = 1
                     num_gaits += 1
                     sample_goal = True
-                    if first_step:
-                        first_step = False
+                    GG.gaits_to_still = np.maximum(GG.gaits_to_still - 1, 0)
                 elif swing_foot_idx == 1 and (gait_process < 0.5 and gait_process >= 0):
                     swing_foot_idx = 0
                     num_gaits += 1
                     sample_goal = True
-                    if first_step:
-                        first_step = False
+                    GG.gaits_to_still = np.maximum(GG.gaits_to_still - 1, 0)
                     
                 # switch walking scheme when needed
                 if (counter * simulation_dt) % max_gaits == 0:
@@ -461,13 +461,13 @@ if __name__ == "__main__":
                     print(movs[idx])
                     # check if need to change the gait process or reset
                     if movs[idx] == "STILL":
-                        first_step = True
+                        GG.gaits_to_still = 2
                     elif movs[idx] in ["LEFT", "RIGHT", "DIAG-L", "DIAG-R"]:
                         counter = 0.0 if movs[idx] in ["LEFT", "DIAG-L"] else (0.5 / (simulation_dt * gait_frequency))
                         gait_process = (counter * simulation_dt * gait_frequency) % 1.0
         
                 l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info = GG.query_cmd(
-                    mov_dir=movs[idx], reset=first_step, gp=gait_process
+                    mov_dir=movs[idx], reset=False, gp=gait_process
                 ) 
                 
                 if sample_goal:

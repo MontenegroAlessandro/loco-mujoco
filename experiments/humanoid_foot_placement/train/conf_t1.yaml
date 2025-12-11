@@ -125,7 +125,7 @@ experiment:
       action_rate_coeff: -3 # -1.
       joint_position_limit_scale: 0.98
       joint_position_limit_coeff: -1.
-      feet_slip_coeff: -1.0 # -0.1
+      feet_slip_coeff: -3.0 # -0.1
       feet_yaw_diff_coeff: -2.0 # -0.5
       feet_yaw_mean_coeff: -2.0 # -0.5
       feet_roll_coeff: -4.0 # -0.1
