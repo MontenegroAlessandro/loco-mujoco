@@ -51,7 +51,8 @@ class AdaPillarsTerrain(DynamicTerrain):
         super().__init__(env, **kwargs)
         
         # store parameters
-        self.num_pillars = num_pillars
+        self.num_pillars = num_pillars + 1
+        """NOTE: we need one more pillar in order not to leave any foot without floor."""
         self.diameter = diameter
         self.feet_collision = feet_collision
         self.foot_dimension = foot_dimension
@@ -96,7 +97,7 @@ class AdaPillarsTerrain(DynamicTerrain):
                 pos=(0.1, 0.0, 0.0),    # **             
                 quat=(0.0, 0.0, 0.0, 1.0),     
                 group=0,
-                rgba=(0.5, 0.0, 1.0, 1.0),
+                rgba=(0.26, 0.4, 0.82, 1.0),
                 contype=0,
                 conaffinity=0,
             )

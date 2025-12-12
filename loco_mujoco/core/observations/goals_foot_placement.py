@@ -10,19 +10,17 @@ from flax import struct
 from mujoco import MjSpec, MjModel, MjData
 from mujoco.mjx import Model, Data
 
-from loco_mujoco.core.observations.visualizer import FootPlacementVisualizer, DoubleFootPlacementVisualizer
+from loco_mujoco.core.observations.visualizer import DoubleFootPlacementVisualizer
+from loco_mujoco.core.terrain.adaptive_pillars import AdaPillarsTerrain
 
 from loco_mujoco.core.utils.math import (
-    calculate_relative_site_quatities,
     quat_scalarfirst2scalarlast,
-    quat_scalarlast2scalarfirst
 )
 from loco_mujoco.core.utils.mujoco import (
-    mj_jntid2qposid, mj_jntid2qvelid,
-    mj_jntname2qposid, mj_jntname2qvelid
+    mj_jntname2qposid
 )
 
-from loco_mujoco.core.observations.goals import Goal, GoalChangingRandomRootVelocity
+from loco_mujoco.core.observations.goals import Goal
 
 @struct.dataclass
 class GoalDoubleFootPlacementState:
@@ -40,16 +38,20 @@ class GoalDoubleFootPlacementState:
     gait_process: float                 # \in [0,1] s.t. left \in [0,0.5) and right \in [0.5,1]
     gait_height: float                  # desired height of the steps
     # ranges for foot placement target generation
-    angle_range_rad: List[float]
-    distance_range: List[float]
+    angle_range_rad: jax.Array
+    distance_range: jax.Array
     movement_direction: float           # angle in rad defining the movement direction
     feet_direction: float               # angle in rad defining the feet direction
-    z_distance_range: float
+    z_distance_range: jax.Array
     steps: int
     # still process parameters
     still_phase: bool                   # boolean number indicating if the goal to provide is the one to be still
     # number of gait phase switches
     num_gaits: int                      # integer stating how many gait switches happened so far
+    # vars for adaptive terrain
+    foot_pillar_ids: jax.Array
+    free_pillar_id: jax.Array
+    pending_free_pillar_id: jax.Array
 
 class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
     """
@@ -111,7 +113,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.still_feet_distance = still_feet_distance
         self.max_num_gaits = max_num_gaits
         self.still_threshold = still_threshold
-        self.adaptive_tarrain = adaptive_terrain
+        self.adaptive_terrain = adaptive_terrain
         self.z_distance_range = z_distance_range
         self.max_z_distance = max_z_distance
         self.start_still = start_still
@@ -143,6 +145,20 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
 
         self.min = [-np.inf] * self.dim
         self.max = [np.inf] * self.dim
+        
+        # Pillar avoidance terms for adapitve terrains
+        pillar_d = float(getattr(getattr(env, "_terrain", None), "diameter", 0.0))
+        pillar_r = 0.5 * pillar_d
+        foot_r = 0.0
+        fd = getattr(getattr(env, "_terrain", None), "foot_dimension", None)
+        if fd is not None and len(fd) >= 2:
+            L, W = float(fd[0]), float(fd[1])
+            foot_r = 0.5 * np.sqrt(L * L + W * W)
+        overlap_margin = 0.02
+        foot_margin = 0.02
+        safe_overlap = pillar_d + overlap_margin
+        safe_foot = pillar_r + foot_r + foot_margin
+        self._pillar_min_center_dist = float(max(safe_overlap, safe_foot))
 
         assert self._foot_site_id_left != -1, f"Site '{self.foot_site_names[0]}' not found."
         assert self._foot_site_id_right != -1, f"Site '{self.foot_site_names[1]}' not found."
@@ -150,6 +166,17 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
 
     def init_state(self, env, key, model, data, backend) -> GoalDoubleFootPlacementState:
         """Initializes the state with a zero target."""
+        num_pillars = int(getattr(getattr(env, "_terrain", None), "num_pillars", 0))
+        if num_pillars >= 3:
+            foot_pillar_ids = backend.array([0, 1], dtype=backend.int32)
+            free_pillar_id = backend.array(2, dtype=backend.int32)
+        else:
+            # fallback (old behaviour): pillar_id == swing_foot_idx
+            foot_pillar_ids = backend.array([0, 1], dtype=backend.int32)
+            free_pillar_id = backend.array(-1, dtype=backend.int32)
+
+        pending_free_pillar_id = backend.array(-1, dtype=backend.int32)
+        
         return GoalDoubleFootPlacementState(
             # goals to track
             left_foot_target_pos=backend.zeros(3), 
@@ -163,8 +190,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             gait_process=0.0,
             gait_height=0.1,
             # ranges
-            angle_range_rad=self.angle_range_rad,
-            distance_range=self.xy_distance_range,
+            angle_range_rad=backend.array(self.angle_range_rad),
+            distance_range=backend.array(self.xy_distance_range),
             z_distance_range=backend.array(self.z_distance_range),
             steps=0,
             # movement direction
@@ -175,6 +202,10 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             still_phase=self.start_still,
             # number of gait phase switches
             num_gaits=0,
+            # adaptive terrains
+            foot_pillar_ids=foot_pillar_ids,
+            free_pillar_id=free_pillar_id,
+            pending_free_pillar_id=pending_free_pillar_id
         )
         
     def reset_state(self, env, model, data, carry, backend):
@@ -193,12 +224,29 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             backend=backend,
             initial_gait=gp0,
             gait_frequency=gait_frequency,
-            distance_range=distance_range,
-            angle_range_rad=angle_range_rad,
+            distance_range=backend.array(distance_range),
+            angle_range_rad=backend.array(angle_range_rad),
             movement_direction=movement_dir,
             feet_direction=feet_dir,
             reset=True,
             z_distance_range=backend.array(self.z_distance_range)
+        )
+        
+        # adaptive terrains stuff
+        num_pillars = int(getattr(getattr(env, "_terrain", None), "num_pillars", 0))
+        if num_pillars >= 3:
+            foot_pillar_ids = backend.array([0, 1], dtype=backend.int32)
+            free_pillar_id = backend.array(2, dtype=backend.int32)
+        else:
+            # fallback (old behaviour): pillar_id == swing_foot_idx
+            foot_pillar_ids = backend.array([0, 1], dtype=backend.int32)
+            free_pillar_id = backend.array(-1, dtype=backend.int32)
+
+        pending_free_pillar_id = backend.array(-1, dtype=backend.int32)
+        goal_state = goal_state.replace(
+            foot_pillar_ids=foot_pillar_ids,
+            free_pillar_id=free_pillar_id,
+            pending_free_pillar_id=pending_free_pillar_id
         )
 
         # update observation with the new goal state in the carry
@@ -395,6 +443,66 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
 
         observation_states = carry.observation_states.replace(**{self.name: goal_state})
         return data, carry.replace(key=key, observation_states=observation_states)
+
+    def _push_target_out_of_other_pillars(
+        self,
+        target_pos_pre_z,
+        terrain_state,
+        swing_pillar_id: int,
+        backend,
+    ):
+        """
+        Deterministic projection that avoids all other pillars.
+        Works even with multiple obstacles by iterating a few times.
+        """
+
+        # If we don't have pillar info, do nothing
+        safe = getattr(self, "_pillar_min_center_dist", 0.0)
+        if safe <= 0.0:
+            return target_pos_pre_z
+
+        centers_xy = terrain_state.positions[:, :2]   # (P,2)
+        idxs = backend.arange(centers_xy.shape[0])
+        big = backend.array(1e6, dtype=backend.float32)
+        safe = backend.array(safe, dtype=backend.float32)
+
+        def _one_push(xy):
+            # distances to all pillars
+            dxy = xy[None, :] - centers_xy                 # (P,2)
+            d = backend.linalg.norm(dxy, axis=1)           # (P,)
+
+            # ignore the pillar we are going to move/update anyway
+            d = backend.where(idxs == swing_pillar_id, big, d)
+
+            # closest pillar among the others
+            j = backend.argmin(d)
+            closest_xy = centers_xy[j]
+            closest_d = d[j]
+
+            # if too close: push to boundary
+            vec = xy - closest_xy
+            norm = backend.linalg.norm(vec)
+            default_dir = backend.array([1.0, 0.0], dtype=backend.float32)
+            dir_xy = backend.where(norm > 1e-6, vec / norm, default_dir)
+
+            pushed_xy = closest_xy + dir_xy * safe
+            xy2 = backend.where(closest_d < safe, pushed_xy, xy)
+            return xy2
+
+        # Iterate a few times so we don’t get pushed into another pillar
+        if backend == jnp:
+            def body_fun(i, xy):
+                return _one_push(xy)
+            xy0 = target_pos_pre_z[:2]
+            xy = jax.lax.fori_loop(0, 4, body_fun, xy0)   # 4 is usually enough
+            return target_pos_pre_z.at[:2].set(xy)
+        else:
+            out = target_pos_pre_z.copy()
+            xy = out[:2]
+            for _ in range(4):
+                xy = np.array(_one_push(xy))
+            out[:2] = xy
+            return out
 
     @staticmethod
     def wrap_to_pi(angle, backend):
@@ -611,10 +719,60 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             lambda: target_pos_pre_z
         )
         
-        # adjust the height of the target based on the terrain properties
-        # target_pos_xy = target_pos_pre_z[:2]
-        # target_z_from_terrain = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_xy, backend)
-        # target_pos = target_pos_pre_z.at[2].set(target_z_from_terrain)
+        # =============================================PILLARS MANAGEMENT=============================================
+        
+        # management of the three pillars
+        num_pillars = backend.astype(getattr(getattr(env, "_terrain", None), "num_pillars", 0), backend.int32)
+        use_three_pillars = backend.astype(self.adaptive_terrain & (num_pillars >= 3), backend.int32)
+        
+        def _retrieve_pillar_id_for_goal(state_in):
+            foot_pillar_ids = state_in.foot_pillar_ids
+            free_pillar_id = state_in.free_pillar_id
+            pending_free = state_in.pending_free_pillar_id
+
+            neg_one = backend.array(-1, dtype=backend.int32)
+
+            # Release pending pillar (from previous swing) so it becomes the free pillar now
+            has_pending = pending_free >= 0
+            free_pillar_id = jax.lax.select(has_pending, pending_free, free_pillar_id)
+            pending_free = jax.lax.select(has_pending, neg_one, pending_free)
+
+            # Allocate the free pillar to the NEW swing-foot target
+            pillar_id_for_goal = free_pillar_id
+
+            # Mark the OLD swing-foot pillar as pending-free (do NOT reuse immediately)
+            old_swing_pillar = foot_pillar_ids[swing_foot_idx]
+            foot_pillar_ids = foot_pillar_ids.at[swing_foot_idx].set(pillar_id_for_goal)
+
+            pending_free = old_swing_pillar
+            free_pillar_id = neg_one  # no free pillar until next sample (when pending is released)
+
+            # write back updated bookkeeping into state
+            state_out = state_in.replace(
+                foot_pillar_ids=foot_pillar_ids,
+                free_pillar_id=free_pillar_id,
+                pending_free_pillar_id=pending_free,
+            )
+            return pillar_id_for_goal, state_out
+        
+        def _fallback(state_in):
+            return swing_foot_idx, state_in
+        
+        pillar_id_for_goal, state = jax.lax.cond(
+            use_three_pillars,
+            _retrieve_pillar_id_for_goal,
+            _fallback,
+            operand=state
+        )
+        
+        # in the case of adaptive terrains, modify the proposed foot palcement targets when needed
+        target_pos_pre_z = jax.lax.cond(
+            self.adaptive_terrain,
+            lambda: self._push_target_out_of_other_pillars(
+                target_pos_pre_z, carry.terrain_state, pillar_id_for_goal, backend
+            ),
+            lambda: target_pos_pre_z
+        )
         
         # =============================================FOOT HEIGHT TARGET=============================================
         # case 1: the terrain is non-adaptive
@@ -628,7 +786,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             return backend.maximum(z_sampled + swing_foot_pos[2], 0.0)
         
         target_z = jax.lax.cond(
-            self.adaptive_tarrain,
+            self.adaptive_terrain,
             _set_height_adaptive_t,
             _set_height_non_adaptive_t
         )
@@ -636,8 +794,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         # when the terrain is adaptive, we need to build a pillar below the foot
         terrain_state = jax.lax.cond(
-            self.adaptive_tarrain,
-            lambda: env._terrain.set_height_at_xy(carry.terrain_state, target_pos[:2], target_z, swing_foot_idx, backend),
+            self.adaptive_terrain,
+            lambda: env._terrain.set_height_at_xy(carry.terrain_state, target_pos[:2], target_z, pillar_id_for_goal, backend),
             lambda: carry.terrain_state
         )
         carry = carry.replace(terrain_state=terrain_state)
