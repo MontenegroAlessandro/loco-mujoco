@@ -436,9 +436,9 @@ experiment:
       filter_action_alpha: 0.0
 
       # Kicking
-      kick_robots: false # true
-      kick_min_vel: 0.2
-      kick_max_vel: 0.6 # m/s
+      kick_robots: true # true
+      kick_min_vel: 0.1
+      kick_max_vel: 0.4 # m/s
       kick_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 kick per second
       kick_at_reset: false
 
