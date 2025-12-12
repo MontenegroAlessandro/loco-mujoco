@@ -328,30 +328,6 @@ if __name__ == "__main__":
         group=0,
         rgba=(1.0, 0.0, 0.5, 1.0),
     )
-    
-    # wb.add_geom(
-    #     name=f"pillar_0",
-    #     type=mujoco.mjtGeom.mjGEOM_CYLINDER,
-    #     size=(0.25 / 2.0, 0.01, 0.0),   # *      
-    #     pos=(0.1, 0.0, 0.0),    # **             
-    #     quat=(0.0, 0.0, 0.0, 1.0),     
-    #     group=0,
-    #     rgba=(0.5, 0.0, 1.0, 1.0),
-    #     contype=0,
-    #     conaffinity=0,
-    # )
-    
-    # wb.add_geom(
-    #     name=f"pillar_1",
-    #     type=mujoco.mjtGeom.mjGEOM_CYLINDER,
-    #     size=(0.25 / 2.0, 0.01, 0.0),   # *      
-    #     pos=(0.1, 0.0, 0.0),    # **             
-    #     quat=(0.0, 0.0, 0.0, 1.0),     
-    #     group=0,
-    #     rgba=(0.5, 0.0, 1.0, 1.0),
-    #     contype=0,
-    #     conaffinity=0,
-    # )
 
     # get model spec
     # delete all geoms whose names end in "_col" from spec
@@ -405,20 +381,87 @@ if __name__ == "__main__":
     # goal parameters
     swing_foot_idx = 0 if ((counter * simulation_dt * gait_frequency) % 1.0 < 0.5) else 1
     # gait_swithces
-    num_gaits = 0
-    max_gaits = cmd_params["max_gaits"]
-    # movement list
-    movs = ["STILL", "FWD", "STILL", "BWD", "STILL", "LEFT", "STILL", "RIGHT", "STILL", "DIAG-L", "STILL", "DIAG-R"]
-    # movs = ["STILL", "DIAG-L", "STILL", "DIAG-R"]
-    idx = 0
-    first_step = False
+    # num_gaits = 0
+    # max_gaits = cmd_params["max_gaits"]
+    # # movement list
+    # movs = ["STILL", "FWD", "STILL", "BWD", "STILL", "LEFT", "STILL", "RIGHT", "STILL", "DIAG-L", "STILL", "DIAG-R"]
+    # idx = 0
+    # first_step = False
     sample_goal = True
     
     # init the gait generator
     GG = GaitGenerator(feet_distance=feet_dist, vertical_dist=vert_dist, lateral_dist=lat_dist, steering_angle=steering_angle)
+    
+    # ===========================================TELEOPERATION via KEYBOARD===========================================
+    teleop = dict(
+        move_enabled=False,
+        mov_dir="STILL",
+        last_mov_dir="STILL",
+        vert_step=0.01,
+        yaw_step=np.deg2rad(2.0),
+        vert_min=0.0,
+        vert_max=0.5,
+        yaw_min=(- np.pi / 2.0),
+        yaw_max=(np.pi / 2.0)
+    )
+    
+    def key_callback(keycode):
+        try:
+            key = chr(keycode).lower()
+        except (ValueError, OverflowError):
+            return
+
+        if key == ' ':
+            teleop["move_enabled"] = not teleop["move_enabled"]
+            teleop["mov_dir"] = "FWD" if teleop["move_enabled"] else "STILL"
+            if teleop["mov_dir"] == "STILL":
+                GG.gaits_to_still = 2
+            else:
+                GG.vertical_dist = 0.0
+                GG.steering_angle = 0.0
+            print(f"[teleop] move_enabled={teleop['move_enabled']} mov_dir={teleop['mov_dir']}")
+
+        elif key == 'w':
+            GG.vertical_dist = float(np.clip(GG.vertical_dist + teleop["vert_step"], teleop["vert_min"], teleop["vert_max"]))
+            
+            if teleop["move_enabled"]:
+                if teleop["mov_dir"] != "FWD":
+                    GG.vertical_dist = 0.0
+                    GG.steering_angle = 0.0
+                teleop["mov_dir"] = "FWD"
+            print(f"[teleop] vertical_dist={GG.vertical_dist:.3f}")
+
+        elif key == 's':
+            GG.vertical_dist = float(np.clip(GG.vertical_dist + teleop["vert_step"], teleop["vert_min"], teleop["vert_max"]))
+            
+            if teleop["move_enabled"]:
+                if teleop["mov_dir"] != "BWD":
+                    GG.vertical_dist = 0.0
+                    GG.steering_angle = 0.0    
+                teleop["mov_dir"] = "BWD"
+            
+            print(f"[teleop] vertical_dist={GG.vertical_dist:.3f}")
+
+        elif key == 'a':
+            if teleop["move_enabled"]:
+                teleop["mov_dir"] = "LEFT"
+                print("[teleop] mov_dir=LEFT")
+
+        elif key == 'd':
+            if teleop["move_enabled"]:
+                teleop["mov_dir"] = "RIGHT"
+                print("[teleop] mov_dir=RIGHT")
+
+        elif key == 'e':
+            GG.steering_angle = float(np.clip(GG.steering_angle - teleop["yaw_step"], teleop["yaw_min"], teleop["yaw_max"]))
+            print(f"[teleop] steering_angle(deg)={np.rad2deg(GG.steering_angle):.1f}")
+
+        elif key == 'q':
+            GG.steering_angle = float(np.clip(GG.steering_angle + teleop["yaw_step"], teleop["yaw_min"], teleop["yaw_max"]))
+            print(f"[teleop] steering_angle(deg)={np.rad2deg(GG.steering_angle):.1f}")
 
     # --- Start Simulation and Viewer ---
-    with mujoco.viewer.launch_passive(m, d) as viewer:
+    with mujoco.viewer.launch_passive(m, d, key_callback=key_callback) as viewer:
         start_time = time.time()
         while viewer.is_running() and (time.time() - start_time) < simulation_duration:
             step_start = time.time()
@@ -446,28 +489,45 @@ if __name__ == "__main__":
                 # SET GOALS
                 if swing_foot_idx == 0 and (gait_process >= 0.5 and gait_process < 1):
                     swing_foot_idx = 1
-                    num_gaits += 1
+                    # num_gaits += 1
                     sample_goal = True
                     GG.gaits_to_still = np.maximum(GG.gaits_to_still - 1, 0)
                 elif swing_foot_idx == 1 and (gait_process < 0.5 and gait_process >= 0):
                     swing_foot_idx = 0
-                    num_gaits += 1
+                    # num_gaits += 1
                     sample_goal = True
                     GG.gaits_to_still = np.maximum(GG.gaits_to_still - 1, 0)
                     
                 # switch walking scheme when needed
-                if (counter * simulation_dt) % max_gaits == 0:
-                    idx = (idx + 1) % len(movs)
-                    print(movs[idx])
-                    # check if need to change the gait process or reset
-                    if movs[idx] == "STILL":
-                        GG.gaits_to_still = 2
-                    elif movs[idx] in ["LEFT", "RIGHT", "DIAG-L", "DIAG-R"]:
-                        counter = 0.0 if movs[idx] in ["LEFT", "DIAG-L"] else (0.5 / (simulation_dt * gait_frequency))
-                        gait_process = (counter * simulation_dt * gait_frequency) % 1.0
+                # if (counter * simulation_dt) % max_gaits == 0:
+                #     idx = (idx + 1) % len(movs)
+                #     print(movs[idx])
+                #     # check if need to change the gait process or reset
+                #     if movs[idx] == "STILL":
+                #         GG.gaits_to_still = 2
+                #     elif movs[idx] in ["LEFT", "RIGHT", "DIAG-L", "DIAG-R"]:
+                #         counter = 0.0 if movs[idx] in ["LEFT", "DIAG-L"] else (0.5 / (simulation_dt * gait_frequency))
+                #         gait_process = (counter * simulation_dt * gait_frequency) % 1.0
+        
+                # Keyboard-controlled movement direction
+                mov_dir = teleop["mov_dir"]
+                if mov_dir != teleop["last_mov_dir"]:
+                   # When coming to a stop, let the gait generator settle for a couple half-steps.
+                    if mov_dir == "STILL":
+                         GG.gaits_to_still = 2
+                    # Keep lateral gaits in-phase (matches the old auto-switch logic).
+                    if mov_dir in ["LEFT", "DIAG-L"]:
+                        counter = 0
+                    elif mov_dir in ["RIGHT", "DIAG-R"]:
+                        counter = int(0.5 / (simulation_dt * gait_frequency))
+
+                    gait_process = (counter * simulation_dt * gait_frequency) % 1.0
+                    swing_foot_idx = 0 if (gait_process < 0.5) else 1
+                    sample_goal = True
+                    teleop["last_mov_dir"] = mov_dir
         
                 l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info = GG.query_cmd(
-                    mov_dir=movs[idx], reset=False, gp=gait_process
+                    mov_dir=mov_dir, reset=False, gp=gait_process
                 ) 
                 
                 if sample_goal:
@@ -481,12 +541,6 @@ if __name__ == "__main__":
                         m.site("foot_1").pos = d.site_xpos[right_foot_id] + rot_l.apply(l_offset)
                         m.site("foot_1").pos[2] = 0
                         m.site("foot_1").quat = rot_l.as_quat(scalar_first=True)
-                        # update pillar
-                        # des_z = np.maximum(0.0, (d.site_xpos[right_foot_id][2] / 2.0)) - (0.01 / 2.0)
-                        # m.geom("pillar_1").pos = d.site_xpos[right_foot_id] + rot_l.apply(l_offset)
-                        # m.geom("pillar_1").pos[2] = np.maximum(0.0, d.site_xpos[right_foot_id][2] / 2.0) - 0.01
-                        # m.geom("pillar_1").quat = rot_l.as_quat(scalar_first=True)
-                        # m.geom("pillar_1").size[1] = des_z
                     else:
                         rot_r =  np_R.from_matrix(d.site("left_foot").xmat.reshape(3, 3))
                         r_yaw = rot_r.as_euler("xyz")[2]
@@ -496,11 +550,6 @@ if __name__ == "__main__":
                         m.site("foot_0").pos[2] = 0                 
                         m.site("foot_0").quat = rot_r.as_quat(scalar_first=True)
                         # update pillar
-                        # des_z = np.maximum(0.0, (d.site_xpos[left_foot_id][2] / 2.0)) - (0.01 / 2.0)
-                        # m.geom("pillar_0").pos = d.site_xpos[left_foot_id] + rot_r.apply(r_offset)
-                        # m.geom("pillar_0").pos[2] = des_z
-                        # m.geom("pillar_0").quat = rot_r.as_quat(scalar_first=True)
-                        # m.geom("pillar_0").size[1] = des_z
                             
                 cmd = np.concatenate(
                     [l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32

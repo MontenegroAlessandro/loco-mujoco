@@ -387,25 +387,28 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             
             # if we are in the right phase (gait_process >= 0.5) we remove 0.5
             # the quantity we consider is always in 2 * [0, 0.5]
-            gait_sharpness = 2 * (gait_process - backend.where(gait_process >= 0.5, 0.5, 0))
+            gait_sharpness = 2 * (gait_process - backend.where(gait_process > 0.5, 0.5, 0))
             still_coeff = jax.lax.select(hold_still, 0.0, 1.0)
             """NOTE: if hold still condition is met, then we say the agent not to move"""
 
             # NOTE: adaptive sharpness is just for the swing targets
             # swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq * gait_sharpness) * still_coeff
             # stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq) * still_coeff 
-            swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq * gait_sharpness * still_coeff)
-            stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq * still_coeff)
-            # stance_pos_reward = reward_state.stance_pos_reward
+            # swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq * gait_sharpness * still_coeff)
+            # stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq * still_coeff)
+            swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq)
+            # stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq)
+            stance_pos_reward = reward_state.stance_pos_reward
 
             # swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * swing_orn_error * gait_sharpness) * still_coeff 
             # stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error) * still_coeff 
-            swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * swing_orn_error * gait_sharpness * still_coeff)
-            stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error * still_coeff)
-            # stance_orn_reward = reward_state.stance_orn_reward
+            swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * swing_orn_error)
+            # stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error)
+            stance_orn_reward = reward_state.stance_orn_reward
             
             # swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq * gait_sharpness) * still_coeff
-            swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq * gait_sharpness * still_coeff)
+            # swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq * gait_sharpness * still_coeff)
+            swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq)
             
             # update in the state the last reward
             reward_state = reward_state.replace(last_swing_pos_reward=swing_pos_reward, last_swing_orn_reward=swing_orn_reward)
