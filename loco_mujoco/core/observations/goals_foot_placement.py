@@ -766,38 +766,43 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         )
         
         # in the case of adaptive terrains, modify the proposed foot palcement targets when needed
-        target_pos_pre_z = jax.lax.cond(
-            self.adaptive_terrain,
-            lambda: self._push_target_out_of_other_pillars(
+        if self.adaptive_terrain:
+            target_pos_pre_z = self._push_target_out_of_other_pillars(
                 target_pos_pre_z, carry.terrain_state, pillar_id_for_goal, backend
-            ),
-            lambda: target_pos_pre_z
-        )
+            )
         
         # =============================================FOOT HEIGHT TARGET=============================================
         # case 1: the terrain is non-adaptive
-        def _set_height_non_adaptive_t():
-            return env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
+        # def _set_height_non_adaptive_t():
+        #     return env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
         
         # case 2: the terrain is adaptive
         key, zkey = jax.random.split(key)
-        def _set_height_adaptive_t():        
-            z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
-            return backend.maximum(z_sampled + swing_foot_pos[2], 0.0)
+        # def _set_height_adaptive_t():        
+        #     z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
+        #     return backend.maximum(z_sampled + swing_foot_pos[2], 0.0)
         
-        target_z = jax.lax.cond(
-            self.adaptive_terrain,
-            _set_height_adaptive_t,
-            _set_height_non_adaptive_t
-        )
+        target_z = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
+        if self.adaptive_terrain:
+            z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
+            target_z = backend.maximum(z_sampled + swing_foot_pos[2], 0.0)
+
+        # target_z = jax.lax.cond(
+        #     self.adaptive_terrain,
+        #     _set_height_adaptive_t,
+        #     _set_height_non_adaptive_t
+        # )
         target_pos = target_pos_pre_z.at[2].set(target_z)
         
         # when the terrain is adaptive, we need to build a pillar below the foot
-        terrain_state = jax.lax.cond(
-            self.adaptive_terrain,
-            lambda: env._terrain.set_height_at_xy(carry.terrain_state, target_pos[:2], target_z, pillar_id_for_goal, backend),
-            lambda: carry.terrain_state
-        )
+        terrain_state = carry.terrain_state
+        if self.adaptive_terrain:
+            terrain_state = env._terrain.set_height_at_xy(carry.terrain_state, target_pos[:2], target_z, pillar_id_for_goal, backend)
+        # terrain_state = jax.lax.cond(
+        #     self.adaptive_terrain,
+        #     lambda: env._terrain.set_height_at_xy(carry.terrain_state, target_pos[:2], target_z, pillar_id_for_goal, backend),
+        #     lambda: carry.terrain_state
+        # )
         carry = carry.replace(terrain_state=terrain_state)
 
         # ===========================================FOOT ORIENTATION TARGET===========================================
