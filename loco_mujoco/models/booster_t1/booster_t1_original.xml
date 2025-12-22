@@ -65,6 +65,10 @@
         <joint name="Head_pitch" pos="0 0 0" axis="0 1 0" range="-0.35 1.22" actuatorfrcrange="-7 7"/>
         <geom class="visual" material="gray" mesh="H2"/>
         <geom size="0.08" pos="0.01 0 0.11" class="collision" name="head"/>
+        <camera name="head_camera" pos="0.07266 0 0.10956" euler="1.5708 -1.5708 0" mode="fixed" fovy="57" />
+          <!-- "0.6532815 0.2705981 -0.2705981 -0.6532815 " -->
+        <site name="head_site" pos="0.07266 0 0.10956" euler="1.5708 -1.5708 0"
+            size="0.05 0.02 0.001" type="box" rgba="1.0 0 0 1.0" />
       </body>
     </body>
     <body name="AL1" pos="0.0575 0.1063 0.219" quat="1 0 0.000440565 0">
