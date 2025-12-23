@@ -80,7 +80,7 @@ def experiment(config: DictConfig):
         agent_conf = PPOJax.init_agent_conf(env, config)
         agent_state = None
         resume_just_params = config.experiment.resume_just_params
-        if "resume_from_path" in config.experiment:
+        if "resume_from_path" in config.experiment and config.experiment["resume_from_path"] != "none":
             if resume_just_params:
                 _, agent_state = PPOJax.load_agent(config.experiment.resume_from_path)
             else:

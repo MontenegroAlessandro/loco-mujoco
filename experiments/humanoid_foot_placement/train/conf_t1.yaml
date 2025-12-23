@@ -24,9 +24,9 @@ experiment:
 
     terrain_type: StaticTerrain
     terrain_params:
-      num_pillars: none
-      diameter: none
-      feet_collision: none
+      num_pillars: null
+      diameter: null
+      feet_collision: null
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
@@ -470,7 +470,7 @@ experiment:
   vf_coef: 0.5
   max_grad_norm: 1.0
   activation: elu
-  actor_output_activation: none
+  actor_output_activation: null
   use_observationnorm: true
   anneal_lr: false
   weight_decay: 0.0
@@ -484,7 +484,7 @@ experiment:
     num_envs: 100
     num: 10 # set to 0 to disable validation
   # parameter initialization
-  resume_from_path: none
+  resume_from_path: null
   resume_just_params: false
 
 robot_joints_to_consider:
