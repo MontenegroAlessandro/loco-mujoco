@@ -19,6 +19,8 @@ import jax
 import jax.numpy as jnp
 from scipy.spatial.transform import Rotation as np_R
 from loco_mujoco.core.utils.math import quat_scalarfirst2scalarlast
+import copy 
+import cv2
 
 from loco_mujoco.algorithms import PPOJax
 
@@ -242,6 +244,47 @@ class GaitGenerator:
         return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
 
 
+class VisualGaitGenerator:
+    def __init__(self, robot_model, robot_data):
+        self.model = copy.deepcopy(robot_model)
+        self.data = copy.deepcopy(robot_data)
+
+        self.left_foot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "left_foot")
+        self.right_foot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "right_foot")
+        self.cam_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_CAMERA, "head_camera")
+
+    def fk_cam_to_foot(self, joint_pos, query_left: bool):
+        foot_site_id = self.left_foot_id if query_left else self.right_foot_id
+        # set the robot joint positions
+        self.data.qpos[7:] = joint_pos
+        # self.data.qpos[3:7] = quat
+        self.data.qpos[:3] = np.array([0.0, 0.0, 1.0]) # set a fixed height for the base
+        self.data.qpos[3:7] = np.array([1.0, 0.0, 0.0, 0.0]) # no rotation for the base
+
+        mujoco.mj_fwdPosition(self.model, self.data)
+
+        # Get camera and foot positions
+        T_world_to_cam = np.eye(4)
+        T_world_to_foot = np.eye(4)
+        T_world_to_cam[:3, :3] = self.data.cam_xmat[self.cam_id].reshape(3, 3)
+        T_world_to_cam[:3, 3] = self.data.cam_xpos[self.cam_id]
+        T_world_to_foot[:3, :3] = self.data.site_xmat[foot_site_id].reshape(3, 3)
+        T_world_to_foot[:3, 3] = self.data.site_xpos[foot_site_id]
+
+        # Compute relative transformation matrix from camera to foot
+        T_foot_to_cam = np.linalg.inv(T_world_to_foot) @ T_world_to_cam
+        return T_foot_to_cam
+    
+    def detect_foot_target(self, rgb_image, depth_image):
+        # Detect the circle on the bottom of the rgb_image with OpenCV
+        pass
+
+
+    def query_cmd(self, rgb_image, depth_image, joint_pos, gait_process: float):
+
+        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
+
+
 @hydra.main(config_name="config_sim2sim_visual.yaml")
 def main(config: DictConfig):
 
@@ -286,7 +329,7 @@ def main(config: DictConfig):
 
     print(f"Policy expects an observation size of: {num_obs}")
     print("Warming up the policy network for JIT compilation...")
-    total_obs = 169
+    total_obs = max(policy.agent_conf.network.actor_obs_ind.max(), policy.agent_conf.network.critic_obs_ind.max()) + 1
     for _ in range(500): # Reduced warmup steps from 1000 to 500
         dummy_obs = jnp.zeros((1, total_obs), dtype=np.float32)
         _ = policy.predict_action(dummy_obs)
@@ -317,6 +360,18 @@ def main(config: DictConfig):
         group=0,
         rgba=(1.0, 0.0, 0.5, 1.0),
     )
+
+    # Add visual sites as foot targets
+    for i in range(10):
+        wb.add_site(
+            name=f"target_{i}",
+            type=mujoco.mjtGeom.mjGEOM_CYLINDER,
+            size=(0.08, 0.02, 0.0),  # *
+            pos=np.array([0.2 * (i + 1), (-1)**(i+1) * 0.1, 0.0]),  # **
+            quat=(0, 0, 0, 1),
+            group=0,
+            rgba=(0.0, 0.0, 1.0, 1.0),
+        )
 
     # get model spec
     # delete all geoms whose names end in "_col" from spec
@@ -386,7 +441,9 @@ def main(config: DictConfig):
 
     # init the gait generator
     GG = GaitGenerator(feet_distance=feet_dist, vertical_dist=vert_dist, lateral_dist=lat_dist, steering_angle=steering_angle)
-    
+
+    GG_visual = VisualGaitGenerator(robot_model=m, robot_data=d)
+
     # ===========================================TELEOPERATION via KEYBOARD===========================================
     teleop = dict(
         move_enabled=False,
@@ -399,12 +456,14 @@ def main(config: DictConfig):
         yaw_min=(- np.pi / 2.0),
         yaw_max=(np.pi / 2.0)
     )
-    
+
     def key_callback(keycode):
+        # Arrow key codes for MuJoCo viewer
+        # Up: 265, Down: 264, Right: 262, Left: 263
         try:
             key = chr(keycode).lower()
         except (ValueError, OverflowError):
-            return
+            key = None
 
         if key == ' ':
             teleop["move_enabled"] = not teleop["move_enabled"]
@@ -416,9 +475,9 @@ def main(config: DictConfig):
                 GG.steering_angle = 0.0
             print(f"[teleop] move_enabled={teleop['move_enabled']} mov_dir={teleop['mov_dir']}")
 
-        elif key == 'w':
+        elif keycode == 265:  # Up arrow
             GG.vertical_dist = float(np.clip(GG.vertical_dist + teleop["vert_step"], teleop["vert_min"], teleop["vert_max"]))
-            
+
             if teleop["move_enabled"]:
                 if teleop["mov_dir"] != "FWD":
                     GG.vertical_dist = 0.0
@@ -426,32 +485,32 @@ def main(config: DictConfig):
                 teleop["mov_dir"] = "FWD"
             print(f"[teleop] vertical_dist={GG.vertical_dist:.3f}")
 
-        elif key == 's':
+        elif keycode == 264:  # Down arrow
             GG.vertical_dist = float(np.clip(GG.vertical_dist + teleop["vert_step"], teleop["vert_min"], teleop["vert_max"]))
-            
+
             if teleop["move_enabled"]:
                 if teleop["mov_dir"] != "BWD":
                     GG.vertical_dist = 0.0
                     GG.steering_angle = 0.0    
                 teleop["mov_dir"] = "BWD"
-            
+
             print(f"[teleop] vertical_dist={GG.vertical_dist:.3f}")
 
-        elif key == 'a':
+        elif keycode == 263:  # Left arrow
             if teleop["move_enabled"]:
                 teleop["mov_dir"] = "LEFT"
                 print("[teleop] mov_dir=LEFT")
 
-        elif key == 'd':
+        elif keycode == 262:  # Right arrow
             if teleop["move_enabled"]:
                 teleop["mov_dir"] = "RIGHT"
                 print("[teleop] mov_dir=RIGHT")
 
-        elif key == 'e':
+        elif key == '.':  # Period
             GG.steering_angle = float(np.clip(GG.steering_angle - teleop["yaw_step"], teleop["yaw_min"], teleop["yaw_max"]))
             print(f"[teleop] steering_angle(deg)={np.rad2deg(GG.steering_angle):.1f}")
 
-        elif key == 'q':
+        elif key == ',':  # Comma
             GG.steering_angle = float(np.clip(GG.steering_angle + teleop["yaw_step"], teleop["yaw_min"], teleop["yaw_max"]))
             print(f"[teleop] steering_angle(deg)={np.rad2deg(GG.steering_angle):.1f}")
 
@@ -492,7 +551,7 @@ def main(config: DictConfig):
                     # num_gaits += 1
                     sample_goal = True
                     GG.gaits_to_still = np.maximum(GG.gaits_to_still - 1, 0)
-                    
+
                 # switch walking scheme when needed
                 # if (counter * simulation_dt) % max_gaits == 0:
                 #     idx = (idx + 1) % len(movs)
@@ -503,13 +562,13 @@ def main(config: DictConfig):
                 #     elif movs[idx] in ["LEFT", "RIGHT", "DIAG-L", "DIAG-R"]:
                 #         counter = 0.0 if movs[idx] in ["LEFT", "DIAG-L"] else (0.5 / (simulation_dt * gait_frequency))
                 #         gait_process = (counter * simulation_dt * gait_frequency) % 1.0
-        
+
                 # Keyboard-controlled movement direction
                 mov_dir = teleop["mov_dir"]
                 if mov_dir != teleop["last_mov_dir"]:
-                   # When coming to a stop, let the gait generator settle for a couple half-steps.
+                    # When coming to a stop, let the gait generator settle for a couple half-steps.
                     if mov_dir == "STILL":
-                         GG.gaits_to_still = 2
+                        GG.gaits_to_still = 2
                     # Keep lateral gaits in-phase (matches the old auto-switch logic).
                     if mov_dir in ["LEFT", "DIAG-L"]:
                         counter = 0
@@ -520,10 +579,13 @@ def main(config: DictConfig):
                     swing_foot_idx = 0 if (gait_process < 0.5) else 1
                     sample_goal = True
                     teleop["last_mov_dir"] = mov_dir
-        
+
                 l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info = GG.query_cmd(
                     mov_dir=mov_dir, reset=False, gp=gait_process
                 ) 
+
+
+                GG_visual.fk_cam_to_foot(joint_pos=qj, query_left=swing_foot_idx==1)
 
                 if sample_goal:
                     sample_goal = False
@@ -545,7 +607,7 @@ def main(config: DictConfig):
                         m.site("foot_0").pos[2] = 0                 
                         m.site("foot_0").quat = rot_r.as_quat(scalar_first=True)
                         # update pillar
-                            
+
                 cmd = np.concatenate(
                     [l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32
                 )
@@ -563,6 +625,10 @@ def main(config: DictConfig):
 
                 obs = np.array(obs, dtype=np.float32).reshape(1, -1)
 
+                # Override Head Pitch Angle in Observation
+                obs[0, 81] = 0.0 # Head Yaw Angle
+                obs[0, 82] = 0.0  # Head Pitch joint position
+
                 # --- Policy Inference ---
                 emitted_action = np.asarray(policy.predict_action(obs)).flatten()
 
@@ -573,6 +639,9 @@ def main(config: DictConfig):
 
                 # Deconstruct action vector into control commands
                 target_dof_pos = action[:num_qj] + default_angles[:num_qj] # Use num_qj here as it's the base action for positions
+
+                # Override head joint for control
+                target_dof_pos[1] = 1.1
 
                 # Clip target_dof_pos to joint limits
                 target_dof_pos = np.clip(target_dof_pos, min_angles, max_angles)
@@ -595,7 +664,7 @@ def main(config: DictConfig):
             depth_array = depth_renderer.render()
             depth_rgb = np.clip((depth_array - 0.2) / 1.8 * 255.0, 0, 255)
             depth_rgb = depth_rgb[:, :, None].repeat(3, axis=2).astype(np.uint8)
-            viewer.set_images([(rgb_viewport, rgb_array), (depth_viewport, depth_rgb)])
+            # viewer.set_images([(rgb_viewport, rgb_array), (depth_viewport, depth_rgb)])
 
             # Sync viewer and maintain real-time simulation speed
             viewer.sync()
