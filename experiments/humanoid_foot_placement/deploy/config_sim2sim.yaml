@@ -156,9 +156,4 @@ num_actions: 23 # Base number of actions (one per joint). Script will handle var
 # These are default command values. The valid ranges are in the comments.
 command:
   feet_distance: 0.2
-  vertical_distance: 0.3
-  lateral_distance: 0.3
   gait_frequency: 1.0   
-  max_gaits: 5
-  steering_angle: 0
-  

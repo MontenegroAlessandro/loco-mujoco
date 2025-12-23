@@ -305,7 +305,7 @@ if __name__ == "__main__":
         pos=(0.1, 0.0, 0.0),    # **             
         quat=(0, 0, 0, 1),     
         group=0,
-        rgba=(0.5, 0.0, 1.0, 1.0),
+        rgba=(0.0, 1.0, 1.0, 0.9),
     )
     
     wb.add_site(
@@ -315,7 +315,7 @@ if __name__ == "__main__":
         pos=(0.1, 0.0, 0.0),    # **             
         quat=(0, 0, 0, 1),     
         group=0,
-        rgba=(1.0, 0.0, 0.5, 1.0),
+        rgba=(1.0, 0.55, 0.0, 0.9),
     )
 
     # get model spec
@@ -342,9 +342,11 @@ if __name__ == "__main__":
             print(initial_qpos)
             print("Initial state (qpos, qvel) loaded from policy's environment config.")
         else:
-            print(f"Warning: Initial qpos/qvel length mismatch with model. "
-                  f"Config qpos: {len(initial_qpos)} (expected {m.nq}), "
-                  f"qvel: {len(initial_qvel)} (expected {m.nv}). Using default MuJoCo init.")
+            print(
+                f"Warning: Initial qpos/qvel length mismatch with model. "
+                f"Config qpos: {len(initial_qpos)} (expected {m.nq}), "
+                f"qvel: {len(initial_qvel)} (expected {m.nv}). Using default MuJoCo init."
+            )
     except (AttributeError, KeyError) as e:
         print(f"Warning: Could not load initial state from policy config ({e}). Using default MuJoCo initialization.")
     
@@ -361,10 +363,7 @@ if __name__ == "__main__":
     cmd = np.zeros(16, dtype=np.float32) 
     counter = 1
     gait_frequency = cmd_params["gait_frequency"]
-    vert_dist = cmd_params["vertical_distance"]
-    lat_dist = cmd_params["lateral_distance"]
     feet_dist = cmd_params["feet_distance"]
-    steering_angle = np.deg2rad(cmd_params["steering_angle"])
     # goal parameters
     swing_foot_idx = 0 if ((counter * simulation_dt * gait_frequency) % 1.0 < 0.5) else 1
     sample_goal = True
@@ -520,23 +519,37 @@ if __name__ == "__main__":
                     sample_goal = False
         
                     if swing_foot_idx == 0:
-                        rot_l = np_R.from_matrix(d.site("right_foot").xmat.reshape(3, 3))
-                        l_yaw = rot_l.as_euler("xyz")[2]
-                        rot_l = np_R.from_euler("z", l_yaw)
-                        # update foot placement target
-                        m.site("foot_1").pos = d.site_xpos[right_foot_id] + rot_l.apply(l_offset)
+                        # left foot swing
+                        # get stance foot rotation
+                        rot_stance = np_R.from_matrix(d.site("right_foot").xmat.reshape(3, 3))
+                        stance_yaw = rot_stance.as_euler("xyz")[2]
+                        rot_stance_flat = np_R.from_euler("z", stance_yaw)
+                        # compute the quat
+                        cmd_quat = np.array([l_orn_offset[1], l_orn_offset[2], l_orn_offset[3], l_orn_offset[0]])
+                        rot_cmd = np_R.from_quat(cmd_quat)
+                        # compute target rot
+                        target_rot = rot_stance_flat * rot_cmd
+                        # update site
+                        m.site("foot_1").pos = d.site_xpos[right_foot_id] + rot_stance_flat.apply(l_offset)
                         m.site("foot_1").pos[2] = 0
-                        m.site("foot_1").quat = rot_l.as_quat(scalar_first=True)
+                        m.site("foot_1").quat = target_rot.as_quat(scalar_first=True)
+
                     else:
-                        rot_r =  np_R.from_matrix(d.site("left_foot").xmat.reshape(3, 3))
-                        r_yaw = rot_r.as_euler("xyz")[2]
-                        rot_r = np_R.from_euler("z", r_yaw)
-                        # update foot placement target
-                        m.site("foot_0").pos = d.site_xpos[left_foot_id] + rot_r.apply(r_offset) 
+                        # right foot swing
+                        # get stance foot rotation
+                        rot_stance = np_R.from_matrix(d.site("left_foot").xmat.reshape(3, 3))
+                        stance_yaw = rot_stance.as_euler("xyz")[2]
+                        rot_stance_flat = np_R.from_euler("z", stance_yaw)
+                        # compute the quat
+                        cmd_quat = np.array([r_orn_offset[1], r_orn_offset[2], r_orn_offset[3], r_orn_offset[0]])
+                        rot_cmd = np_R.from_quat(cmd_quat)
+                        # compute the quat
+                        target_rot = rot_stance_flat * rot_cmd
+                        # update site
+                        m.site("foot_0").pos = d.site_xpos[left_foot_id] + rot_stance_flat.apply(r_offset) 
                         m.site("foot_0").pos[2] = 0                 
-                        m.site("foot_0").quat = rot_r.as_quat(scalar_first=True)
-                        # update pillar
-                            
+                        m.site("foot_0").quat = target_rot.as_quat(scalar_first=True)
+                
                 cmd = np.concatenate(
                     [l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32
                 )
