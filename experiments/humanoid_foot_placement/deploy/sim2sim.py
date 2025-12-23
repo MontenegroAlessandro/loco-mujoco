@@ -103,11 +103,11 @@ class GaitGenerator:
         self.steering_angle = steering_angle
         # additional controlling parameters
         self.gaits_to_still = 0
-    
+
     def query_cmd(self, mov_dir: str = "STILL", reset: bool = False, gp: float = 0.0):
         err_msg = f"[GaitGenerator: query_cmd] Mode {mov_dir} is not valid."
         assert mov_dir in ["STILL", "FWD", "BWD", "LEFT", "RIGHT", "DIAG-L", "DIAG-R"], err_msg
-        
+
         if mov_dir == "STILL":
             cmd = self._gen_still_cmd(reset=reset, gp=gp)
         elif mov_dir in ["FWD", "BWD"]:
@@ -117,17 +117,17 @@ class GaitGenerator:
         elif mov_dir in ["DIAG-L", "DIAG-R"]:
             direction = 1 if mov_dir == "DIAG-L" else -1
             cmd = self._gen_diag_cmd(gp=gp, direction=direction)
-        
+
         return cmd
-    
+
     def _gen_still_cmd(self, reset: bool = False, gp: float = 0.0):
         # get the swing foot index
         swing_foot_idx = 0 if (gp < 0.5) else 1
-        
+
         # no changing targets
         zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
         zero_pos_offset = np.zeros(3, dtype=np.float32)
-        
+
         if self.gaits_to_still > 0: #reset:
             # gait info gen
             gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
@@ -146,22 +146,22 @@ class GaitGenerator:
             # orn gen
             l_orn_offset = zero_orn_offset
             r_orn_offset = zero_orn_offset
-        
+
         return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
-    
+
     def _gen_vertical_cmd(self, gp: float = 0.0, direction: int = 1):
         # get the swing foot index
         swing_foot_idx = 0 if (gp < 0.5) else 1
-        
+
         # no changing targets
         zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
         zero_pos_offset = np.zeros(3, dtype=np.float32)
-        
+
         # adjust the steering angle
         steering_angle = np.clip(self.steering_angle, -np.pi, np.pi)
         steering_foot_idx = 0 if (steering_angle >= 0 and steering_angle <= np.pi) else 1
         steering_orn_offset = np_R.from_euler("z", steering_angle).as_quat(scalar_first=True)
-        
+
         # gait info gen
         gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
         # pos gen
@@ -172,34 +172,38 @@ class GaitGenerator:
         r_orn_offset = steering_orn_offset if steering_foot_idx == 1 else zero_orn_offset
 
         return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
-    
+
     def _gen_lateral_cmd(self, gp: float = 0.0):
-        # NOTE: direction 1 means left, -1 right 
+        # NOTE: direction 1 means left, -1 right
         direction = 1 if self.lateral_dist >= 0 else -1
-        
+        direction = 0 if abs(self.lateral_dist) < 1e-4 else direction
+
         # get the swing foot index
         swing_foot_idx = 0 if (gp < 0.5) else 1
-        
+
         # no changing targets
         zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
         zero_pos_offset = np.zeros(3, dtype=np.float32)
 
         # ocmpute the lateral distance considering the offset of the feet distance
         lat_dist = self.feet_distance * direction + self.lateral_dist
-        
+
         # clip the movement for the "evil foot"
         max_evil_movement = - lat_dist / 2.0
-        
+
         # craft gait_info
         gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
-        
+
         if direction == 1: # left movement
             l_pos_offset = np.array([0.0, lat_dist, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
             r_pos_offset = np.array([0.0, max_evil_movement, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
-        else: # right movement
+        elif direction == -1: # right movement
             l_pos_offset = np.array([0.0, max_evil_movement, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
             r_pos_offset = np.array([0.0, lat_dist, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
-        
+        else: # no movement
+            l_pos_offset = np.array([0, self.feet_distance, 0])
+            r_pos_offset = np.array([0, -self.feet_distance, 0])
+
         # orientation
         l_orn_offset = zero_orn_offset
         r_orn_offset = zero_orn_offset
@@ -207,23 +211,23 @@ class GaitGenerator:
         return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
 
     def _gen_diag_cmd(self, gp: float = 0.0, direction: int = 1):
-        # NOTE: direction 1 means left, -1 right 
+        # NOTE: direction 1 means left, -1 right
         err_msg = f"[GaitGenerator: _gen_diag_cmd] Direction {direction} is not valid."
         assert direction in [-1, 1], err_msg
-        
+
         # get the swing foot index
         swing_foot_idx = 0 if (gp < 0.5) else 1
-        
+
         # no changing targets
         zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
         zero_pos_offset = np.zeros(3, dtype=np.float32)
-        
+
         # gait info gen
         gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
-        
+
         # clip the movement for the "evil foot"
         max_evil_movement = self.lateral_dist / 2.0
-        
+
         if direction == 1: # left movement
             l_pos_offset = np.array([self.lateral_dist, self.lateral_dist, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
             r_pos_offset = np.array([-max_evil_movement, -max_evil_movement, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
@@ -237,19 +241,8 @@ class GaitGenerator:
 
         return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
 
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    # parser.add_argument("path", type=str, help="Path to the policy checkpoint folder.")
-    parser.add_argument("--config", type=str, default="deploy_mujoco_config_h1_dfki.yaml",
-                        help="Path to the deployment configuration file.")
-    args = parser.parse_args()
-
-    # --- Load Configuration ---
-    print(f"Loading configuration from {args.config}")
-    with open(args.config, "r") as f:
-        config = yaml.safe_load(f)
+@hydra.main(config_name="config_sim2sim.yaml")
+def main(config: DictConfig):
 
     xml_path = config["xml_path"]
     simulation_duration = config["simulation_duration"]
@@ -273,7 +266,7 @@ if __name__ == "__main__":
     # Initialize Hydra to access environment config used during training
     # The config_path should point to the directory containing your hydra config files
     # hydra.initialize(config_path="./") # Adjust path if your hydra config is elsewhere
-    hydra.initialize(config_path="./")
+    # hydra.initialize(config_path="./")
     lmj_hydra_config = hydra.compose(config_name="conf_t1") 
     policy = LMJPolicy(policy_path=agent_path)
 
@@ -286,7 +279,7 @@ if __name__ == "__main__":
     
     print(f"Policy expects an observation size of: {num_obs}")
     print("Warming up the policy network for JIT compilation...")
-    total_obs = 169
+    total_obs = max(policy.agent_conf.network.actor_obs_ind.max(), policy.agent_conf.network.critic_obs_ind.max()) + 1
     for _ in range(500): # Reduced warmup steps from 1000 to 500
         dummy_obs = jnp.zeros((1, total_obs), dtype=np.float32)
         _ = policy.predict_action(dummy_obs)
@@ -295,7 +288,7 @@ if __name__ == "__main__":
     # Load robot model
     spec = mujoco.MjSpec.from_file(xml_path)
     wb = spec.worldbody
-        
+
     # ==================================================OBSTACLEs==================================================
     # this part is only needed for initialization, then the boxes will be added when doing the reset
     wb.add_site(
@@ -349,7 +342,7 @@ if __name__ == "__main__":
             )
     except (AttributeError, KeyError) as e:
         print(f"Warning: Could not load initial state from policy config ({e}). Using default MuJoCo initialization.")
-    
+
     # Update physics state after setting qpos/qvel (important for correct sensor readings etc.)
     mujoco.mj_forward(m, d)
 
@@ -358,7 +351,7 @@ if __name__ == "__main__":
     target_dof_pos = default_angles.copy()
     target_dof_kps = kps.copy()
     target_dof_kds = kds.copy()
-    
+
     # command parameters
     cmd = np.zeros(16, dtype=np.float32) 
     counter = 1
@@ -367,7 +360,7 @@ if __name__ == "__main__":
     # goal parameters
     swing_foot_idx = 0 if ((counter * simulation_dt * gait_frequency) % 1.0 < 0.5) else 1
     sample_goal = True
-    
+
     # init the gait generator
     GG = GaitGenerator(feet_distance=feet_dist, vertical_dist=0.0, lateral_dist=0.0, steering_angle=0.0)
     
@@ -390,7 +383,7 @@ if __name__ == "__main__":
         lat_min=-0.3,
         lat_max=0.3
     )
-    
+
     def key_callback(keycode):
         # MuJoCo constants for arrow keys
         # These are standard GLFW keycodes often used by MuJoCo
@@ -419,19 +412,19 @@ if __name__ == "__main__":
         elif keycode == LEFT_ARROW:
             GG.lateral_dist = float(np.clip(GG.lateral_dist + teleop["lat_step"], teleop["lat_min"], teleop["lat_max"]))
             teleop["mov_dir"] = "LEFT"
-            print(f"[teleop] Lateral Distance: {np.rad2deg(GG.lateral_dist):.2f}")
+            print(f"[teleop] Lateral Distance: {GG.lateral_dist:.2f}")
 
         elif keycode == RIGHT_ARROW:
             GG.lateral_dist = float(np.clip(GG.lateral_dist - teleop["lat_step"], teleop["lat_min"], teleop["lat_max"]))
             teleop["mov_dir"] = "RIGHT"
-            print(f"[teleop] Lateral Distance: {np.rad2deg(GG.lateral_dist):.2f}")
+            print(f"[teleop] Lateral Distance: {GG.lateral_dist:.2f}")
 
         # Steering Angle Adjustment using Brackets [ ]
-        elif keycode == ord('['):
+        elif keycode == ord(','):
             GG.steering_angle = float(np.clip(GG.steering_angle + teleop["yaw_step"], teleop["yaw_min"], teleop["yaw_max"]))
             print(f"[teleop] Steering Angle (deg): {np.rad2deg(GG.steering_angle):.2f}")
 
-        elif keycode == ord(']'):
+        elif keycode == ord('.'):
             GG.steering_angle = float(np.clip(GG.steering_angle - teleop["yaw_step"], teleop["yaw_min"], teleop["yaw_max"]))
             print(f"[teleop] Steering Angle (deg): {np.rad2deg(GG.steering_angle):.2f}")
 
@@ -453,8 +446,8 @@ if __name__ == "__main__":
     print("  [Arrow LEFT]  : Step Left (Increase Lateral Dist)")
     print("  [Arrow RIGHT] : Step Right (Decrease Lateral Dist)")
     print("-" * 60)
-    print("  [ '[' ]       : Steer Left  (Yaw +)")
-    print("  [ ']' ]       : Steer Right (Yaw -)")
+    print("  [ ',' ]       : Steer Left  (Yaw +)")
+    print("  [ '.' ]       : Steer Right (Yaw -)")
     print("-" * 60)
     print("  [ '\\' ] or [|]: EMERGENCY RESET (Zero all commands)")
     print("="*60 + "\n")
@@ -468,7 +461,7 @@ if __name__ == "__main__":
             # Step the simulation forward. The PD controller runs at the physics rate.
             tau = pd_control(target_dof_pos, d.qpos[7:], target_dof_kps, np.zeros_like(kds), d.qvel[6:], target_dof_kds)
             d.ctrl[:] = tau
-            
+
             mujoco.mj_step(m, d)
 
             # Run the policy at the defined control frequency
@@ -483,7 +476,7 @@ if __name__ == "__main__":
 
                 # --- Create Command Vector `cmd` ---
                 gait_process = (counter * simulation_dt * gait_frequency) % 1.0
-                
+
                 # SET GOALS
                 if swing_foot_idx == 0 and (gait_process >= 0.5 and gait_process < 1):
                     swing_foot_idx = 1
@@ -510,14 +503,14 @@ if __name__ == "__main__":
                     swing_foot_idx = 0 if (gait_process < 0.5) else 1
                     sample_goal = True
                     teleop["last_mov_dir"] = mov_dir
-        
+
                 l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info = GG.query_cmd(
                     mov_dir=mov_dir, reset=False, gp=gait_process
                 ) 
                 
                 if sample_goal:
                     sample_goal = False
-        
+
                     if swing_foot_idx == 0:
                         # left foot swing
                         # get stance foot rotation
@@ -592,3 +585,7 @@ if __name__ == "__main__":
             time_until_next_step = m.opt.timestep - (time.time() - step_start)
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
+
+
+if __name__ == "__main__":
+    main()
