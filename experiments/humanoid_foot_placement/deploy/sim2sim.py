@@ -111,11 +111,9 @@ class GaitGenerator:
         if mov_dir == "STILL":
             cmd = self._gen_still_cmd(reset=reset, gp=gp)
         elif mov_dir in ["FWD", "BWD"]:
-            direction = 1 if mov_dir == "FWD" else -1
-            cmd = self._gen_vertical_cmd(gp=gp, direction=direction)
+            cmd = self._gen_vertical_cmd(gp=gp)
         elif mov_dir in ["LEFT", "RIGHT"]:
-            direction = 1 if mov_dir == "LEFT" else -1
-            cmd = self._gen_lateral_cmd(gp=gp, direction=direction)
+            cmd = self._gen_lateral_cmd(gp=gp)
         elif mov_dir in ["DIAG-L", "DIAG-R"]:
             direction = 1 if mov_dir == "DIAG-L" else -1
             cmd = self._gen_diag_cmd(gp=gp, direction=direction)
@@ -152,10 +150,6 @@ class GaitGenerator:
         return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
     
     def _gen_vertical_cmd(self, gp: float = 0.0, direction: int = 1):
-        # NOTE: direction 1 means forward, -1 backward 
-        err_msg = f"[GaitGenerator: _gen_vertical_cmd] Direction {direction} is not valid."
-        assert direction in [-1, 1], err_msg
-        
         # get the swing foot index
         swing_foot_idx = 0 if (gp < 0.5) else 1
         
@@ -164,25 +158,24 @@ class GaitGenerator:
         zero_pos_offset = np.zeros(3, dtype=np.float32)
         
         # adjust the steering angle
-        steering_angle = np.clip(self.steering_angle, -np.pi, np.pi) if direction == 1 else 0.0
+        steering_angle = np.clip(self.steering_angle, -np.pi, np.pi)
         steering_foot_idx = 0 if (steering_angle >= 0 and steering_angle <= np.pi) else 1
         steering_orn_offset = np_R.from_euler("z", steering_angle).as_quat(scalar_first=True)
         
         # gait info gen
         gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
         # pos gen
-        l_pos_offset = np.array([direction * self.vertical_dist, self.feet_distance, 0]) if swing_foot_idx == 0 else zero_pos_offset
-        r_pos_offset = np.array([direction * self.vertical_dist, -self.feet_distance, 0]) if swing_foot_idx == 1 else zero_pos_offset
+        l_pos_offset = np.array([self.vertical_dist, self.feet_distance, 0]) if swing_foot_idx == 0 else zero_pos_offset
+        r_pos_offset = np.array([self.vertical_dist, -self.feet_distance, 0]) if swing_foot_idx == 1 else zero_pos_offset
         # orn gen
         l_orn_offset = steering_orn_offset if steering_foot_idx == 0 else zero_orn_offset
         r_orn_offset = steering_orn_offset if steering_foot_idx == 1 else zero_orn_offset
 
         return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
     
-    def _gen_lateral_cmd(self, gp: float = 0.0, direction: int = 1):
+    def _gen_lateral_cmd(self, gp: float = 0.0):
         # NOTE: direction 1 means left, -1 right 
-        err_msg = f"[GaitGenerator: _gen_lateral_cmd] Direction {direction} is not valid."
-        assert direction in [-1, 1], err_msg
+        direction = 1 if self.lateral_dist >= 0 else -1
         
         # get the swing foot index
         swing_foot_idx = 0 if (gp < 0.5) else 1
@@ -190,24 +183,27 @@ class GaitGenerator:
         # no changing targets
         zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
         zero_pos_offset = np.zeros(3, dtype=np.float32)
+
+        # ocmpute the lateral distance considering the offset of the feet distance
+        lat_dist = self.feet_distance * direction + self.lateral_dist
         
         # clip the movement for the "evil foot"
-        max_evil_movement = self.lateral_dist / 2.0 # np.clip(self.lateral_dist, 0, self.feet_distance)
+        max_evil_movement = - lat_dist / 2.0
         
         # craft gait_info
         gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
         
         if direction == 1: # left movement
-            l_pos_offset = np.array([0.0, self.lateral_dist, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
-            r_pos_offset = np.array([0.0, -max_evil_movement, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
-            l_orn_offset = zero_orn_offset
-            r_orn_offset = zero_orn_offset
+            l_pos_offset = np.array([0.0, lat_dist, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
+            r_pos_offset = np.array([0.0, max_evil_movement, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
         else: # right movement
             l_pos_offset = np.array([0.0, max_evil_movement, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
-            r_pos_offset = np.array([0.0, -self.lateral_dist, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
-            l_orn_offset = zero_orn_offset
-            r_orn_offset = zero_orn_offset
+            r_pos_offset = np.array([0.0, lat_dist, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
         
+        # orientation
+        l_orn_offset = zero_orn_offset
+        r_orn_offset = zero_orn_offset
+
         return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
 
     def _gen_diag_cmd(self, gp: float = 0.0, direction: int = 1):
@@ -215,7 +211,7 @@ class GaitGenerator:
         err_msg = f"[GaitGenerator: _gen_diag_cmd] Direction {direction} is not valid."
         assert direction in [-1, 1], err_msg
         
-         # get the swing foot index
+        # get the swing foot index
         swing_foot_idx = 0 if (gp < 0.5) else 1
         
         # no changing targets
@@ -252,7 +248,6 @@ if __name__ == "__main__":
 
     # --- Load Configuration ---
     print(f"Loading configuration from {args.config}")
-    # args.config = "/home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/deploy/config_sim2sim.yaml"
     with open(args.config, "r") as f:
         config = yaml.safe_load(f)
 
@@ -279,17 +274,11 @@ if __name__ == "__main__":
     # The config_path should point to the directory containing your hydra config files
     # hydra.initialize(config_path="./") # Adjust path if your hydra config is elsewhere
     hydra.initialize(config_path="./")
-    lmj_hydra_config = hydra.compose(config_name="conf_t1") # Use the appropriate config name
-    # lmj_hydra_config = hydra.compose(config_name="conf")
-
-    # policy = LMJPolicy(policy_path=args.path) # Removed control_func_path
+    lmj_hydra_config = hydra.compose(config_name="conf_t1") 
     policy = LMJPolicy(policy_path=agent_path)
 
     # Determine actual num_actions and observation size based on policy's environment config
     num_actions = base_num_actions
-    # if policy.agent_conf.config.experiment.env_params.control_params.varstiff:
-    #     num_actions *= 2
-    #     print(f"Variable stiffness detected. Action space size extended to {num_actions}.")
     
     # Calculate the total observation size for policy warmup and runtime
     # obs = [projected_gravity (3), qj (num_qj), base_ang_vel (3), dqj (num_qj), action (num_actions), cmd (6)]
@@ -341,8 +330,6 @@ if __name__ == "__main__":
     right_foot_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "right_foot")
 
     # # --- Initialize Simulation ---
-    # m = mujoco.MjModel.from_xml_path(xml_path)
-    # d = mujoco.MjData(m)
     m.opt.timestep = simulation_dt
 
     # Set initial robot state from policy's environment config
@@ -380,85 +367,98 @@ if __name__ == "__main__":
     steering_angle = np.deg2rad(cmd_params["steering_angle"])
     # goal parameters
     swing_foot_idx = 0 if ((counter * simulation_dt * gait_frequency) % 1.0 < 0.5) else 1
-    # gait_swithces
-    # num_gaits = 0
-    # max_gaits = cmd_params["max_gaits"]
-    # # movement list
-    # movs = ["STILL", "FWD", "STILL", "BWD", "STILL", "LEFT", "STILL", "RIGHT", "STILL", "DIAG-L", "STILL", "DIAG-R"]
-    # idx = 0
-    # first_step = False
     sample_goal = True
     
     # init the gait generator
-    GG = GaitGenerator(feet_distance=feet_dist, vertical_dist=vert_dist, lateral_dist=lat_dist, steering_angle=steering_angle)
+    GG = GaitGenerator(feet_distance=feet_dist, vertical_dist=0.0, lateral_dist=0.0, steering_angle=0.0)
     
     # ===========================================TELEOPERATION via KEYBOARD===========================================
     teleop = dict(
+        # enabling movement stuff
         move_enabled=False,
         mov_dir="STILL",
         last_mov_dir="STILL",
-        vert_step=0.01,
-        yaw_step=np.deg2rad(2.0),
-        vert_min=0.0,
+        # veritacl steps
+        vert_step=0.05,
+        vert_min=-0.5,
         vert_max=0.5,
+        # orientation stuff
+        yaw_step=np.deg2rad(5.0),
         yaw_min=(- np.pi / 2.0),
-        yaw_max=(np.pi / 2.0)
+        yaw_max=(np.pi / 2.0),
+        # lateral steps stuff
+        lat_step=0.05,
+        lat_min=-0.3,
+        lat_max=0.3
     )
     
     def key_callback(keycode):
-        try:
-            key = chr(keycode).lower()
-        except (ValueError, OverflowError):
-            return
+        # MuJoCo constants for arrow keys
+        # These are standard GLFW keycodes often used by MuJoCo
+        LEFT_ARROW = 263
+        RIGHT_ARROW = 262
+        UP_ARROW = 265
+        DOWN_ARROW = 264
 
-        if key == ' ':
+        # Handle movement toggling (Pause/Play) with 'P'
+        if keycode == ord('P') or keycode == ord('p'):
             teleop["move_enabled"] = not teleop["move_enabled"]
-            teleop["mov_dir"] = "FWD" if teleop["move_enabled"] else "STILL"
-            if teleop["mov_dir"] == "STILL":
-                GG.gaits_to_still = 2
-            else:
-                GG.vertical_dist = 0.0
-                GG.steering_angle = 0.0
-            print(f"[teleop] move_enabled={teleop['move_enabled']} mov_dir={teleop['mov_dir']}")
+            if not teleop["move_enabled"]:
+                teleop["mov_dir"] = "STILL"
 
-        elif key == 'w':
+        # Arrow keys for Directional Movement
+        elif keycode == UP_ARROW:
             GG.vertical_dist = float(np.clip(GG.vertical_dist + teleop["vert_step"], teleop["vert_min"], teleop["vert_max"]))
-            
-            if teleop["move_enabled"]:
-                if teleop["mov_dir"] != "FWD":
-                    GG.vertical_dist = 0.0
-                    GG.steering_angle = 0.0
-                teleop["mov_dir"] = "FWD"
-            print(f"[teleop] vertical_dist={GG.vertical_dist:.3f}")
+            teleop["mov_dir"] = "FWD"
+            print(f"[teleop] Vertical Distance: {GG.vertical_dist:.2f}")
 
-        elif key == 's':
-            GG.vertical_dist = float(np.clip(GG.vertical_dist + teleop["vert_step"], teleop["vert_min"], teleop["vert_max"]))
-            
-            if teleop["move_enabled"]:
-                if teleop["mov_dir"] != "BWD":
-                    GG.vertical_dist = 0.0
-                    GG.steering_angle = 0.0    
-                teleop["mov_dir"] = "BWD"
-            
-            print(f"[teleop] vertical_dist={GG.vertical_dist:.3f}")
+        elif keycode == DOWN_ARROW:
+            GG.vertical_dist = float(np.clip(GG.vertical_dist - teleop["vert_step"], teleop["vert_min"], teleop["vert_max"]))
+            teleop["mov_dir"] = "FWD"
+            print(f"[teleop] Vertical Distance: {GG.vertical_dist:.2f}")
 
-        elif key == 'a':
-            if teleop["move_enabled"]:
-                teleop["mov_dir"] = "LEFT"
-                print("[teleop] mov_dir=LEFT")
+        elif keycode == LEFT_ARROW:
+            GG.lateral_dist = float(np.clip(GG.lateral_dist + teleop["lat_step"], teleop["lat_min"], teleop["lat_max"]))
+            teleop["mov_dir"] = "LEFT"
+            print(f"[teleop] Lateral Distance: {np.rad2deg(GG.lateral_dist):.2f}")
 
-        elif key == 'd':
-            if teleop["move_enabled"]:
-                teleop["mov_dir"] = "RIGHT"
-                print("[teleop] mov_dir=RIGHT")
+        elif keycode == RIGHT_ARROW:
+            GG.lateral_dist = float(np.clip(GG.lateral_dist - teleop["lat_step"], teleop["lat_min"], teleop["lat_max"]))
+            teleop["mov_dir"] = "RIGHT"
+            print(f"[teleop] Lateral Distance: {np.rad2deg(GG.lateral_dist):.2f}")
 
-        elif key == 'e':
-            GG.steering_angle = float(np.clip(GG.steering_angle - teleop["yaw_step"], teleop["yaw_min"], teleop["yaw_max"]))
-            print(f"[teleop] steering_angle(deg)={np.rad2deg(GG.steering_angle):.1f}")
-
-        elif key == 'q':
+        # Steering Angle Adjustment using Brackets [ ]
+        elif keycode == ord('['):
             GG.steering_angle = float(np.clip(GG.steering_angle + teleop["yaw_step"], teleop["yaw_min"], teleop["yaw_max"]))
-            print(f"[teleop] steering_angle(deg)={np.rad2deg(GG.steering_angle):.1f}")
+            print(f"[teleop] Steering Angle (deg): {np.rad2deg(GG.steering_angle):.2f}")
+
+        elif keycode == ord(']'):
+            GG.steering_angle = float(np.clip(GG.steering_angle - teleop["yaw_step"], teleop["yaw_min"], teleop["yaw_max"]))
+            print(f"[teleop] Steering Angle (deg): {np.rad2deg(GG.steering_angle):.2f}")
+
+        elif keycode == ord('|') or keycode == ord('\\'):
+            GG.steering_angle = 0.0
+            GG.lateral_dist = 0.0
+            GG.vertical_dist = 0.0
+            teleop["mov_dir"] = "FWD" if teleop["move_enabled"] else "STILL"
+            print(f"[teleop] RESET.")
+
+    # ===============================================PRINT INSTRUCTIONS===============================================
+    print("\n" + "="*60)
+    print("          HUMANOID SIM2SIM TELEOPERATION CONTROLS          ")
+    print("="*60)
+    print("  [P]           : Toggle Movement ON/OFF (Defaults to STILL)")
+    print("-" * 60)
+    print("  [Arrow UP]    : Increase Forward Step Length (Accel)")
+    print("  [Arrow DOWN]  : Decrease Forward Step Length (Decel)")
+    print("  [Arrow LEFT]  : Step Left (Increase Lateral Dist)")
+    print("  [Arrow RIGHT] : Step Right (Decrease Lateral Dist)")
+    print("-" * 60)
+    print("  [ '[' ]       : Steer Left  (Yaw +)")
+    print("  [ ']' ]       : Steer Right (Yaw -)")
+    print("-" * 60)
+    print("  [ '\\' ] or [|]: EMERGENCY RESET (Zero all commands)")
+    print("="*60 + "\n")
 
     # --- Start Simulation and Viewer ---
     with mujoco.viewer.launch_passive(m, d, key_callback=key_callback) as viewer:
@@ -471,7 +471,6 @@ if __name__ == "__main__":
             d.ctrl[:] = tau
             
             mujoco.mj_step(m, d)
-            # counter += 1
 
             # Run the policy at the defined control frequency
             if counter % control_decimation == 0:
@@ -489,32 +488,19 @@ if __name__ == "__main__":
                 # SET GOALS
                 if swing_foot_idx == 0 and (gait_process >= 0.5 and gait_process < 1):
                     swing_foot_idx = 1
-                    # num_gaits += 1
                     sample_goal = True
                     GG.gaits_to_still = np.maximum(GG.gaits_to_still - 1, 0)
                 elif swing_foot_idx == 1 and (gait_process < 0.5 and gait_process >= 0):
                     swing_foot_idx = 0
-                    # num_gaits += 1
                     sample_goal = True
                     GG.gaits_to_still = np.maximum(GG.gaits_to_still - 1, 0)
                     
-                # switch walking scheme when needed
-                # if (counter * simulation_dt) % max_gaits == 0:
-                #     idx = (idx + 1) % len(movs)
-                #     print(movs[idx])
-                #     # check if need to change the gait process or reset
-                #     if movs[idx] == "STILL":
-                #         GG.gaits_to_still = 2
-                #     elif movs[idx] in ["LEFT", "RIGHT", "DIAG-L", "DIAG-R"]:
-                #         counter = 0.0 if movs[idx] in ["LEFT", "DIAG-L"] else (0.5 / (simulation_dt * gait_frequency))
-                #         gait_process = (counter * simulation_dt * gait_frequency) % 1.0
-        
                 # Keyboard-controlled movement direction
-                mov_dir = teleop["mov_dir"]
+                mov_dir = teleop["mov_dir"] if teleop["move_enabled"] else "STILL"
                 if mov_dir != teleop["last_mov_dir"]:
-                   # When coming to a stop, let the gait generator settle for a couple half-steps.
+                    # When coming to a stop, let the gait generator settle for a couple half-steps.
                     if mov_dir == "STILL":
-                         GG.gaits_to_still = 2
+                        GG.gaits_to_still = 2
                     # Keep lateral gaits in-phase (matches the old auto-switch logic).
                     if mov_dir in ["LEFT", "DIAG-L"]:
                         counter = 0
@@ -581,18 +567,13 @@ if __name__ == "__main__":
 
                 # Clip target_dof_pos to joint limits
                 target_dof_pos = np.clip(target_dof_pos, min_angles, max_angles)
-                # FIXME: FIX HEAD AND SHOULDERS
-                # target_dof_pos[0] = 0
-                # target_dof_pos[1] = 0
-                # target_dof_pos[3] = -1.2
-                # target_dof_pos[7] = 1.2
 
                 target_dof_kps = kps.copy()
                 target_dof_kds = kds.copy()
 
             # counter update
             counter += 1
-
+            
             # Sync viewer and maintain real-time simulation speed
             viewer.sync()
             time_until_next_step = m.opt.timestep - (time.time() - step_start)
