@@ -488,8 +488,8 @@ experiment:
   resume_just_params: false
 
 robot_joints_to_consider:
-  - AAHead_yaw
-  - Head_pitch
+  # - AAHead_yaw
+  # - Head_pitch
   - Left_Shoulder_Pitch
   - Left_Shoulder_Roll
   - Left_Elbow_Pitch
