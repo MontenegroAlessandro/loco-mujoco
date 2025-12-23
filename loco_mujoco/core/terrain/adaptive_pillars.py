@@ -237,3 +237,30 @@ class AdaPillarsTerrain(DynamicTerrain):
         terrain_state = terrain_state.replace(positions=poss, sizes=sizes)
         
         return terrain_state
+    
+    def get_height_at_xy(
+        self,
+        terrain_state: AdaPillarsTerrainState,
+        xy_pos: Union[np.ndarray, jnp.ndarray],
+        backend: ModuleType,
+    ) -> float:
+        assert_backend_is_supported(backend)
+        
+        # Extract pillar data
+        pillar_pos = terrain_state.positions
+        pillar_sizes = terrain_state.sizes
+        
+        d_sq = backend.sum((pillar_pos[:, :2] - xy_pos)**2, axis=1) # squared distances
+        r_sq = pillar_sizes[:, 0]**2 # squared radius
+        
+        # Check if point is inside the pillar (dist^2 <= radius^2)
+        is_on_pillar = d_sq <= r_sq
+        
+        # Retrieve heights
+        pillar_top_heights = pillar_pos[:, 2] + pillar_sizes[:, 1]
+        
+        # If we are on multiple pillars (overlap), we typically take the max height
+        heights_under_point = backend.where(is_on_pillar, pillar_top_heights, self._floor_height)
+        max_height = backend.max(heights_under_point)
+        
+        return max_height

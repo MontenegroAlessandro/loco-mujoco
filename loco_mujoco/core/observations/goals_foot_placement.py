@@ -92,6 +92,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             n_envs: float = 0,
             num_total_timesteps: float = 0,
             curriculum_starts_from: float = 0, 
+            curriculum: bool = False,
             # start still flag
             start_still: bool = False,
             **kwargs
@@ -119,6 +120,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.start_still = start_still
         
         # curriculum parmeters
+        self.curriculum = curriculum
         self.curriculum_start = int(curriculum_starts_from // n_envs)
         self.incremental_z = max_z_distance / ((num_total_timesteps - curriculum_starts_from) // n_envs)
         
@@ -449,15 +451,15 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         target_pos_pre_z,
         terrain_state,
         swing_pillar_id: int,
+        stance_foot_pos, 
         backend,
     ):
         """
-        Deterministic projection that avoids all other pillars.
-        Works even with multiple obstacles by iterating a few times.
+        Deterministic projection that avoids all other pillars AND the current stance foot.
         """
 
         # If we don't have pillar info, do nothing
-        safe = getattr(self, "_pillar_min_center_dist", 0.0)
+        safe = float(getattr(self, "_pillar_min_center_dist", 0.0))
         if safe <= 0.0:
             return target_pos_pre_z
 
@@ -467,19 +469,30 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         safe = backend.array(safe, dtype=backend.float32)
 
         def _one_push(xy):
-            # distances to all pillars
+            # Distances to all pillars
             dxy = xy[None, :] - centers_xy                 # (P,2)
             d = backend.linalg.norm(dxy, axis=1)           # (P,)
 
-            # ignore the pillar we are going to move/update anyway
+            # Ignore the pillar we are going to move/update anyway
             d = backend.where(idxs == swing_pillar_id, big, d)
 
-            # closest pillar among the others
+            # Find closest pillar
             j = backend.argmin(d)
-            closest_xy = centers_xy[j]
-            closest_d = d[j]
+            closest_pillar_xy = centers_xy[j]
+            closest_pillar_d = d[j]
+            
+            # Distance to Stance Foot (Treat foot as a circular obstacle)
+            # The safe distance is the same because _pillar_min_center_dist is calculated as max(pillar_overlap, pillar_foot_overlap)
+            vec_foot = xy - stance_foot_pos[:2]
+            d_foot = backend.linalg.norm(vec_foot)
+            
+            # Determine the actual closest obstacle (Pillar OR Foot)
+            is_foot_closer = (d_foot < closest_pillar_d)
+            
+            closest_xy = backend.where(is_foot_closer, stance_foot_pos[:2], closest_pillar_xy)
+            closest_d = backend.where(is_foot_closer, d_foot, closest_pillar_d)
 
-            # if too close: push to boundary
+            # If too close push to boundary
             vec = xy - closest_xy
             norm = backend.linalg.norm(vec)
             default_dir = backend.array([1.0, 0.0], dtype=backend.float32)
@@ -768,41 +781,22 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # in the case of adaptive terrains, modify the proposed foot palcement targets when needed
         if self.adaptive_terrain:
             target_pos_pre_z = self._push_target_out_of_other_pillars(
-                target_pos_pre_z, carry.terrain_state, pillar_id_for_goal, backend
+                target_pos_pre_z, carry.terrain_state, pillar_id_for_goal, stance_foot_pos, backend
             )
         
         # =============================================FOOT HEIGHT TARGET=============================================
-        # case 1: the terrain is non-adaptive
-        # def _set_height_non_adaptive_t():
-        #     return env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
-        
-        # case 2: the terrain is adaptive
         key, zkey = jax.random.split(key)
-        # def _set_height_adaptive_t():        
-        #     z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
-        #     return backend.maximum(z_sampled + swing_foot_pos[2], 0.0)
-        
         target_z = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
         if self.adaptive_terrain:
             z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
             target_z = backend.maximum(z_sampled + swing_foot_pos[2], 0.0)
 
-        # target_z = jax.lax.cond(
-        #     self.adaptive_terrain,
-        #     _set_height_adaptive_t,
-        #     _set_height_non_adaptive_t
-        # )
         target_pos = target_pos_pre_z.at[2].set(target_z)
         
         # when the terrain is adaptive, we need to build a pillar below the foot
         terrain_state = carry.terrain_state
         if self.adaptive_terrain:
             terrain_state = env._terrain.set_height_at_xy(carry.terrain_state, target_pos[:2], target_z, pillar_id_for_goal, backend)
-        # terrain_state = jax.lax.cond(
-        #     self.adaptive_terrain,
-        #     lambda: env._terrain.set_height_at_xy(carry.terrain_state, target_pos[:2], target_z, pillar_id_for_goal, backend),
-        #     lambda: carry.terrain_state
-        # )
         carry = carry.replace(terrain_state=terrain_state)
 
         # ===========================================FOOT ORIENTATION TARGET===========================================
@@ -822,7 +816,6 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         clipped_yaw_displacement = backend.sign(yaw_displacement) * clipped_abs_displacement
         
         # compute final yaw
-        # final_yaw = current_stance_yaw + clipped_yaw_displacement
         final_yaw = self.wrap_to_pi(current_stance_yaw + clipped_yaw_displacement, backend)
         target_orn_rot = R.from_euler('z', final_yaw)
         # if hold still then the target should be the orientation of the stance, else the one computed
@@ -953,7 +946,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         resample_goal = (swing_foot_idx != state.swing_foot_idx)
         
         # manage the curriculum on the z just in case
-        if self.curriculum_start > 0:
+        if self.curriculum:
             new_z_range = state.z_distance_range + backend.array([-self.incremental_z, self.incremental_z])
             
             if backend == np:

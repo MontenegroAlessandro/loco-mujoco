@@ -11,6 +11,7 @@ wandb:
 n_envs: &n_envs 8192
 num_total_timesteps: &num_total_timesteps 900e6
 curriculum_starts_from: &curriculum_starts_from 0
+curriculum: &curriculum false
 
 # Experiment Vars
 experiment:
@@ -65,9 +66,10 @@ experiment:
       # start still flag
       start_still: false
       # curriculum parameters
-      n_envs: *n_envs
-      num_total_timesteps: *num_total_timesteps
-      curriculum_starts_from: *curriculum_starts_from
+      n_envs: ${n_envs}
+      num_total_timesteps: ${num_total_timesteps}
+      curriculum_starts_from: ${curriculum_starts_from}
+      curriculum: ${curriculum}
       # observation group
       group: [prioritized, policy]
     
@@ -319,7 +321,7 @@ experiment:
 
     init_state_type: DefaultInitialStateHandler
     init_state_params:
-      qpos_init: [0, 0, 0.72, 
+      qpos_init: [0, 0, 0.68, 
                   1, 0, 0, 0, 
                   0, 0,
                   0.2,-1.2, 0, -0.5,

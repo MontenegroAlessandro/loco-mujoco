@@ -446,7 +446,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
 
         # Base height reward
         base_height_target = goal_state.goal_height
-        base_height = global_pos_root[2] - env._terrain.get_height_at_xy(carry.terrain_state, global_pos_root[:2], backend)  # Assuming flat ground at z=0
+        base_height = global_pos_root[2] - env._terrain.get_height_at_xy(carry.terrain_state, global_pos_root[:2], backend) 
         base_height_reward = backend.square(base_height - base_height_target)
 
         # Orientation reward
@@ -628,7 +628,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
                 goal_state.left_foot_target_pos,
                 goal_state.right_foot_target_pos
             )
-       
+
             feet_swing_reward = (
                 (left_swing & ~feet_on_ground[0] & ~hold_still).astype(backend.float32) +
                 (right_swing & ~feet_on_ground[1] & ~hold_still).astype(backend.float32) +
