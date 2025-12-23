@@ -4,13 +4,14 @@
 # Updated with parameters and correct joint limits for a 23 DoF robot model.
 
 # policy parameters
-agent_path: /home/alessandro/code/scripts/policies/T1/n_complete/maybe.pkl # mov_local_no_still_coeff 
+# agent_path: /home/alessandro/code/scripts/policies/T1/n_complete/maybe.pkl # mov_local_no_still_coeff 
+agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/kick.pkl # mov_local_no_still_coeff 
 # agent_path: /Users/ale/code/PyProjects/scripts/experiments/humanoid_foot_placement/policies/T1/still_fp_6.pkl 
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
 # train_config_name: conf.yaml
 # --- Simulation Parameters ---
-xml_path: /home/alessandro/code/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
-# xml_path: /Users/ale/code/PyProjects/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
+# xml_path: /home/alessandro/code/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
+xml_path: /Users/ale/code/PyProjects/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
 simulation_duration: 300.0 # seconds
 simulation_dt: 0.002 # seconds, physics timestep
 control_decimation: 10 # policy will run every N physics steps (policy freq = 1 / (dt * decimation))
@@ -155,9 +156,4 @@ num_actions: 23 # Base number of actions (one per joint). Script will handle var
 # These are default command values. The valid ranges are in the comments.
 command:
   feet_distance: 0.2
-  vertical_distance: 0.3
-  lateral_distance: 0.3
   gait_frequency: 1.0   
-  max_gaits: 5
-  steering_angle: 0
-  
