@@ -62,7 +62,8 @@ experiment:
       # adaptive terrains 
       adaptive_terrain: false
       z_distance_range: [0.0, 0.0]
-      max_z_distance: 0.0
+      max_z_distance_up: 0.0
+      max_z_distance_low: 0.0
       # start still flag
       start_still: false
       # curriculum parameters

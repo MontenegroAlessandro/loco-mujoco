@@ -87,7 +87,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # define terrain type and height sampling parameters
             adaptive_terrain: bool = False,
             z_distance_range: List[float] = [0.0, 0.0],
-            max_z_distance: float = 0.0,
+            max_z_distance_up: float = 0.0,
+            max_z_distance_low: float = 0.0,
             # curriculum parameters
             n_envs: float = 0,
             num_total_timesteps: float = 0,
@@ -116,13 +117,15 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.still_threshold = still_threshold
         self.adaptive_terrain = adaptive_terrain
         self.z_distance_range = z_distance_range
-        self.max_z_distance = max_z_distance
+        self.max_z_distance_up = max_z_distance_up
+        self.max_z_distance_low = max_z_distance_low
         self.start_still = start_still
         
         # curriculum parmeters
         self.curriculum = curriculum
         self.curriculum_start = int(curriculum_starts_from // n_envs)
-        self.incremental_z = max_z_distance / ((num_total_timesteps - curriculum_starts_from) // n_envs)
+        self.incremental_z_up = self.max_z_distance_up / ((num_total_timesteps - curriculum_starts_from) // n_envs)
+        self.incremental_z_low = self.max_z_distance_low / ((num_total_timesteps - curriculum_starts_from) // n_envs)
         
         self._foot_site_ids = [-1, -1]
         self._root_joint_name = info_props["root_free_joint_xml_name"]
@@ -947,7 +950,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         # manage the curriculum on the z just in case
         if self.curriculum:
-            new_z_range = state.z_distance_range + backend.array([-self.incremental_z, self.incremental_z])
+            new_z_range = state.z_distance_range + backend.array([-self.incremental_z_low, self.incremental_z_up])
             
             if backend == np:
                 state = state.replace(z_distance_range=new_z_range) if  state.steps >= self.curriculum_start else state
