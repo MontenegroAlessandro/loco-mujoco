@@ -792,7 +792,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         target_z = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
         if self.adaptive_terrain:
             z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
-            target_z = backend.maximum(z_sampled + swing_foot_pos[2], 0.0)
+            # target_z = backend.maximum(z_sampled + swing_foot_pos[2], 0.0)
+            target_z = backend.maximum(z_sampled + stance_foot_pos[2], 0.0)
 
         target_pos = target_pos_pre_z.at[2].set(target_z)
         
