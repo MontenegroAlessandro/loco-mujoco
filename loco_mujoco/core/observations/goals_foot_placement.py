@@ -951,7 +951,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         # manage the curriculum on the z just in case
         if self.curriculum:
-            new_z_range = state.z_distance_range + backend.array([-self.incremental_z_low, self.incremental_z_up])
+            new_z_range = state.z_distance_range + backend.array([self.incremental_z_low, self.incremental_z_up])
             
             if backend == np:
                 state = state.replace(z_distance_range=new_z_range) if  state.steps >= self.curriculum_start else state
