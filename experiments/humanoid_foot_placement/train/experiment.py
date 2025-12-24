@@ -150,7 +150,7 @@ def experiment(config: DictConfig):
 
         # run the environment with the trained agent to record video
         rec = os.getenv("RECORD_POLICY")
-        if rec is None or rec:
+        if rec is None or rec == "true":
             PPOJax.play_policy(env, agent_conf, agent_state, deterministic=True, n_steps=1000, n_envs=1, record=True, train_state_seed=0)
             video_file = env.video_file_path
             run.log({"Agent Video": wandb.Video(video_file)})
