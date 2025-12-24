@@ -121,7 +121,8 @@ class HeightBasedTerminalStateHandler(TerminalStateHandler):
 
         """
         root_pose = data.qpos[self.root_free_joint_xml_ind]
-        height = root_pose[2]
-        height_cond = backend.logical_or(backend.less(height, self.root_height_range[0]),
-                                         backend.greater(height, self.root_height_range[1]))
+        height = root_pose[2] - env._terrain.get_height_at_xy(carry.terrain_state, root_pose[:2], backend)
+        height_cond = backend.logical_or(
+            backend.less(height, self.root_height_range[0]), backend.greater(height, self.root_height_range[1])
+        )
         return height_cond, carry
