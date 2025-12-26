@@ -410,7 +410,7 @@ class VisualGaitGenerator(GaitGenerator):
         l_orn_offset = zero_orn_offset
         r_orn_offset = zero_orn_offset
 
-        for target in targets:
+        for target_idx, target in enumerate(targets):
             l_to_target = l_rel_xmat @ target + l_rel_pos
             r_to_target = r_rel_xmat @ target + r_rel_pos
             l_dist = np.linalg.norm(l_to_target)
@@ -425,13 +425,11 @@ class VisualGaitGenerator(GaitGenerator):
             if self.swing_foot_idx == 0:
                 stance_target_offset = r_to_target
                 stance_dist = r_dist
-                swing_dist = l_dist
                 if stance_target_offset[1] < self.feet_distance / 2.0 or stance_dist > 0.5 or stance_dist < 0.2:
                     feasible = False
             else:
                 stance_target_offset = l_to_target
                 stance_dist = l_dist
-                swing_dist = r_dist
                 if stance_target_offset[1] > -self.feet_distance / 2.0 or stance_dist > 0.5 or stance_dist < 0.2:
                     feasible = False
 
@@ -439,7 +437,26 @@ class VisualGaitGenerator(GaitGenerator):
                 l_pos_offset = r_to_target if self.swing_foot_idx == 0 else zero_pos_offset
                 r_pos_offset = l_to_target if self.swing_foot_idx == 1 else zero_pos_offset
                 l_orn_offset = zero_orn_offset
-                r_orn_offset = zero_orn_offset     
+                r_orn_offset = zero_orn_offset
+
+                # Determine orientation based on the next target
+                if target_idx < len(targets) - 1:
+                    next_target = targets[target_idx + 1]
+                    if self.swing_foot_idx == 0:
+                        next_r_to_target = r_rel_xmat @ next_target + r_rel_pos
+                        target_dir = next_r_to_target - r_to_target
+                        yaw_offset = np.arcsin(-self.feet_distance/(np.linalg.norm(target_dir[:2]) + 1e-6))
+                        yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
+                        yaw = np.clip(yaw, np.deg2rad(-30), np.deg2rad(90))
+                        l_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
+                    else:
+                        next_l_to_target = l_rel_xmat @ next_target + l_rel_pos
+                        target_dir = next_l_to_target - l_to_target
+                        yaw_offset = np.arcsin(self.feet_distance/(np.linalg.norm(target_dir[:2]) + 1e-6))
+                        yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
+                        yaw = np.clip(yaw, np.deg2rad(-90), np.deg2rad(30))
+                        r_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
+
                 break
 
         return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset
@@ -633,12 +650,21 @@ def main(config: DictConfig):
     )
 
     # Add visual sites as foot targets
-    for i in range(10):
+    dist = 0.25
+    p_site = np.zeros(3)
+    angle = 0
+    for i in range(20):
+        if i > 5:
+            angle += np.random.uniform(-30, 30)
+        p_site += dist * np.array([np.cos(np.deg2rad(angle)), np.sin(np.deg2rad(angle)), 0.0])
+        feet_pos = p_site + cmd_params["feet_distance"] / 2 * np.array(
+            [np.cos(np.deg2rad(angle + (-1) ** i * 90)), np.sin(np.deg2rad(angle + (-1) ** i * 90)), 0.0]
+        )
         wb.add_site(
             name=f"target_{i}",
             type=mujoco.mjtGeom.mjGEOM_CYLINDER,
             size=(0.08, 0.005, 0.0),  # *
-            pos=np.array([0.25 * (i + 1), (-1) ** (i + 1) * 0.1, 0.0]),  # **
+            pos=feet_pos,
             quat=(0, 0, 0, 1),
             group=0,
             rgba=(0.0, 0.0, 1.0, 1.0),

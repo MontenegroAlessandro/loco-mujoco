@@ -154,10 +154,5 @@ num_actions: 23 # Base number of actions (one per joint). Script will handle var
 # --- Command Parameters (for generating the `cmd` vector) ---
 # These are default command values. The valid ranges are in the comments.
 command:
-  feet_distance: 0.25
-  vertical_distance: 0.4
-  lateral_distance: 0.3
-  gait_frequency: 1.0   
-  max_gaits: 5
-  steering_angle: 0
-  
+  feet_distance: 0.2
+  gait_frequency: 1.0 
