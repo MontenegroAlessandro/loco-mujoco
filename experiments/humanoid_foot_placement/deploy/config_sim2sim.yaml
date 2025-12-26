@@ -76,7 +76,7 @@ lmj_kds:
 # --- Robot Pose and Limits (23 joints) ---
 default_angles:
   - 0.0   # AAHead_yaw
-  - 0.0   # Head_pitch
+  - 1.0   # Head_pitch
   - 0.2   # Left_Shoulder_Pitch
   - -1.2 # Left_Shoulder_Roll
   - 0.0   # Left_Elbow_Pitch
