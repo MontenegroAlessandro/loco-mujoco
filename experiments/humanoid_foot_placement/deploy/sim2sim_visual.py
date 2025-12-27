@@ -638,26 +638,17 @@ def main(config: DictConfig):
         rgba=(1.0, 1.0, 0.0, 0.5),
     )
 
-    wb.add_site(
-        name=f"foot_img_0",
-        type=mujoco.mjtGeom.mjGEOM_BOX,
-        size=(0.12, 0.08, 0.001),
-        # size=(5, 5, 0.001),
-        pos=(0.1, 0.0, 0.5),
-        quat=(0, 0, 0, 1),
-        group=1,
-        rgba=(1.0, 0.0, 0.0, 0.5),
-    )
-
     # Add visual sites as foot targets
-    dist = 0.25
-    p_site = np.zeros(3)
+    target_dist = 0.25
+    target_angle_range = 45  # degrees
+    target_site_pos = np.zeros(3)
     angle = 0
-    for i in range(20):
+    site_idx = 0
+    for i in range(10):
         if i > 5:
-            angle += np.random.uniform(-30, 30)
-        p_site += dist * np.array([np.cos(np.deg2rad(angle)), np.sin(np.deg2rad(angle)), 0.0])
-        feet_pos = p_site + cmd_params["feet_distance"] / 2 * np.array(
+            angle += np.random.uniform(-target_angle_range, target_angle_range)
+        target_site_pos += target_dist * np.array([np.cos(np.deg2rad(angle)), np.sin(np.deg2rad(angle)), 0.0])
+        feet_pos = target_site_pos + cmd_params["feet_distance"] / 2 * np.array(
             [np.cos(np.deg2rad(angle + (-1) ** i * 90)), np.sin(np.deg2rad(angle + (-1) ** i * 90)), 0.0]
         )
         wb.add_site(
@@ -805,6 +796,28 @@ def main(config: DictConfig):
                     m.site("foot_0").pos = d.site_xpos[left_foot_id] + rot_stance_flat.apply(r_offset)
                     m.site("foot_0").pos[2] = 0
                     m.site("foot_0").quat = target_rot.as_quat(scalar_first=True)
+
+                # move the visual targets
+                target_has_passed = False
+                target_pos = m.site("target_{}".format(site_idx)).pos
+                robot_pos = d.qpos[:3]
+                robot_orn = np_R.from_quat(d.qpos[3:7], scalar_first=True).as_matrix()
+                target_pos_in_robot = robot_orn.T @ (target_pos - robot_pos)
+                if target_pos_in_robot[0] < -0.05:
+                    target_has_passed = True
+
+                if target_has_passed:
+                    angle += np.random.uniform(-target_angle_range, target_angle_range)
+                    target_site_pos += target_dist * np.array([np.cos(np.deg2rad(angle)), np.sin(np.deg2rad(angle)), 0.0])
+                    feet_pos = target_site_pos + cmd_params["feet_distance"] / 2 * np.array(
+                        [
+                            np.cos(np.deg2rad(angle + (-1) ** site_idx * 90)),
+                            np.sin(np.deg2rad(angle + (-1) ** site_idx * 90)),
+                            0.0,
+                        ]
+                    )
+                    m.site("target_{}".format(site_idx)).pos = feet_pos
+                    site_idx = (site_idx + 1) % 10
 
                 mujoco.mj_fwdPosition(m, d)
 
