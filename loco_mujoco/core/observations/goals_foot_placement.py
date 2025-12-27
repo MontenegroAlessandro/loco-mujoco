@@ -159,8 +159,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         if fd is not None and len(fd) >= 2:
             L, W = float(fd[0]), float(fd[1])
             foot_r = 0.5 * np.sqrt(L * L + W * W)
-        overlap_margin = 0.02
-        foot_margin = 0.02
+        overlap_margin = 0.05
+        foot_margin = 0.05
         safe_overlap = pillar_d + overlap_margin
         safe_foot = pillar_r + foot_r + foot_margin
         self._pillar_min_center_dist = float(max(safe_overlap, safe_foot))
