@@ -113,33 +113,65 @@ experiment:
         # - Waist
         # - Right_Ankle_Roll
         # - Left_Ankle_Roll
+      # # penalties
+      # joint_deviation_l1_coeff: -0.3
+      # base_height_target: 0.68
+      # base_height_coeff: -2 # -10.
+      # orientation_coeff: -5.
+      # joint_torque_coeff: -2.e-4
+      # torque_tiredness_coeff: 0.0
+      # energy_coeff: -2.e-3
+      # z_vel_coeff: -0.0
+      # roll_pitch_vel_coeff: -0.2
+      # joint_vel_coeff: -9.e-4 # -1.e-4
+      # joint_acc_coeff: -1.e-7
+      # root_acc_coeff: -1.e-4
+      # action_rate_coeff: -3 # -1.
+      # joint_position_limit_scale: 0.98
+      # joint_position_limit_coeff: -1.
+      # feet_slip_coeff: -3.0 # -0.1
+      # feet_yaw_diff_coeff: -2.0 # -0.5
+      # feet_yaw_mean_coeff: -2.0 # -0.5
+      # feet_roll_coeff: -4.0 # -0.1
+      # feet_distance_target: 0.2
+      # feet_swing_coeff: 6 # 3.
+      # feet_swing_period: 0.2
+      # feet_distance_coeff: 0.0
+      # # extra regularization / penalties
+      # low_gains_coeff: 0.0
+      # air_time_max: 0.3
+      # air_time_coeff: 0
+      # no_fly_coeff: 0
+      # impact_threshold: 150
+      # impact_coeff: 0
       # penalties
-      joint_deviation_l1_coeff: -0.3
+      # NO PENALTIES
+      joint_deviation_l1_coeff: 0.0
       base_height_target: 0.68
-      base_height_coeff: -2 # -10.
-      orientation_coeff: -5.
-      joint_torque_coeff: -2.e-4
+      base_height_coeff: 0.0
+      orientation_coeff: 0.0
+      joint_torque_coeff: 0.0
       torque_tiredness_coeff: 0.0
-      energy_coeff: -2.e-3
-      z_vel_coeff: -0.0
-      roll_pitch_vel_coeff: -0.2
-      joint_vel_coeff: -9.e-4 # -1.e-4
-      joint_acc_coeff: -1.e-7
-      root_acc_coeff: -1.e-4
-      action_rate_coeff: -3 # -1.
+      energy_coeff: 0.0
+      z_vel_coeff: 0.0
+      roll_pitch_vel_coeff: 0.0
+      joint_vel_coeff: 0.0
+      joint_acc_coeff: 0.0
+      root_acc_coeff: 0.0
+      action_rate_coeff: 0.0
       joint_position_limit_scale: 0.98
-      joint_position_limit_coeff: -1.
-      feet_slip_coeff: -3.0 # -0.1
-      feet_yaw_diff_coeff: -2.0 # -0.5
-      feet_yaw_mean_coeff: -2.0 # -0.5
-      feet_roll_coeff: -4.0 # -0.1
-      feet_distance_target: 0.2
+      joint_position_limit_coeff: 0.0
+      feet_slip_coeff: 0.0
+      feet_yaw_diff_coeff: 0.0
+      feet_yaw_mean_coeff: 0.0
+      feet_roll_coeff: 0.0
+      feet_distance_target: 0.0
       feet_swing_coeff: 6 # 3.
       feet_swing_period: 0.2
       feet_distance_coeff: 0.0
       # extra regularization / penalties
       low_gains_coeff: 0.0
-      air_time_max: 0.3
+      air_time_max: 0.0
       air_time_coeff: 0
       no_fly_coeff: 0
       impact_threshold: 150
