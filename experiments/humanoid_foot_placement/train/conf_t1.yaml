@@ -110,7 +110,7 @@ experiment:
         - Right_Shoulder_Roll
         - Right_Elbow_Pitch
         - Right_Elbow_Yaw
-        - Waist
+        # - Waist
         # - Right_Ankle_Roll
         # - Left_Ankle_Roll
       # penalties
