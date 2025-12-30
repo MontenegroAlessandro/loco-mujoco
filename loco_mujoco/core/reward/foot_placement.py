@@ -31,6 +31,8 @@ class CrispBoosterLocomotionRewardFootPlacementState:
     last_swing_orn_reward: float
     stance_pos_reward: float
     stance_orn_reward: float
+    last_swing_z_reward: float
+    stance_z_reward: float
     swing_foot_idx: int
 
 class CrispBoosterLocomotionFootPlacementReward(Reward):
@@ -208,6 +210,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             "tracking/tracking_stance_position": 0.,
             "tracking/tracking_stance_orientation": 0.,
             "tracking/tracking_swing_z": 0.,
+            "tracking/tracking_stance_z": 0.,
             "tracking/joint_qpos_reward": 0.,
             "tracking/feet_swing_reward": 0.,
             "tracking/gait_height_reward": 0.,
@@ -245,11 +248,15 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             last_swing_orn_reward=self._tracking_swing_orn_w, # give by default the max reward
             stance_pos_reward=self._tracking_stance_pos_w,
             stance_orn_reward=self._tracking_stance_orn_w,
+            last_swing_z_reward=self._tracking_swing_z_coeff,
+            stance_z_reward=self._tracking_swing_z_coeff,
             swing_foot_idx=0 
         )
 
-    def reset(self, env: Any, model: Union[MjModel, Model], data: Union[MjData, Data], 
-              carry: Any, backend: ModuleType):
+    def reset(
+        self, env: Any, model: Union[MjModel, Model], data: Union[MjData, Data], 
+        carry: Any, backend: ModuleType
+    ):
         """
         Reset the reward state.
 
@@ -333,6 +340,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             lambda: reward_state.replace(
                 stance_pos_reward=reward_state.last_swing_pos_reward, 
                 stance_orn_reward=reward_state.last_swing_orn_reward,
+                stance_z_reward=reward_state.last_swing_z_reward,
                 swing_foot_idx=swing_foot_idx
             ),
             lambda: reward_state
@@ -409,9 +417,14 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             # swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq * gait_sharpness) * still_coeff
             # swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq * gait_sharpness * still_coeff)
             swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq)
+            stance_z_reward = reward_state.stance_z_reward
             
             # update in the state the last reward
-            reward_state = reward_state.replace(last_swing_pos_reward=swing_pos_reward, last_swing_orn_reward=swing_orn_reward)
+            reward_state = reward_state.replace(
+                last_swing_pos_reward=swing_pos_reward, 
+                last_swing_orn_reward=swing_orn_reward, 
+                last_swing_z_reward=swing_z_reward
+            )
         else:
             # swing_target_pos = goal_state.swing_target_pos[:2] # just (x,y)
             swing_target_pos = goal_state.swing_target_pos # (x,y,z)
@@ -443,6 +456,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             stance_pos_reward = 0
             stance_orn_reward = 0
             swing_z_reward = 0
+            stance_z_reward = 0
 
         # Base height reward
         base_height_target = goal_state.goal_height
@@ -720,6 +734,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         stance_pos_reward *= env.dt
         stance_orn_reward *= env.dt
         swing_z_reward *= env.dt
+        stance_z_reward *= env.dt
         gait_height_reward *= env.dt
         joint_qpos_reward *= (self._nominal_joint_pos_coeff * env.dt)
         joint_deviation_l1_penalty *= (self._joint_deviation_l1_coeff * env.dt)
@@ -787,6 +802,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             "tracking/tracking_stance_position": stance_pos_reward,
             "tracking/tracking_stance_orientation": stance_orn_reward,
             "tracking/tracking_swing_z": swing_z_reward,
+            "tracking/tracking_stance_z": stance_z_reward,
             "tracking/gait_height_reward": gait_height_reward,
             "tracking/joint_qpos_reward": joint_qpos_reward,
             "tracking/feet_swing_reward": feet_swing_reward,
