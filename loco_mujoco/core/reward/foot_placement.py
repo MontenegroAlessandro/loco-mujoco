@@ -14,7 +14,7 @@ from mujoco.mjx import Data, Model
 from loco_mujoco.core.reward.base import Reward
 from loco_mujoco.core.utils import mj_jntname2qposid, mj_jntname2qvelid, mj_jntid2qposid, mj_check_collisions
 from loco_mujoco.core.utils.math import quat_scalarfirst2scalarlast
-    
+from loco_mujoco.core.terrain import AdaPillarsTerrain
 
 @struct.dataclass
 class CrispBoosterLocomotionRewardFootPlacementState:
@@ -459,8 +459,18 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             stance_z_reward = 0
 
         # Base height reward
-        base_height_target = goal_state.goal_height
-        base_height = global_pos_root[2] - env._terrain.get_height_at_xy(carry.terrain_state, global_pos_root[:2], backend) 
+        floor_offset = env._terrain.get_height_at_xy(carry.terrain_state, global_pos_root[:2], backend)
+        if backend == np:
+            if isinstance(env._terrain, AdaPillarsTerrain):
+                floor_offset = carry.terrain_state.desired_z
+        else:
+            floor_offset = jax.lax.cond(
+                isinstance(env._terrain, AdaPillarsTerrain),
+                lambda: carry.terrain_state.desired_z,
+                lambda: floor_offset
+            )
+        base_height_target = goal_state.goal_height + floor_offset
+        base_height = global_pos_root[2] - floor_offset
         base_height_reward = backend.square(base_height - base_height_target)
 
         # Orientation reward
