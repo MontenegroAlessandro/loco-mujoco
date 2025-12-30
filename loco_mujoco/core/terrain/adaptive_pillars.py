@@ -29,6 +29,7 @@ class AdaPillarsTerrainState:
     sizes: Union[np.ndarray, jax.Array]
     positions: Union[np.ndarray, jax.Array]
     quats: Union[np.ndarray, jax.Array]
+    desired_z: float 
 
 # ===================================================AdaPillar Class===================================================
 class AdaPillarsTerrain(DynamicTerrain):
@@ -80,7 +81,8 @@ class AdaPillarsTerrain(DynamicTerrain):
         return AdaPillarsTerrainState(
             positions=backend.zeros((self.num_pillars, 3)),
             sizes=backend.zeros((self.num_pillars, 3)),
-            quats=backend.zeros((self.num_pillars, 4))
+            quats=backend.zeros((self.num_pillars, 4)),
+            desired_z=0.0
         )
 
     def modify_spec(self, spec: MjSpec) -> MjSpec:
@@ -166,7 +168,8 @@ class AdaPillarsTerrain(DynamicTerrain):
         terrain_state = AdaPillarsTerrainState(
             positions=backend.stack([pos_x, pos_y, pos_z], axis=1),
             sizes=backend.stack([sizes_x, sizes_y, sizes_z], axis=1),
-            quats=quats
+            quats=quats,
+            desired_z=0.0
         )
         carry = carry.replace(terrain_state=terrain_state)
         return data, carry
@@ -216,6 +219,7 @@ class AdaPillarsTerrain(DynamicTerrain):
         poss = terrain_state.positions
         
         # adjust the z
+        raw_des_z = desired_z
         desired_z = backend.maximum((desired_z / 2.0), 0.0) - (self.foot_dimension[2] / 2.0)
         
         # set at x and y coordinates the new cylinder height to be the desired_z for the desired foot
@@ -234,7 +238,7 @@ class AdaPillarsTerrain(DynamicTerrain):
             poss[pillar_id] = new_pos
         
         # replace the attributes in the state
-        terrain_state = terrain_state.replace(positions=poss, sizes=sizes)
+        terrain_state = terrain_state.replace(positions=poss, sizes=sizes, desired_z=raw_des_z)
         
         return terrain_state
     

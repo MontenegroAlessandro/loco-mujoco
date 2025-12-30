@@ -1,7 +1,7 @@
 from typing import Dict, Any, Union, Tuple
 from types import ModuleType
 
-import jax.numpy as jnp
+import jax.numpy as jnp, jax
 import numpy as np
 from mujoco import MjData, MjModel
 from mujoco.mjx import Data, Model
@@ -10,6 +10,7 @@ from mujoco.mjx import Data, Model
 from loco_mujoco.core.terminal_state_handler.base import TerminalStateHandler
 from loco_mujoco.core.utils import mj_jntname2qposid
 from loco_mujoco.core.utils.backend import assert_backend_is_supported
+from loco_mujoco.core.terrain import AdaPillarsTerrain
 
 
 class HeightBasedTerminalStateHandler(TerminalStateHandler):
@@ -121,7 +122,21 @@ class HeightBasedTerminalStateHandler(TerminalStateHandler):
 
         """
         root_pose = data.qpos[self.root_free_joint_xml_ind]
+        # verify the terrain is adaptive
+        terrain_is_adaptive = isinstance(env._terrain, AdaPillarsTerrain)
+        # get normally the height
         height = root_pose[2] - env._terrain.get_height_at_xy(carry.terrain_state, root_pose[:2], backend)
+        # consider dynamic height for adaptive terrains
+        if backend == np:
+            if terrain_is_adaptive:
+                height = root_pose[2] - carry.terrain_state.desired_z
+        else:
+            height = jax.lax.cond(
+                terrain_is_adaptive,
+                lambda: root_pose[2] - carry.terrain_state.desired_z,
+                lambda: height
+            )
+        # chekc conditions on the height
         height_cond = backend.logical_or(
             backend.less(height, self.root_height_range[0]), backend.greater(height, self.root_height_range[1])
         )
