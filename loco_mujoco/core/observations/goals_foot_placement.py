@@ -455,10 +455,12 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         terrain_state,
         swing_pillar_id: int,
         stance_foot_pos, 
+        swing_foot_pos,
         backend,
     ):
         """
-        Deterministic projection that avoids all other pillars AND the current stance foot.
+        Deterministic projection that avoids all other pillars AND the current stance and swing feet.
+        In particular, we are avoiding that the free pillar is spawned colliding with the feet.
         """
 
         # If we don't have pillar info, do nothing
@@ -484,16 +486,23 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             closest_pillar_xy = centers_xy[j]
             closest_pillar_d = d[j]
             
-            # Distance to Stance Foot (Treat foot as a circular obstacle)
-            # The safe distance is the same because _pillar_min_center_dist is calculated as max(pillar_overlap, pillar_foot_overlap)
-            vec_foot = xy - stance_foot_pos[:2]
-            d_foot = backend.linalg.norm(vec_foot)
+            # Distance to feet
+            # Stance Foot (the current position not the desired one that maybe has not been reached)
+            vec_stance = xy - stance_foot_pos[:2]
+            d_stance = backend.linalg.norm(vec_stance)
+            # Swing Foot
+            vec_swing = xy - swing_foot_pos[:2]
+            d_swing = backend.linalg.norm(vec_swing)
             
-            # Determine the actual closest obstacle (Pillar OR Foot)
-            is_foot_closer = (d_foot < closest_pillar_d)
-            
-            closest_xy = backend.where(is_foot_closer, stance_foot_pos[:2], closest_pillar_xy)
-            closest_d = backend.where(is_foot_closer, d_foot, closest_pillar_d)
+            # Determine the actual closest obstacle 
+            # the first thing is to compare the stance foot with the pillar
+            is_stance_closer = (d_stance < closest_pillar_d)
+            temp_closest_xy = backend.where(is_stance_closer, stance_foot_pos[:2], closest_pillar_xy)
+            temp_closest_d = backend.where(is_stance_closer, d_stance, closest_pillar_d)
+            # do the same for the swing foot
+            is_swing_closer = (d_swing < closest_pillar_d)
+            closest_xy = backend.where(is_swing_closer, swing_foot_pos[:2], temp_closest_xy)
+            closest_d = backend.where(is_swing_closer, d_swing, temp_closest_d)
 
             # If too close push to boundary
             vec = xy - closest_xy
@@ -510,7 +519,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             def body_fun(i, xy):
                 return _one_push(xy)
             xy0 = target_pos_pre_z[:2]
-            xy = jax.lax.fori_loop(0, 4, body_fun, xy0)   # 4 is usually enough
+            xy = jax.lax.fori_loop(0, 4, body_fun, xy0)  
             return target_pos_pre_z.at[:2].set(xy)
         else:
             out = target_pos_pre_z.copy()
@@ -784,7 +793,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # in the case of adaptive terrains, modify the proposed foot palcement targets when needed
         if self.adaptive_terrain:
             target_pos_pre_z = self._push_target_out_of_other_pillars(
-                target_pos_pre_z, carry.terrain_state, pillar_id_for_goal, stance_foot_pos, backend
+                target_pos_pre_z, carry.terrain_state, pillar_id_for_goal, stance_foot_pos, swing_foot_pos,  backend
             )
         
         # =============================================FOOT HEIGHT TARGET=============================================

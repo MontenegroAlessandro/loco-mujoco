@@ -110,14 +110,14 @@ experiment:
         - Right_Shoulder_Roll
         - Right_Elbow_Pitch
         - Right_Elbow_Yaw
-        # - Waist
+        - Waist
         # - Right_Ankle_Roll
         # - Left_Ankle_Roll
       # # penalties
       joint_deviation_l1_coeff: 0.0 # -0.3 # penalization of L1 wrt nominal joint pos
       base_height_target: 0.68
       base_height_coeff: -2 # -10.
-      orientation_coeff: -5. # penaliza if the robot deviates form the vertical
+      orientation_coeff: -5. # penalize if the robot deviates form the vertical
       joint_torque_coeff: -2.e-4
       torque_tiredness_coeff: 0.0
       energy_coeff: -2.e-3

@@ -763,7 +763,7 @@ class BoosterT1(BaseRobotHumanoid):
 
         """
         # return (0.45, 1.0)
-        return (0.45, 50.0)
+        return (0.3, 0.9)
     
     # @info_property
     # def foot_geom_names(self) -> List[str]:
