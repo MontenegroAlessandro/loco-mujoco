@@ -94,6 +94,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             num_total_timesteps: float = 0,
             curriculum_starts_from: float = 0, 
             curriculum: bool = False,
+            update_z_every: float = 1.0,
             # start still flag
             start_still: bool = False,
             **kwargs
@@ -119,13 +120,19 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.z_distance_range = z_distance_range
         self.max_z_distance_up = max_z_distance_up
         self.max_z_distance_low = max_z_distance_low
+        self.update_z_every = update_z_every
         self.start_still = start_still
         
         # curriculum parmeters
         self.curriculum = curriculum
         self.curriculum_start = int(curriculum_starts_from // n_envs)
-        self.incremental_z_up = self.max_z_distance_up / ((num_total_timesteps - curriculum_starts_from) // n_envs)
-        self.incremental_z_low = self.max_z_distance_low / ((num_total_timesteps - curriculum_starts_from) // n_envs)
+        self.tot_curriculum_steps = int((num_total_timesteps - curriculum_starts_from) //n_envs)
+        self.incremental_z_up = (self.max_z_distance_up - self.z_distance_range[1]) / self.tot_curriculum_steps
+        self.incremental_z_low = (self.max_z_distance_low - self.z_distance_range[0]) / self.tot_curriculum_steps
+        # phase-based curriculum
+        self.update_z_every = update_z_every // n_envs
+        self.delta_pcurr_up = self.incremental_z_up * self.update_z_every
+        self.delta_pcurr_low = self.incremental_z_low * self.update_z_every
         
         self._foot_site_ids = [-1, -1]
         self._root_joint_name = info_props["root_free_joint_xml_name"]
@@ -960,13 +967,22 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         # manage the curriculum on the z just in case
         if self.curriculum:
-            new_z_range = state.z_distance_range + backend.array([self.incremental_z_low, self.incremental_z_up])
+            # compute steps elapsed in the curriculum phase
+            steps_in_curriculum = state.steps - self.curriculum_start
+            # compute the update condition
+            should_update = (steps_in_curriculum > 0) & (steps_in_curriculum % self.update_z_every == 0)
+            # prepare the update vector
+            update_vector = backend.array([self.delta_pcurr_low, self.delta_pcurr_up])
+            # prepare the (redundant but safe) clipping edges
+            max_ranges = backend.array([self.max_z_distance_low, self.max_z_distance_up])
+            # prepare the new z vector
+            new_z_range = backend.minimum(state.z_distance_range + update_vector, max_ranges)
             
             if backend == np:
-                state = state.replace(z_distance_range=new_z_range) if  state.steps >= self.curriculum_start else state
+                state = state.replace(z_distance_range=new_z_range) if should_update else state
             else:
                 state = jax.lax.cond(
-                    state.steps >= self.curriculum_start,
+                    should_update,
                     lambda: state.replace(z_distance_range=new_z_range),
                     lambda: state
                 )
