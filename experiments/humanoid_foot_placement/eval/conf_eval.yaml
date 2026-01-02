@@ -59,7 +59,7 @@ experiment:
       track_movement_only: true
       feet_direction_range_deg: [0,0] # [-180, 180]
       # still proportion
-      still_proportion: 0.0
+      still_proportion: 0.8
       still_feet_distance: 0.25
       max_num_gaits: 10
       # adaptive terrains 

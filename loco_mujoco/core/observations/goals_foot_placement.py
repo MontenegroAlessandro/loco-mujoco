@@ -755,7 +755,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         # management of the three pillars
         num_pillars = backend.astype(getattr(getattr(env, "_terrain", None), "num_pillars", 0), backend.int32)
-        use_three_pillars = backend.astype(self.adaptive_terrain & (num_pillars >= 3), backend.int32)
+        use_three_pillars = backend.astype(self.adaptive_terrain & (num_pillars >= 3) & ~hold_still, backend.int32)
         
         def _retrieve_pillar_id_for_goal(state_in):
             foot_pillar_ids = state_in.foot_pillar_ids
@@ -799,16 +799,23 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         # in the case of adaptive terrains, modify the proposed foot palcement targets when needed
         if self.adaptive_terrain:
-            target_pos_pre_z = self._push_target_out_of_other_pillars(
-                target_pos_pre_z, carry.terrain_state, pillar_id_for_goal, stance_foot_pos, swing_foot_pos,  backend
+            target_pos_pre_z = jax.lax.cond(
+                hold_still,
+                lambda: target_pos_pre_z,
+                lambda: self._push_target_out_of_other_pillars(
+                    target_pos_pre_z, carry.terrain_state, pillar_id_for_goal, stance_foot_pos, swing_foot_pos, backend
+                )
             )
+            # target_pos_pre_z = self._push_target_out_of_other_pillars(
+            #     target_pos_pre_z, carry.terrain_state, pillar_id_for_goal, stance_foot_pos, swing_foot_pos, backend
+            # )
         
         # =============================================FOOT HEIGHT TARGET=============================================
         key, zkey = jax.random.split(key)
         target_z = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
         if self.adaptive_terrain:
             z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
-            # target_z = backend.maximum(z_sampled + swing_foot_pos[2], 0.0)
+            z_sampled = backend.where(hold_still, 0.0, z_sampled) 
             target_z = backend.maximum(z_sampled + stance_foot_pos[2], 0.0)
 
         target_pos = target_pos_pre_z.at[2].set(target_z)
