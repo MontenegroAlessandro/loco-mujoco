@@ -8,7 +8,6 @@ from jax.scipy.spatial.transform import Rotation as jnp_R
 from scipy.spatial.transform import Rotation as np_R
 from flax import struct
 from mujoco import MjSpec, MjModel, MjData
-from mujoco.mjx import Model, Data
 
 from loco_mujoco.core.observations.visualizer import DoubleFootPlacementVisualizer
 from loco_mujoco.core.terrain.adaptive_pillars import AdaPillarsTerrain
@@ -130,7 +129,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.incremental_z_up = (self.max_z_distance_up - self.z_distance_range[1]) / self.tot_curriculum_steps
         self.incremental_z_low = (self.max_z_distance_low - self.z_distance_range[0]) / self.tot_curriculum_steps
         # phase-based curriculum
-        self.update_z_every = update_z_every // n_envs
+        self.update_z_every = max(update_z_every, n_envs) // n_envs
         self.delta_pcurr_up = self.incremental_z_up * self.update_z_every
         self.delta_pcurr_low = self.incremental_z_low * self.update_z_every
         
