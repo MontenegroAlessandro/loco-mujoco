@@ -399,6 +399,13 @@ experiment:
       randomize_floor_geom_friction_rolling: true
       floor_geom_friction_rolling_range: [0.00008, 0.00012]
 
+      randomize_pillars_geom_friction_tangential: true
+      pillars_geom_friction_tangential_range: [0.5, 1.5]
+      randomize_pillars_geom_friction_torsional: true
+      pillars_geom_friction_torsional_range: [0.1, 0.3]
+      randomize_pillars_geom_friction_rolling: true
+      pillars_geom_friction_rolling_range: [0.00008, 0.00012]
+
       randomize_geom_damping: false
       geom_damping_range: [100, 500]
       randomize_geom_stiffness: false
