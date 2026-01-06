@@ -24,8 +24,7 @@ import copy
 import cv2
 
 from loco_mujoco.algorithms import PPOJax
-
-from gait_generators import GaitGenerator
+from gait_generators import GaitGenerator, VisualGaitGenerator
 
 
 class LMJPolicy:
@@ -156,6 +155,29 @@ def main(config: DictConfig):
         rgba=(1.0, 1.0, 0.0, 0.5),
     )
 
+    # Add visual sites as foot targets
+    target_dist = 0.25
+    target_angle_range = 45  # degrees
+    target_site_pos = np.zeros(3)
+    angle = 0
+    site_idx = 0
+    for i in range(10):
+        if i > 5:
+            angle += np.random.uniform(-target_angle_range, target_angle_range)
+        target_site_pos += target_dist * np.array([np.cos(np.deg2rad(angle)), np.sin(np.deg2rad(angle)), 0.0])
+        feet_pos = target_site_pos + cmd_params["feet_distance"] / 2 * np.array(
+            [np.cos(np.deg2rad(angle + (-1) ** i * 90)), np.sin(np.deg2rad(angle + (-1) ** i * 90)), 0.0]
+        )
+        wb.add_site(
+            name=f"target_{i}",
+            type=mujoco.mjtGeom.mjGEOM_CYLINDER,
+            size=(0.08, 0.005, 0.0),  # *
+            pos=feet_pos,
+            quat=(0, 0, 0, 1),
+            group=0,
+            rgba=(0.0, 0.0, 1.0, 1.0),
+        )
+
     # get model spec
     # delete all geoms whose names end in "_col" from spec
     for geom in spec.geoms:
@@ -214,7 +236,10 @@ def main(config: DictConfig):
     feet_dist = cmd_params["feet_distance"]
 
     # init the gait generator
-    GG = GaitGenerator(feet_distance=feet_dist, vertical_dist=0.0, lateral_dist=0.0, steering_angle=0.0)
+    # GG = GaitGenerator(feet_distance=feet_dist, vertical_dist=0.0, lateral_dist=0.0, steering_angle=0.0)
+    GG = VisualGaitGenerator(
+        feet_distance=feet_dist, vertical_dist=0.0, lateral_dist=0.0, steering_angle=0.0, stop_steps=2,
+        robot_model=m, robot_data=d, cam_width=cam_width, cam_height=cam_height)
     GG.print_instruction()
 
     # ===========================================TELEOPERATION via KEYBOARD===========================================
@@ -233,6 +258,14 @@ def main(config: DictConfig):
 
                 mujoco.mj_step(m, d)
 
+            # get rgb and depth images from head camera
+            rgb_renderer.update_scene(d, camera="head_camera")
+            depth_renderer.update_scene(d, camera="head_camera")
+            rgb_array = rgb_renderer.render()
+            depth_array = depth_renderer.render()
+            depth_rgb = np.clip((depth_array - 0.2) / 1.8 * 255.0, 0, 255)
+            depth_rgb = depth_rgb[:, :, None].repeat(3, axis=2).astype(np.uint8)
+
             # --- Prepare Observations ---
             qj = d.qpos[7:]
             dqj = d.qvel[6:]
@@ -244,7 +277,9 @@ def main(config: DictConfig):
             # --- Create Command Vector `cmd` ---
             gait_process = (counter * simulation_dt * gait_frequency) % 1.0
 
-            foot_offset, gait_info = GG.query_cmd(gp=gait_process)
+            # foot_offset, gait_info = GG.query_cmd(gp=gait_process)
+            foot_offset, gait_info, rgb_array = GG.query_cmd(
+                rgb_image=rgb_array, depth_image=depth_array, joint_pos=qj, gp=gait_process)
             l_offset, l_orn_offset, r_offset, r_orn_offset = foot_offset
 
             if GG.sample_goal:
@@ -278,6 +313,28 @@ def main(config: DictConfig):
                     m.site("foot_0").pos = d.site_xpos[left_foot_id] + rot_stance_flat.apply(r_offset)
                     m.site("foot_0").pos[2] = 0
                     m.site("foot_0").quat = target_rot.as_quat(scalar_first=True)
+
+                # move the visual targets
+                target_has_passed = False
+                target_pos = m.site("target_{}".format(site_idx)).pos
+                robot_pos = d.qpos[:3]
+                robot_orn = np_R.from_quat(d.qpos[3:7], scalar_first=True).as_matrix()
+                target_pos_in_robot = robot_orn.T @ (target_pos - robot_pos)
+                if target_pos_in_robot[0] < -0.05:
+                    target_has_passed = True
+
+                if target_has_passed:
+                    angle += np.random.uniform(-target_angle_range, target_angle_range)
+                    target_site_pos += target_dist * np.array([np.cos(np.deg2rad(angle)), np.sin(np.deg2rad(angle)), 0.0])
+                    feet_pos = target_site_pos + cmd_params["feet_distance"] / 2 * np.array(
+                        [
+                            np.cos(np.deg2rad(angle + (-1) ** site_idx * 90)),
+                            np.sin(np.deg2rad(angle + (-1) ** site_idx * 90)),
+                            0.0,
+                        ]
+                    )
+                    m.site("target_{}".format(site_idx)).pos = feet_pos
+                    site_idx = (site_idx + 1) % 10
 
                 mujoco.mj_fwdPosition(m, d)
 
@@ -325,6 +382,7 @@ def main(config: DictConfig):
 
             # Sync viewer and maintain real-time simulation speed
             viewer.sync()
+            viewer.set_images([(rgb_viewport, rgb_array), (depth_viewport, depth_rgb)])
 
             time_until_next_step = m.opt.timestep * control_decimation - (time.time() - step_start)
             # time.sleep(0.1)
