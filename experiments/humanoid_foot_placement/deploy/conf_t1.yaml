@@ -311,7 +311,7 @@ experiment:
 
     init_state_type: DefaultInitialStateHandler
     init_state_params:
-      qpos_init: [0, 0, 0.72, 
+      qpos_init: [0, 0, 0.68, 
                   1, 0, 0, 0, 
                   0, 0,
                   0.2,-1.2, 0, -0.5,
