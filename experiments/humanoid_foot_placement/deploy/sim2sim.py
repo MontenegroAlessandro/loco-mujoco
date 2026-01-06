@@ -1,29 +1,35 @@
+from shutil import move
 import time
 import os
 import sys
 
 # Add parent directory to import path to find lmj and other modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-os.environ['JAX_PLATFORMS'] = "cpu"
-os.environ['XLA_FLAGS'] = '--xla_gpu_triton_gemm_any=True'
+os.environ["JAX_PLATFORMS"] = "cpu"
+os.environ["XLA_FLAGS"] = "--xla_gpu_triton_gemm_any=True"
 
 import mujoco.viewer
 import mujoco
 import numpy as np
 import yaml
 import hydra
-from omegaconf import DictConfig # Using omegaconf.DictConfig for hydra config type
-import pickle # Still needed for PPOJax.load_agent
+from omegaconf import DictConfig  # Using omegaconf.DictConfig for hydra config type
+import pickle  # Still needed for PPOJax.load_agent
 import jax
 import jax.numpy as jnp
 from scipy.spatial.transform import Rotation as np_R
 from loco_mujoco.core.utils.math import quat_scalarfirst2scalarlast
+import copy
+import cv2
 
 from loco_mujoco.algorithms import PPOJax
 
+from gait_generators import GaitGenerator
+
+
 class LMJPolicy:
-    def __init__(self, policy_path: str) -> None: # Removed control_func_path
+    def __init__(self, policy_path: str) -> None:  # Removed control_func_path
         # Load agent configuration and state from the policy checkpoint
         agent_conf, agent_state = PPOJax.load_agent(policy_path)
 
@@ -44,20 +50,14 @@ class LMJPolicy:
         self.network_apply = agent_conf.network.apply
 
         # Define the JIT-compiled function once for performance
-        self._jit_sample_action = jax.jit(
-            self._sample_action, static_argnames=["network_apply"]
-        )
+        self._jit_sample_action = jax.jit(self._sample_action, static_argnames=["network_apply"])
         print("Policy loaded and JIT function compiled.")
 
     @staticmethod
-    def _sample_action(network_apply, params, run_stats, rng, obs): # MODIFIED: Removed batch_stats
+    def _sample_action(network_apply, params, run_stats, rng, obs):  # MODIFIED: Removed batch_stats
         """This function is JIT-compiled for speed."""
         # MODIFIED: Removed batch_stats from the dictionary and mutable list
-        y, updates = network_apply(
-            {'params': params, 'run_stats': run_stats},
-            obs,
-            mutable=["run_stats"]
-        )
+        y, updates = network_apply({"params": params, "run_stats": run_stats}, obs, mutable=["run_stats"])
         pi, _ = y
         a = pi.mode()  # Get the deterministic action
         a = jnp.atleast_2d(a)
@@ -67,13 +67,10 @@ class LMJPolicy:
         """Uses the precompiled JIT function to get the action."""
         # MODIFIED: Removed self.train_state.batch_stats from the call
         a = self._jit_sample_action(
-            self.network_apply,
-            self.train_state.params,
-            self.train_state.run_stats,
-            self._rng,
-            obs
+            self.network_apply, self.train_state.params, self.train_state.run_stats, self._rng, obs
         )
         return a
+
 
 def quat_rotate_inverse(q, v):
     """Rotates a vector by the inverse of a quaternion. MuJoCo quaternions are [w, x, y, z]."""
@@ -84,164 +81,13 @@ def quat_rotate_inverse(q, v):
     c = q_vec * (np.dot(q_vec, v) * 2.0)
     return a - b + c
 
+
 def pd_control(target_q, q, kp, target_dq, dq, kd):
     """Calculates PD control torques."""
     return (target_q - q) * kp + (target_dq - dq) * kd
 
-class GaitGenerator:
-    def __init__(
-        self, 
-        feet_distance: float = 0.2,
-        vertical_dist: float = 0.1,
-        lateral_dist: float = 0.3,
-        steering_angle: float = 0.0,
-    ):
-        # map the parameters
-        self.feet_distance = feet_distance
-        self.vertical_dist = vertical_dist
-        self.lateral_dist = lateral_dist
-        self.steering_angle = steering_angle
-        # additional controlling parameters
-        self.gaits_to_still = 0
 
-    def query_cmd(self, mov_dir: str = "STILL", reset: bool = False, gp: float = 0.0):
-        err_msg = f"[GaitGenerator: query_cmd] Mode {mov_dir} is not valid."
-        assert mov_dir in ["STILL", "FWD", "BWD", "LEFT", "RIGHT", "DIAG-L", "DIAG-R"], err_msg
-
-        if mov_dir == "STILL":
-            cmd = self._gen_still_cmd(reset=reset, gp=gp)
-        elif mov_dir in ["FWD", "BWD"]:
-            cmd = self._gen_vertical_cmd(gp=gp)
-        elif mov_dir in ["LEFT", "RIGHT"]:
-            cmd = self._gen_lateral_cmd(gp=gp)
-        elif mov_dir in ["DIAG-L", "DIAG-R"]:
-            direction = 1 if mov_dir == "DIAG-L" else -1
-            cmd = self._gen_diag_cmd(gp=gp, direction=direction)
-
-        return cmd
-
-    def _gen_still_cmd(self, reset: bool = False, gp: float = 0.0):
-        # get the swing foot index
-        swing_foot_idx = 0 if (gp < 0.5) else 1
-
-        # no changing targets
-        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
-        zero_pos_offset = np.zeros(3, dtype=np.float32)
-
-        if self.gaits_to_still > 0: #reset:
-            # gait info gen
-            gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
-            # pos gen
-            l_pos_offset = np.array([0, self.feet_distance, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
-            r_pos_offset = np.array([0, -self.feet_distance, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
-            # orn gen
-            l_orn_offset = zero_orn_offset
-            r_orn_offset = zero_orn_offset
-        else:
-            # gait info gen
-            gait_info = np.zeros(2, dtype=np.float32)
-            # pos gen
-            l_pos_offset = np.array([0, self.feet_distance, 0.0])
-            r_pos_offset = np.array([0, -self.feet_distance, 0.0])
-            # orn gen
-            l_orn_offset = zero_orn_offset
-            r_orn_offset = zero_orn_offset
-
-        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
-
-    def _gen_vertical_cmd(self, gp: float = 0.0, direction: int = 1):
-        # get the swing foot index
-        swing_foot_idx = 0 if (gp < 0.5) else 1
-
-        # no changing targets
-        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
-        zero_pos_offset = np.zeros(3, dtype=np.float32)
-
-        # adjust the steering angle
-        steering_angle = np.clip(self.steering_angle, -np.pi, np.pi)
-        steering_foot_idx = 0 if (steering_angle >= 0 and steering_angle <= np.pi) else 1
-        steering_orn_offset = np_R.from_euler("z", steering_angle).as_quat(scalar_first=True)
-
-        # gait info gen
-        gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
-        # pos gen
-        l_pos_offset = np.array([self.vertical_dist, self.feet_distance, 0]) if swing_foot_idx == 0 else zero_pos_offset
-        r_pos_offset = np.array([self.vertical_dist, -self.feet_distance, 0]) if swing_foot_idx == 1 else zero_pos_offset
-        # orn gen
-        l_orn_offset = steering_orn_offset if steering_foot_idx == 0 else zero_orn_offset
-        r_orn_offset = steering_orn_offset if steering_foot_idx == 1 else zero_orn_offset
-
-        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
-
-    def _gen_lateral_cmd(self, gp: float = 0.0):
-        # NOTE: direction 1 means left, -1 right
-        direction = 1 if self.lateral_dist >= 0 else -1
-        direction = 0 if abs(self.lateral_dist) < 1e-4 else direction
-
-        # get the swing foot index
-        swing_foot_idx = 0 if (gp < 0.5) else 1
-
-        # no changing targets
-        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
-        zero_pos_offset = np.zeros(3, dtype=np.float32)
-
-        # ocmpute the lateral distance considering the offset of the feet distance
-        lat_dist = self.feet_distance * direction + self.lateral_dist
-
-        # clip the movement for the "evil foot"
-        max_evil_movement = - lat_dist / 2.0
-
-        # craft gait_info
-        gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
-
-        if direction == 1: # left movement
-            l_pos_offset = np.array([0.0, lat_dist, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
-            r_pos_offset = np.array([0.0, max_evil_movement, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
-        elif direction == -1: # right movement
-            l_pos_offset = np.array([0.0, max_evil_movement, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
-            r_pos_offset = np.array([0.0, lat_dist, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
-        else: # no movement
-            l_pos_offset = np.array([0, self.feet_distance, 0])
-            r_pos_offset = np.array([0, -self.feet_distance, 0])
-
-        # orientation
-        l_orn_offset = zero_orn_offset
-        r_orn_offset = zero_orn_offset
-
-        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
-
-    def _gen_diag_cmd(self, gp: float = 0.0, direction: int = 1):
-        # NOTE: direction 1 means left, -1 right
-        err_msg = f"[GaitGenerator: _gen_diag_cmd] Direction {direction} is not valid."
-        assert direction in [-1, 1], err_msg
-
-        # get the swing foot index
-        swing_foot_idx = 0 if (gp < 0.5) else 1
-
-        # no changing targets
-        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
-        zero_pos_offset = np.zeros(3, dtype=np.float32)
-
-        # gait info gen
-        gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
-
-        # clip the movement for the "evil foot"
-        max_evil_movement = self.lateral_dist / 2.0
-
-        if direction == 1: # left movement
-            l_pos_offset = np.array([self.lateral_dist, self.lateral_dist, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
-            r_pos_offset = np.array([-max_evil_movement, -max_evil_movement, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
-            l_orn_offset = zero_orn_offset
-            r_orn_offset = zero_orn_offset
-        else: # right movement
-            l_pos_offset = np.array([-max_evil_movement, max_evil_movement, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
-            r_pos_offset = np.array([self.lateral_dist, -self.lateral_dist, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
-            l_orn_offset = zero_orn_offset
-            r_orn_offset = zero_orn_offset
-
-        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
-
-@hydra.main(config_name="config_sim2sim.yaml")
+@hydra.main(config_name="config_sim2sim_visual.yaml")
 def main(config: DictConfig):
 
     xml_path = config["xml_path"]
@@ -257,8 +103,8 @@ def main(config: DictConfig):
     min_angles = np.array(config["min_angles"], dtype=np.float32)
     max_angles = np.array(config["max_angles"], dtype=np.float32)
 
-    num_qj = len(default_angles) # Number of actuated joints (23)
-    base_num_actions = config["num_actions"] # This is also 23
+    num_qj = len(default_angles)  # Number of actuated joints (23)
+    base_num_actions = config["num_actions"]  # This is also 23
 
     cmd_params = config["command"]
 
@@ -266,21 +112,20 @@ def main(config: DictConfig):
     # Initialize Hydra to access environment config used during training
     # The config_path should point to the directory containing your hydra config files
     # hydra.initialize(config_path="./") # Adjust path if your hydra config is elsewhere
-    # hydra.initialize(config_path="./")
-    lmj_hydra_config = hydra.compose(config_name="conf_t1") 
+    lmj_hydra_config = hydra.compose(config_name="conf_t1")
     policy = LMJPolicy(policy_path=agent_path)
 
     # Determine actual num_actions and observation size based on policy's environment config
     num_actions = base_num_actions
-    
+
     # Calculate the total observation size for policy warmup and runtime
     # obs = [projected_gravity (3), qj (num_qj), base_ang_vel (3), dqj (num_qj), action (num_actions), cmd (6)]
     num_obs = 3 + num_qj + 3 + num_qj + num_actions + 6
-    
+
     print(f"Policy expects an observation size of: {num_obs}")
     print("Warming up the policy network for JIT compilation...")
     total_obs = max(policy.agent_conf.network.actor_obs_ind.max(), policy.agent_conf.network.critic_obs_ind.max()) + 1
-    for _ in range(500): # Reduced warmup steps from 1000 to 500
+    for _ in range(500):  # Reduced warmup steps from 1000 to 500
         dummy_obs = jnp.zeros((1, total_obs), dtype=np.float32)
         _ = policy.predict_action(dummy_obs)
     print("Warmup complete.")
@@ -294,21 +139,21 @@ def main(config: DictConfig):
     wb.add_site(
         name=f"foot_0",
         type=mujoco.mjtGeom.mjGEOM_BOX,
-        size=(0.1, 0.04, 0.01),   # *      
-        pos=(0.1, 0.0, 0.0),    # **             
-        quat=(0, 0, 0, 1),     
-        group=0,
-        rgba=(0.0, 1.0, 1.0, 0.9),
+        size=(0.1, 0.04, 0.001),  # *
+        pos=(0.1, 0.0, 0.0),  # **
+        quat=(0, 0, 0, 1),
+        group=1,
+        rgba=(1.0, 0.5, 0.0, 0.5),
     )
-    
+
     wb.add_site(
         name=f"foot_1",
         type=mujoco.mjtGeom.mjGEOM_BOX,
-        size=(0.1, 0.04, 0.01),   # *      
-        pos=(0.1, 0.0, 0.0),    # **             
-        quat=(0, 0, 0, 1),     
-        group=0,
-        rgba=(1.0, 0.55, 0.0, 0.9),
+        size=(0.1, 0.04, 0.001),  # *
+        pos=(0.1, 0.0, 0.0),  # **
+        quat=(0, 0, 0, 1),
+        group=1,
+        rgba=(1.0, 1.0, 0.0, 0.5),
     )
 
     # get model spec
@@ -325,6 +170,16 @@ def main(config: DictConfig):
     # # --- Initialize Simulation ---
     m.opt.timestep = simulation_dt
 
+    cam_width = 320
+    cam_height = 200
+    rgb_renderer = mujoco.Renderer(m, width=cam_width, height=cam_height)
+    depth_renderer = mujoco.Renderer(m, width=cam_width, height=cam_height)
+    depth_renderer.enable_depth_rendering()
+    rgb_renderer._scene_option.sitegroup[1] = 0
+    depth_renderer._scene_option.sitegroup[1] = 0
+
+    rgb_viewport = mujoco.MjrRect(920, 0, cam_width, cam_height)
+    depth_viewport = mujoco.MjrRect(1240, 0, cam_width, cam_height)
     # Set initial robot state from policy's environment config
     try:
         initial_qpos = np.array(lmj_hydra_config.experiment.env_params.init_state_params.qpos_init, dtype=np.float32)
@@ -353,236 +208,126 @@ def main(config: DictConfig):
     target_dof_kds = kds.copy()
 
     # command parameters
-    cmd = np.zeros(16, dtype=np.float32) 
+    cmd = np.zeros(16, dtype=np.float32)
     counter = 1
     gait_frequency = cmd_params["gait_frequency"]
     feet_dist = cmd_params["feet_distance"]
-    # goal parameters
-    swing_foot_idx = 0 if ((counter * simulation_dt * gait_frequency) % 1.0 < 0.5) else 1
-    sample_goal = True
 
     # init the gait generator
     GG = GaitGenerator(feet_distance=feet_dist, vertical_dist=0.0, lateral_dist=0.0, steering_angle=0.0)
-    
+    GG.print_instruction()
+
     # ===========================================TELEOPERATION via KEYBOARD===========================================
-    teleop = dict(
-        # enabling movement stuff
-        move_enabled=False,
-        mov_dir="STILL",
-        last_mov_dir="STILL",
-        # veritacl steps
-        vert_step=0.05,
-        vert_min=-0.5,
-        vert_max=0.5,
-        # orientation stuff
-        yaw_step=np.deg2rad(5.0),
-        yaw_min=(- np.pi / 2.0),
-        yaw_max=(np.pi / 2.0),
-        # lateral steps stuff
-        lat_step=0.05,
-        lat_min=-0.3,
-        lat_max=0.3
-    )
-
-    def key_callback(keycode):
-        # MuJoCo constants for arrow keys
-        # These are standard GLFW keycodes often used by MuJoCo
-        LEFT_ARROW = 263
-        RIGHT_ARROW = 262
-        UP_ARROW = 265
-        DOWN_ARROW = 264
-
-        # Handle movement toggling (Pause/Play) with 'P'
-        if keycode == ord('P') or keycode == ord('p'):
-            teleop["move_enabled"] = not teleop["move_enabled"]
-            if not teleop["move_enabled"]:
-                teleop["mov_dir"] = "STILL"
-
-        # Arrow keys for Directional Movement
-        elif keycode == UP_ARROW:
-            GG.vertical_dist = float(np.clip(GG.vertical_dist + teleop["vert_step"], teleop["vert_min"], teleop["vert_max"]))
-            teleop["mov_dir"] = "FWD"
-            print(f"[teleop] Vertical Distance: {GG.vertical_dist:.2f}")
-
-        elif keycode == DOWN_ARROW:
-            GG.vertical_dist = float(np.clip(GG.vertical_dist - teleop["vert_step"], teleop["vert_min"], teleop["vert_max"]))
-            teleop["mov_dir"] = "FWD"
-            print(f"[teleop] Vertical Distance: {GG.vertical_dist:.2f}")
-
-        elif keycode == LEFT_ARROW:
-            GG.lateral_dist = float(np.clip(GG.lateral_dist + teleop["lat_step"], teleop["lat_min"], teleop["lat_max"]))
-            teleop["mov_dir"] = "LEFT"
-            print(f"[teleop] Lateral Distance: {GG.lateral_dist:.2f}")
-
-        elif keycode == RIGHT_ARROW:
-            GG.lateral_dist = float(np.clip(GG.lateral_dist - teleop["lat_step"], teleop["lat_min"], teleop["lat_max"]))
-            teleop["mov_dir"] = "RIGHT"
-            print(f"[teleop] Lateral Distance: {GG.lateral_dist:.2f}")
-
-        # Steering Angle Adjustment using Brackets [ ]
-        elif keycode == ord(','):
-            GG.steering_angle = float(np.clip(GG.steering_angle + teleop["yaw_step"], teleop["yaw_min"], teleop["yaw_max"]))
-            print(f"[teleop] Steering Angle (deg): {np.rad2deg(GG.steering_angle):.2f}")
-
-        elif keycode == ord('.'):
-            GG.steering_angle = float(np.clip(GG.steering_angle - teleop["yaw_step"], teleop["yaw_min"], teleop["yaw_max"]))
-            print(f"[teleop] Steering Angle (deg): {np.rad2deg(GG.steering_angle):.2f}")
-
-        elif keycode == ord('|') or keycode == ord('\\'):
-            GG.steering_angle = 0.0
-            GG.lateral_dist = 0.0
-            GG.vertical_dist = 0.0
-            teleop["mov_dir"] = "FWD" if teleop["move_enabled"] else "STILL"
-            print(f"[teleop] RESET.")
-
-    # ===============================================PRINT INSTRUCTIONS===============================================
-    print("\n" + "="*60)
-    print("          HUMANOID SIM2SIM TELEOPERATION CONTROLS          ")
-    print("="*60)
-    print("  [P]           : Toggle Movement ON/OFF (Defaults to STILL)")
-    print("-" * 60)
-    print("  [Arrow UP]    : Increase Forward Step Length (Accel)")
-    print("  [Arrow DOWN]  : Decrease Forward Step Length (Decel)")
-    print("  [Arrow LEFT]  : Step Left (Increase Lateral Dist)")
-    print("  [Arrow RIGHT] : Step Right (Decrease Lateral Dist)")
-    print("-" * 60)
-    print("  [ ',' ]       : Steer Left  (Yaw +)")
-    print("  [ '.' ]       : Steer Right (Yaw -)")
-    print("-" * 60)
-    print("  [ '\\' ] or [|]: EMERGENCY RESET (Zero all commands)")
-    print("="*60 + "\n")
-
     # --- Start Simulation and Viewer ---
-    with mujoco.viewer.launch_passive(m, d, key_callback=key_callback) as viewer:
-        start_time = time.time()
-        while viewer.is_running() and (time.time() - start_time) < simulation_duration:
+    with mujoco.viewer.launch_passive(m, d, key_callback=GG.key_callback) as viewer:
+        while viewer.is_running():
             step_start = time.time()
 
-            # Step the simulation forward. The PD controller runs at the physics rate.
-            tau = pd_control(target_dof_pos, d.qpos[7:], target_dof_kps, np.zeros_like(kds), d.qvel[6:], target_dof_kds)
-            d.ctrl[:] = tau
-
-            mujoco.mj_step(m, d)
-
-            # Run the policy at the defined control frequency
-            if counter % control_decimation == 0:
-                # --- Prepare Observations ---
-                qj = d.qpos[7:]
-                dqj = d.qvel[6:]
-                quat = d.qpos[3:7] # Pelvis orientation [w, x, y, z] from free joint
-                # base_ang_vel = d.sensor("angular-velocity").data.astype(np.float32) # Assuming sensor name "angular-velocity"
-                base_ang_vel = d.qvel[3:6]
-                projected_gravity = quat_rotate_inverse(quat, np.array([0.0, 0.0, -1.0]))
-
-                # --- Create Command Vector `cmd` ---
-                gait_process = (counter * simulation_dt * gait_frequency) % 1.0
-
-                # SET GOALS
-                if swing_foot_idx == 0 and (gait_process >= 0.5 and gait_process < 1):
-                    swing_foot_idx = 1
-                    sample_goal = True
-                    GG.gaits_to_still = np.maximum(GG.gaits_to_still - 1, 0)
-                elif swing_foot_idx == 1 and (gait_process < 0.5 and gait_process >= 0):
-                    swing_foot_idx = 0
-                    sample_goal = True
-                    GG.gaits_to_still = np.maximum(GG.gaits_to_still - 1, 0)
-                    
-                # Keyboard-controlled movement direction
-                mov_dir = teleop["mov_dir"] if teleop["move_enabled"] else "STILL"
-                if mov_dir != teleop["last_mov_dir"]:
-                    # When coming to a stop, let the gait generator settle for a couple half-steps.
-                    if mov_dir == "STILL":
-                        GG.gaits_to_still = 2
-                    # Keep lateral gaits in-phase (matches the old auto-switch logic).
-                    if mov_dir in ["LEFT", "DIAG-L"]:
-                        counter = 0
-                    elif mov_dir in ["RIGHT", "DIAG-R"]:
-                        counter = int(0.5 / (simulation_dt * gait_frequency))
-
-                    gait_process = (counter * simulation_dt * gait_frequency) % 1.0
-                    swing_foot_idx = 0 if (gait_process < 0.5) else 1
-                    sample_goal = True
-                    teleop["last_mov_dir"] = mov_dir
-
-                l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info = GG.query_cmd(
-                    mov_dir=mov_dir, reset=False, gp=gait_process
-                ) 
-                
-                if sample_goal:
-                    sample_goal = False
-
-                    if swing_foot_idx == 0:
-                        # left foot swing
-                        # get stance foot rotation
-                        rot_stance = np_R.from_matrix(d.site("right_foot").xmat.reshape(3, 3))
-                        stance_yaw = rot_stance.as_euler("xyz")[2]
-                        rot_stance_flat = np_R.from_euler("z", stance_yaw)
-                        # compute the quat
-                        cmd_quat = np.array([l_orn_offset[1], l_orn_offset[2], l_orn_offset[3], l_orn_offset[0]])
-                        rot_cmd = np_R.from_quat(cmd_quat)
-                        # compute target rot
-                        target_rot = rot_stance_flat * rot_cmd
-                        # update site
-                        m.site("foot_1").pos = d.site_xpos[right_foot_id] + rot_stance_flat.apply(l_offset)
-                        m.site("foot_1").pos[2] = 0
-                        m.site("foot_1").quat = target_rot.as_quat(scalar_first=True)
-
-                    else:
-                        # right foot swing
-                        # get stance foot rotation
-                        rot_stance = np_R.from_matrix(d.site("left_foot").xmat.reshape(3, 3))
-                        stance_yaw = rot_stance.as_euler("xyz")[2]
-                        rot_stance_flat = np_R.from_euler("z", stance_yaw)
-                        # compute the quat
-                        cmd_quat = np.array([r_orn_offset[1], r_orn_offset[2], r_orn_offset[3], r_orn_offset[0]])
-                        rot_cmd = np_R.from_quat(cmd_quat)
-                        # compute the quat
-                        target_rot = rot_stance_flat * rot_cmd
-                        # update site
-                        m.site("foot_0").pos = d.site_xpos[left_foot_id] + rot_stance_flat.apply(r_offset) 
-                        m.site("foot_0").pos[2] = 0                 
-                        m.site("foot_0").quat = target_rot.as_quat(scalar_first=True)
-                
-                cmd = np.concatenate(
-                    [l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32
+            for i in range(control_decimation):
+                counter += 1
+                # Step the simulation forward. The PD controller runs at the physics rate.
+                tau = pd_control(
+                    target_dof_pos, d.qpos[7:], target_dof_kps, np.zeros_like(kds), d.qvel[6:], target_dof_kds
                 )
+                d.ctrl[:] = tau
 
-                # --- Construct Observation Vector ---
-                obs_list = []
-                obs_list += projected_gravity.flatten().tolist()
-                obs_list += qj.flatten().tolist()
-                obs_list += (base_ang_vel * 1.0).flatten().tolist()
-                obs_list += (dqj * 0.1).flatten().tolist()
-                obs_list += action.flatten().tolist() # 'action' here is the previous action
-                obs_list += cmd.flatten().tolist()
+                mujoco.mj_step(m, d)
 
-                obs = [0.] * (78) + obs_list
+            # --- Prepare Observations ---
+            qj = d.qpos[7:]
+            dqj = d.qvel[6:]
+            quat = d.qpos[3:7]  # Pelvis orientation [w, x, y, z] from free joint
+            # base_ang_vel = d.sensor("angular-velocity").data.astype(np.float32) # Assuming sensor name "angular-velocity"
+            base_ang_vel = d.qvel[3:6]
+            projected_gravity = quat_rotate_inverse(quat, np.array([0.0, 0.0, -1.0]))
 
-                obs = np.array(obs, dtype=np.float32).reshape(1, -1)
+            # --- Create Command Vector `cmd` ---
+            gait_process = (counter * simulation_dt * gait_frequency) % 1.0
 
-                # --- Policy Inference ---
-                emitted_action = np.asarray(policy.predict_action(obs)).flatten()
+            foot_offset, gait_info = GG.query_cmd(gp=gait_process)
+            l_offset, l_orn_offset, r_offset, r_orn_offset = foot_offset
 
-                emitted_action = np.clip(emitted_action, -1.0, 1.0)
+            if GG.sample_goal:
+                if GG.swing_foot_idx == 0:
+                    # left foot swing
+                    # get stance foot rotation
+                    rot_stance = np_R.from_matrix(d.site("right_foot").xmat.reshape(3, 3))
+                    stance_yaw = rot_stance.as_euler("xyz")[2]
+                    rot_stance_flat = np_R.from_euler("z", stance_yaw)
+                    # compute the quat
+                    cmd_quat = np.array([l_orn_offset[1], l_orn_offset[2], l_orn_offset[3], l_orn_offset[0]])
+                    rot_cmd = np_R.from_quat(cmd_quat)
+                    # compute target rot
+                    target_rot = rot_stance_flat * rot_cmd
+                    # update site
+                    m.site("foot_1").pos = d.site_xpos[right_foot_id] + rot_stance_flat.apply(l_offset)
+                    m.site("foot_1").pos[2] = 0
+                    m.site("foot_1").quat = target_rot.as_quat(scalar_first=True)
+                else:
+                    # right foot swing
+                    # get stance foot rotation
+                    rot_stance = np_R.from_matrix(d.site("left_foot").xmat.reshape(3, 3))
+                    stance_yaw = rot_stance.as_euler("xyz")[2]
+                    rot_stance_flat = np_R.from_euler("z", stance_yaw)
+                    # compute the quat
+                    cmd_quat = np.array([r_orn_offset[1], r_orn_offset[2], r_orn_offset[3], r_orn_offset[0]])
+                    rot_cmd = np_R.from_quat(cmd_quat)
+                    # compute the quat
+                    target_rot = rot_stance_flat * rot_cmd
+                    # update site
+                    m.site("foot_0").pos = d.site_xpos[left_foot_id] + rot_stance_flat.apply(r_offset)
+                    m.site("foot_0").pos[2] = 0
+                    m.site("foot_0").quat = target_rot.as_quat(scalar_first=True)
 
-                # Apply smoothing/filtering to the action
-                action = action * 0.0 + emitted_action * 1.0
+                mujoco.mj_fwdPosition(m, d)
 
-                # Deconstruct action vector into control commands
-                target_dof_pos = action[:num_qj] + default_angles[:num_qj] # Use num_qj here as it's the base action for positions
+            cmd = np.concatenate([l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32)
 
-                # Clip target_dof_pos to joint limits
-                target_dof_pos = np.clip(target_dof_pos, min_angles, max_angles)
+            # --- Construct Observation Vector ---
+            obs_list = []
+            obs_list += projected_gravity.flatten().tolist()
+            obs_list += qj.flatten().tolist()
+            obs_list += (base_ang_vel * 1.0).flatten().tolist()
+            obs_list += (dqj * 0.1).flatten().tolist()
+            obs_list += action.flatten().tolist()  # 'action' here is the previous action
+            obs_list += cmd.flatten().tolist()
 
-                target_dof_kps = kps.copy()
-                target_dof_kds = kds.copy()
+            obs = [0.0] * (78) + obs_list
 
-            # counter update
-            counter += 1
-            
+            obs = np.array(obs, dtype=np.float32).reshape(1, -1)
+
+            # Override Head Pitch Angle in Observation
+            obs[0, 81] = 0.0  # Head Yaw Angle
+            obs[0, 82] = 0.0  # Head Pitch joint position
+
+            # --- Policy Inference ---
+            emitted_action = np.asarray(policy.predict_action(obs)).flatten()
+
+            emitted_action = np.clip(emitted_action, -1.0, 1.0)
+
+            # Apply smoothing/filtering to the action
+            action = action * 0.0 + emitted_action * 1.0
+
+            # Deconstruct action vector into control commands
+            target_dof_pos = (
+                action[:num_qj] + default_angles[:num_qj]
+            )  # Use num_qj here as it's the base action for positions
+
+            # Override head joint for control
+            target_dof_pos[0] = 0.0
+            target_dof_pos[1] = 1.0
+
+            # Clip target_dof_pos to joint limits
+            target_dof_pos = np.clip(target_dof_pos, min_angles, max_angles)
+
+            target_dof_kps = kps.copy()
+            target_dof_kds = kds.copy()
+
             # Sync viewer and maintain real-time simulation speed
             viewer.sync()
-            time_until_next_step = m.opt.timestep - (time.time() - step_start)
+
+            time_until_next_step = m.opt.timestep * control_decimation - (time.time() - step_start)
+            # time.sleep(0.1)
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
 

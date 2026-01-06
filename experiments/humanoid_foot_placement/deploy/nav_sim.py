@@ -24,7 +24,6 @@ import copy
 import cv2
 
 from loco_mujoco.algorithms import PPOJax
-
 from gait_generators import GaitGenerator, VisualGaitGenerator
 
 
