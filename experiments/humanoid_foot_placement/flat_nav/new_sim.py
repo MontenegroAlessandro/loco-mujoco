@@ -11,12 +11,19 @@ os.environ['XLA_FLAGS'] = '--xla_gpu_triton_gemm_any=True'
 
 # =========================== NAVIGATION CONTROLLER ===========================
 class NavigationController:
-    def __init__(self, goal_pos, stop_threshold=0.3, max_step_len=0.3, max_step_diff=0.1):
+    def __init__(self, goal_pos, dt, kp=0.1, kd=0.1, stop_threshold=0.3, max_step_len=0.3, max_step_diff=0.1, align_threshold=0.5):
         self.goal_pos = np.array(goal_pos[:2]) # XY only
-        self.threshold = stop_threshold
+        self.dt = dt
+        self.kp = kp
+        self.kd = kd
+
+        self.stop_threshold = stop_threshold
+        self.align_threshold = align_threshold
         self.max_step_len = max_step_len
         self.max_step_diff = max_step_diff
-        self.last_vert_dist = 0
+
+        self.last_vert_dist = 0.0
+        self.prev_yaw_err = 0.0
         self.finished = False
 
     def get_command(self, robot_pos, robot_quat):
@@ -26,8 +33,8 @@ class NavigationController:
         # Check if goal is reached
         curr_xy = robot_pos[:2]
         dist_to_goal = np.linalg.norm(self.goal_pos - curr_xy)
-        
-        if dist_to_goal < self.threshold:
+
+        if dist_to_goal < self.stop_threshold:
             self.finished = True
             return 0.0, 0.0, "STILL"
 
@@ -44,24 +51,25 @@ class NavigationController:
         yaw_err = desired_yaw - curr_yaw
         yaw_err = (yaw_err + np.pi) % (2 * np.pi) - np.pi
 
+        # derivative control part
+        d_err = (yaw_err - self.prev_yaw_err) / self.dt
+        self.prev_yaw_err = yaw_err
+
         # Control Logic
         # Steering: Turn towards the goal
         # We clip it to avoid crazy spins, but the GaitGenerator handles clipping too.
-        steering_cmd = np.clip(yaw_err, -np.pi/2, np.pi/2)
+        steering_cmd = np.clip((self.kp * yaw_err) + (self.kd * d_err), -np.pi/4, np.pi/4) 
 
         # Velocity: Slow down if we need to turn sharply
-        if abs(yaw_err) > 0.5: # If error > ~30 degrees
-            # Turn in place / slow forward
-            vert_dist_cmd = 0.05 
+        if abs(yaw_err) < self.align_threshold:
+            # We are pointing roughly at the goal -> Full speed
+            vert_dist_cmd = self.max_step_len
         else:
-            # Full speed ahead, scaling down as we get very close
-            vert_dist_cmd = np.clip(dist_to_goal, 0.1, self.max_step_len)
-            delta = vert_dist_cmd - self.last_vert_dist
-            # Limit sudden changes in step length
-            if abs(delta) > self.max_step_diff:
-                vert_dist_cmd = self.last_vert_dist + np.sign(delta) * self.max_step_diff
-        # update the last vertical step given
-        self.last_vert_dist = vert_dist_cmd
+            # We are not aligned -> Turn in place (or very slow steps)
+            vert_dist_cmd = 0.0
+
+        if dist_to_goal < (self.max_step_len * 2):
+            vert_dist_cmd = min(vert_dist_cmd, dist_to_goal)
 
         return vert_dist_cmd, steering_cmd, "FWD"
 
@@ -306,10 +314,20 @@ if __name__ == "__main__":
     feet_dist = experiment["feet_distance"]
     swing_foot_idx = 0 if ((counter * simulation_dt * gait_frequency) % 1.0 < 0.5) else 1
     sample_goal = True
+    last_cmd = ""
+
+    ctrl_dt = simulation_dt * control_decimation
     
     # Init Gait Generator and Navigation Controller
     GG = GaitGenerator(feet_distance=feet_dist, vertical_dist=0.0, lateral_dist=0.0, steering_angle=0.0)
-    NavCtrl = NavigationController(goal_pos=goal_coordinates, stop_threshold=0.2, max_step_len=max_step_len)
+    NavCtrl = NavigationController(
+        goal_pos=goal_coordinates, 
+        stop_threshold=0.2, 
+        max_step_len=max_step_len,
+        dt=ctrl_dt,
+        kp=1.0, # 1.5,
+        kd=0.0, # 0.1
+    )
 
     print("\n" + "="*60)
     print(f" EXPERIMENT STARTED: Navigating to {goal_coordinates}")
@@ -357,8 +375,9 @@ if __name__ == "__main__":
                     sample_goal = True
                     GG.gaits_to_still = np.maximum(GG.gaits_to_still - 1, 0)
                 
-                if mov_dir == "STILL":
+                if mov_dir == "STILL" and last_cmd != mov_dir:
                     GG.gaits_to_still = 2 # Start stop sequence if reached goal
+                    last_cmd = mov_dir
                     
                 l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info = GG.query_cmd(
                     mov_dir=mov_dir, reset=False, gp=gait_process
@@ -418,6 +437,3 @@ if __name__ == "__main__":
             time_until_next_step = m.opt.timestep - (time.time() - step_start)
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
-        
-        if NavCtrl.finished:
-            print(f"Experiment Completed. Goal reached.")
