@@ -600,6 +600,51 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         swing_foot_orn_mat = data.site_xmat[swing_foot_site_id].reshape(3, 3)
         swing_foot_orn = R.from_matrix(swing_foot_orn_mat).as_quat(scalar_first=True)
 
+        # =============================================PILLARS MANAGEMENT=============================================
+        
+        # management of the three pillars
+        num_pillars = backend.astype(getattr(getattr(env, "_terrain", None), "num_pillars", 0), backend.int32)
+        use_three_pillars = backend.astype(self.adaptive_terrain & (num_pillars >= 3) & ~hold_still, backend.int32)
+        
+        def _retrieve_pillar_id_for_goal(state_in):
+            foot_pillar_ids = state_in.foot_pillar_ids
+            free_pillar_id = state_in.free_pillar_id
+            pending_free = state_in.pending_free_pillar_id
+
+            neg_one = backend.array(-1, dtype=backend.int32)
+
+            # Release pending pillar (from previous swing) so it becomes the free pillar now
+            has_pending = pending_free >= 0
+            free_pillar_id = jax.lax.select(has_pending, pending_free, free_pillar_id)
+            pending_free = jax.lax.select(has_pending, neg_one, pending_free)
+
+            # Allocate the free pillar to the NEW swing-foot target
+            pillar_id_for_goal = free_pillar_id
+
+            # Mark the OLD swing-foot pillar as pending-free (do NOT reuse immediately)
+            old_swing_pillar = foot_pillar_ids[swing_foot_idx]
+            foot_pillar_ids = foot_pillar_ids.at[swing_foot_idx].set(pillar_id_for_goal)
+
+            pending_free = old_swing_pillar
+            free_pillar_id = neg_one
+
+            state_out = state_in.replace(
+                foot_pillar_ids=foot_pillar_ids,
+                free_pillar_id=free_pillar_id,
+                pending_free_pillar_id=pending_free,
+            )
+            return pillar_id_for_goal, state_out
+        
+        def _fallback(state_in):
+            return swing_foot_idx, state_in
+        
+        pillar_id_for_goal, state = jax.lax.cond(
+            use_three_pillars,
+            _retrieve_pillar_id_for_goal,
+            _fallback,
+            operand=state
+        )
+
         # ============================================REJECTION SAMPLING============================================
         
         # Define the generator for a single candidate target
@@ -673,15 +718,24 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
 
         # Collision Check Function
         def _check_valid(pos_xy):
+            # stance foot condition
             dist_stance = backend.linalg.norm(pos_xy[:2] - stance_foot_pos[:2])
             valid_stance = dist_stance > self._pillar_min_center_dist 
 
+            # swing foot condition
             dist_swing = backend.linalg.norm(pos_xy[:2] - swing_foot_pos[:2])
             valid_swing = dist_swing > self._pillar_min_center_dist
-            
-            # TODO: avoid other pillars
-            
-            return valid_stance & valid_swing
+
+            # pillars condition
+            valid_pillars = True
+            if self.adaptive_terrain:
+                pil_coo = carry.terrain_state.positions
+                pillars_d = backend.linalg.norm(pil_coo[:, :2] - pos_xy[None, :2], axis=1)
+                valid_pillars = pillars_d > (env._terrain.diameter + 0.05)
+                valid_pillars = valid_pillars.at[pillar_id_for_goal].set(True)
+                valid_pillars = valid_pillars.all()
+
+            return valid_stance & valid_swing & valid_pillars
 
         # Perform Sampling
         if backend == jnp:
@@ -729,53 +783,6 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                     count += 1
             else:
                 target_pos_pre_z = _get_candidate_target(key)
-
-        # =============================================PILLARS MANAGEMENT=============================================
-        
-        # management of the three pillars
-        num_pillars = backend.astype(getattr(getattr(env, "_terrain", None), "num_pillars", 0), backend.int32)
-        use_three_pillars = backend.astype(self.adaptive_terrain & (num_pillars >= 3) & ~hold_still, backend.int32)
-        
-        def _retrieve_pillar_id_for_goal(state_in):
-            foot_pillar_ids = state_in.foot_pillar_ids
-            free_pillar_id = state_in.free_pillar_id
-            pending_free = state_in.pending_free_pillar_id
-
-            neg_one = backend.array(-1, dtype=backend.int32)
-
-            # Release pending pillar (from previous swing) so it becomes the free pillar now
-            has_pending = pending_free >= 0
-            free_pillar_id = jax.lax.select(has_pending, pending_free, free_pillar_id)
-            pending_free = jax.lax.select(has_pending, neg_one, pending_free)
-
-            # Allocate the free pillar to the NEW swing-foot target
-            pillar_id_for_goal = free_pillar_id
-
-            # Mark the OLD swing-foot pillar as pending-free (do NOT reuse immediately)
-            old_swing_pillar = foot_pillar_ids[swing_foot_idx]
-            foot_pillar_ids = foot_pillar_ids.at[swing_foot_idx].set(pillar_id_for_goal)
-
-            pending_free = old_swing_pillar
-            free_pillar_id = neg_one
-
-            state_out = state_in.replace(
-                foot_pillar_ids=foot_pillar_ids,
-                free_pillar_id=free_pillar_id,
-                pending_free_pillar_id=pending_free,
-            )
-            return pillar_id_for_goal, state_out
-        
-        def _fallback(state_in):
-            return swing_foot_idx, state_in
-        
-        pillar_id_for_goal, state = jax.lax.cond(
-            use_three_pillars,
-            _retrieve_pillar_id_for_goal,
-            _fallback,
-            operand=state
-        )
-        
-        # NOTE: Removed the old _push_target_out_of_other_pillars call here as rejection sampling handles it.
         
         # =============================================FOOT HEIGHT TARGET=============================================
         key, zkey = jax.random.split(key)
