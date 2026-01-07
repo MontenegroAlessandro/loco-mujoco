@@ -673,26 +673,20 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
 
         # Collision Check Function
         def _check_valid(pos_xy):
-            # Check collision with Stance Foot
             dist_stance = backend.linalg.norm(pos_xy[:2] - stance_foot_pos[:2])
-            valid_stance = dist_stance > self.foot_safe_distance # or a specific pillar radius
+            valid_stance = dist_stance > self._pillar_min_center_dist 
 
-            # Check collision with Swing Foot (Previous Position / Pillar)
-            # We verify the new target isn't on top of the pillar we are just leaving
             dist_swing = backend.linalg.norm(pos_xy[:2] - swing_foot_pos[:2])
-            valid_swing = dist_swing > self.foot_safe_distance
+            valid_swing = dist_swing > self._pillar_min_center_dist
             
-            # NOTE: If there are other static pillars in the terrain state, they should be checked here.
-            # Assuming stance + swing covers the active pillars in the 3-pillar setup.
+            # TODO: avoid other pillars
             
             return valid_stance & valid_swing
 
         # Perform Sampling
         if backend == jnp:
-            # JAX: Use lax.while_loop
             def cond_fun(val):
                 _, count, found, _ = val
-                # Continue if not found AND count < max_attempts
                 return (~found) & (count < 1000)
 
             def body_fun(val):
@@ -701,25 +695,23 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 
                 candidate = _get_candidate_target(step_key)
                 is_valid = _check_valid(candidate)
-                
-                # If valid, take it. If not, keep current_best (or take it if it's the first try?)
-                # We simply update current_best to candidate if valid. 
-                # If we exit loop without found, we just keep the last sampled (fallback).
+
                 return (rng, count + 1, is_valid, candidate)
 
-            # Initial sample (fallback)
+            # Initial sample 
             key, init_key = jax.random.split(key_sampling)
             initial_target = _get_candidate_target(init_key)
             init_val = (key, 0, False, initial_target)
             
-            # If hold_still is True, we don't need to loop (the generator is deterministic/safe)
+            # If hold_still is True, we don't need to loop 
             final_val = jax.lax.cond(
                 hold_still,
-                lambda x: (x[0], x[1], True, x[3]), # Mark as found immediately
+                lambda x: (x[0], x[1], True, x[3]), 
                 lambda x: jax.lax.while_loop(cond_fun, body_fun, x),
                 init_val
             )
-            _, _, _, target_pos_pre_z = final_val
+            _, count, is_valid, target_pos_pre_z = final_val
+            jax.debug.print("{} - {}", count, is_valid)
 
         else:
             # NUMPY: Standard loop
@@ -729,10 +721,6 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             
             if not hold_still:
                 while not found and count < 1000:
-                    # Logic for numpy RNG would go here if needed, but assuming JAX key usage:
-                    # For strict numpy backend compat without JAX keys, standard np.random would be used.
-                    # Assuming 'key' is a JAX key even in numpy mode (common in some frameworks) or handled externally.
-                    # Here we stick to JAX RNG structure as provided in the signature.
                     key, subkey = jax.random.split(key) 
                     cand = _get_candidate_target(subkey)
                     if _check_valid(cand):
