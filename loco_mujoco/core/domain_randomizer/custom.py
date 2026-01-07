@@ -750,15 +750,18 @@ class CustomRandomizer(DomainRandomizer):
             
             if any_pil_flags:
                 key, subkey = jax.random.split(key)
-                interp_pil = jax.random.uniform(subkey, shape=(npil,))
+                # interp_pil = jax.random.uniform(subkey, shape=(npil,))
+                interp_pil = jax.random.uniform(subkey) * jnp.ones(npil) 
             else:
                 interp_pil = backend.zeros(npil)
+
 
             carry = carry.replace(key=key)
         else:
             interp_model = np.random.uniform(size=(ngeom,)) if any_model_flags else np.zeros(ngeom)
             interp_floor = np.random.uniform() if any_floor_flags else 0.0
-            interp_pil = np.random.uniform(size=(npil,)) if any_pil_flags else np.zeros(npil)
+            # interp_pil = np.random.uniform(size=(npil,)) if any_pil_flags else np.zeros(npil)
+            interp_pil = np.random.uniform() * np.ones(npil) if any_pil_flags else np.zeros(npil)
 
         # Start from original values
         geom_friction = backend.array(model.geom_friction)
@@ -840,7 +843,6 @@ class CustomRandomizer(DomainRandomizer):
 
             updated = backend.stack([tan, tor, roll], axis=1)
 
-            # Leave floor friction untouched
             if backend == jnp:
                 geom_friction = geom_friction.at[pil_ids].set(updated)
             else:

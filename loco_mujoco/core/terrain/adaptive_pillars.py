@@ -102,6 +102,8 @@ class AdaPillarsTerrain(DynamicTerrain):
                 rgba=(0.26, 0.4, 0.82, 1.0),
                 contype=0,
                 conaffinity=0,
+                priority=1,
+                # friction=(1.1,0.5,0.001)
             )
         
         """

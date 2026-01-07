@@ -764,8 +764,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 lambda x: jax.lax.while_loop(cond_fun, body_fun, x),
                 init_val
             )
-            _, count, is_valid, target_pos_pre_z = final_val
-            jax.debug.print("{} - {}", count, is_valid)
+            _, _, _, target_pos_pre_z = final_val
 
         else:
             # NUMPY: Standard loop
