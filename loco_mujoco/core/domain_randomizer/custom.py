@@ -296,7 +296,10 @@ class CustomRandomizer(DomainRandomizer):
                 or self.rand_conf["randomize_model_geom_friction_rolling"] 
                 or self.rand_conf["randomize_floor_geom_friction_tangential"] 
                 or self.rand_conf["randomize_floor_geom_friction_torsional"]
-                or self.rand_conf["randomize_floor_geom_friction_rolling"]):
+                or self.rand_conf["randomize_floor_geom_friction_rolling"]
+                or self.rand_conf["randomize_pillars_geom_friction_tangential"] 
+                or self.rand_conf["randomize_pillars_geom_friction_torsional"]
+                or self.rand_conf["randomize_pillars_geom_friction_rolling"]):
             model = self._set_attribute_in_model(model, "geom_friction", domrand_state.geom_friction, backend)
         if self.rand_conf["randomize_geom_damping"] or self.rand_conf["randomize_geom_stiffness"]:
             model = self._set_attribute_in_model(model, "geom_solref", geom_solref, backend)
@@ -847,7 +850,6 @@ class CustomRandomizer(DomainRandomizer):
                 geom_friction = geom_friction.at[pil_ids].set(updated)
             else:
                 geom_friction[pil_ids] = updated
-
         return geom_friction, carry
 
     def _sample_geom_damping_and_stiffness(self,

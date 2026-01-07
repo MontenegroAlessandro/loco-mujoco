@@ -51,6 +51,8 @@ class GoalDoubleFootPlacementState:
     foot_pillar_ids: jax.Array
     free_pillar_id: jax.Array
     pending_free_pillar_id: jax.Array
+    # goal based absorbing management
+    absorbing: bool
 
 class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
     """
@@ -96,6 +98,9 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             update_z_every: float = 1.0,
             # start still flag
             start_still: bool = False,
+            # absorbing when tracking fails
+            tracking_fail_is_absorbing: bool = False,
+            stance_absorbing_threshold: float = 0.5,
             **kwargs
         ):
         # store parameters
@@ -121,6 +126,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.max_z_distance_low = max_z_distance_low
         self.update_z_every = update_z_every
         self.start_still = start_still
+        self.goal_based_absorbing = tracking_fail_is_absorbing
+        self.stance_absorbing_threshold = stance_absorbing_threshold
         
         # curriculum parmeters
         self.curriculum = curriculum
@@ -216,7 +223,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # adaptive terrains
             foot_pillar_ids=foot_pillar_ids,
             free_pillar_id=free_pillar_id,
-            pending_free_pillar_id=pending_free_pillar_id
+            pending_free_pillar_id=pending_free_pillar_id,
+            absorbing=False
         )
         
     def reset_state(self, env, model, data, carry, backend):
@@ -257,7 +265,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         goal_state = goal_state.replace(
             foot_pillar_ids=foot_pillar_ids,
             free_pillar_id=free_pillar_id,
-            pending_free_pillar_id=pending_free_pillar_id
+            pending_free_pillar_id=pending_free_pillar_id,
+            absorbing=False
         )
 
         # update observation with the new goal state in the carry
@@ -1492,9 +1501,13 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             ]
         )
 
+        # verify the goal-based absorbing condition
+        absorbing = (backend.linalg.norm(stance_pos - stance_pos_target) > self.stance_absorbing_threshold) & self.goal_based_absorbing
+        jax.debug.print("[G] Dist = {} \t Abs = {}", backend.linalg.norm(stance_pos - stance_pos_target), absorbing)
+
         # make the gait process progress
         gp = backend.fmod(gp + env.dt * state.gait_frequency, 1.0)
-        state = state.replace(gait_process=gp, steps=(state.steps + 1)) # update the steps too
+        state = state.replace(gait_process=gp, steps=(state.steps + 1), absorbing=absorbing) # update the steps too
         observation_states = carry.observation_states.replace(**{self.name: state})
         carry = carry.replace(observation_states=observation_states)
 

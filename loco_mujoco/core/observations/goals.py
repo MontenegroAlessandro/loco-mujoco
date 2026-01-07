@@ -83,6 +83,9 @@ class Goal(StatefulObservation):
         """
         assert self.initialized
         return data, carry
+    
+    def goal_based_absorbing(self, data, carry, backend):
+        return False
 
     def is_done(self,
                 env: Any,

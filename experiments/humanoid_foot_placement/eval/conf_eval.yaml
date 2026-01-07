@@ -30,7 +30,7 @@ experiment:
       diameter: 0.25
       feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
 
-    terminal_state_type: HeightBasedTerminalStateHandler
+    terminal_state_type: HeightAndStanceBasedTerminalStateHandler
 
     goal_type: GoalDoubleFootPlacement 
     goal_params:
@@ -64,7 +64,7 @@ experiment:
       max_num_gaits: 10
       # adaptive terrains 
       adaptive_terrain: true
-      z_distance_range: [-0.08, 0.08]
+      z_distance_range: [-0.1, 0.1]
       max_z_distance_up: 0.0
       max_z_distance_low: 0.0
       # start still flag
@@ -74,6 +74,9 @@ experiment:
       num_total_timesteps: ${num_total_timesteps}
       curriculum_starts_from: ${curriculum_starts_from}
       curriculum: ${curriculum}
+      # absorbing stuff
+      tracking_fail_is_absorbing: true
+      stance_absorbing_threshold: 0.2
       # observation group
       group: [prioritized, policy]
       ############################# FORWARD ############################

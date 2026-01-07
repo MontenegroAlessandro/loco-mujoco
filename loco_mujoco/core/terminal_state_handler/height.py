@@ -136,8 +136,58 @@ class HeightBasedTerminalStateHandler(TerminalStateHandler):
                 lambda: root_pose[2] - carry.terrain_state.desired_z,
                 lambda: height
             )
-        # chekc conditions on the height
+        # check conditions on the height
         height_cond = backend.logical_or(
             backend.less(height, self.root_height_range[0]), backend.greater(height, self.root_height_range[1])
         )
         return height_cond, carry
+
+class HeightAndStanceBasedTerminalStateHandler(HeightBasedTerminalStateHandler):
+    def __init__(self, env: Any, **handler_config: Dict[str, Any]):
+        """
+        Initialize the TerminalStateHandler.
+
+        Args:
+            env (Any): The environment instance.
+            **handler_config (Any): Configuration dictionary.
+        """
+        super().__init__(env, **handler_config)
+
+        self.root_height_range = self._info_props["root_height_healthy_range"]
+        self.root_free_joint_xml_ind = np.array(mj_jntname2qposid(self._info_props["root_free_joint_xml_name"], env._model))
+
+    def _is_absorbing_compat(
+        self,
+        env: Any,
+        obs: Union[np.ndarray, jnp.ndarray],
+        info: Dict[str, Any],
+        data: Union[MjData, Data],
+        carry: Any,
+        backend: ModuleType
+    ) -> Union[bool, Any]:
+        root_pose = data.qpos[self.root_free_joint_xml_ind]
+        # verify the terrain is adaptive
+        terrain_is_adaptive = isinstance(env._terrain, AdaPillarsTerrain)
+        # get normally the height
+        height = root_pose[2] - env._terrain.get_height_at_xy(carry.terrain_state, root_pose[:2], backend)
+        # consider dynamic height for adaptive terrains
+        if backend == np:
+            if terrain_is_adaptive:
+                height = root_pose[2] - carry.terrain_state.desired_z
+        else:
+            height = jax.lax.cond(
+                terrain_is_adaptive,
+                lambda: root_pose[2] - carry.terrain_state.desired_z,
+                lambda: height
+            )
+        # check conditions on the height
+        height_cond = backend.logical_or(
+            backend.less(height, self.root_height_range[0]), backend.greater(height, self.root_height_range[1])
+        )
+        # get the goal absorbing condition
+        goal_state = getattr(carry.observation_states, "GoalDoubleFootPlacement")
+        goal_based_absorbing = goal_state.absorbing # if goal_state is not None else False
+        # compute the final condition
+        cond = height_cond | goal_based_absorbing
+        jax.debug.print("[TERM] Heigh {} - GB {} - Tot {}", height_cond, goal_based_absorbing, cond)
+        return cond, carry

@@ -73,6 +73,9 @@ experiment:
       curriculum_starts_from: ${curriculum_starts_from}
       curriculum: ${curriculum}
       update_z_every: ${update_z_every}
+      # absorbing stuff
+      tracking_fail_is_absorbing: false
+      stance_absorbing_threshold: 0.0
       # observation group
       group: [prioritized, policy]
     
