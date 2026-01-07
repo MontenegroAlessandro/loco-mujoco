@@ -386,7 +386,12 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             # compute errors
             swing_pos_error_sq = backend.sum(backend.square(swing_curr_pos - swing_target_pos))
             stance_pos_error_sq = backend.sum(backend.square(stance_curr_pos - stance_target_pos))
-            swing_z_error_sq = backend.sum(backend.square(swing_curr_z - swing_target_z))
+            # compute the z error
+            # constrain the gp to be in [0,0.5]
+            scaled_gp = gait_process - backend.where(gait_process>=0.5, 0.5, 0.0)
+            # we add a slack to z just when the gait phase is before its half, otherwise no slack
+            swing_target_z_slack = swing_target_z + backend.where(scaled_gp <= 0.25, goal_state.gait_height, 0.0)
+            swing_z_error_sq = backend.sum(backend.square(swing_curr_z - swing_target_z_slack))
             
             def _wrap_to_pi(angle):
                 return (angle + backend.pi) % (2 * backend.pi) - backend.pi
@@ -395,8 +400,8 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             
             # if we are in the right phase (gait_process >= 0.5) we remove 0.5
             # the quantity we consider is always in 2 * [0, 0.5]
-            gait_sharpness = 2 * (gait_process - backend.where(gait_process > 0.5, 0.5, 0))
-            still_coeff = jax.lax.select(hold_still, 0.0, 1.0)
+            # gait_sharpness = 2 * (gait_process - backend.where(gait_process > 0.5, 0.5, 0))
+            # still_coeff = jax.lax.select(hold_still, 0.0, 1.0)
             """NOTE: if hold still condition is met, then we say the agent not to move"""
 
             # NOTE: adaptive sharpness is just for the swing targets

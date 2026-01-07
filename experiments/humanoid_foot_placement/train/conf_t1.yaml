@@ -47,7 +47,7 @@ experiment:
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
-      gait_height: 0.15
+      gait_height: 0.05
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
@@ -398,6 +398,13 @@ experiment:
       floor_geom_friction_torsional_range: [0.1, 0.3]
       randomize_floor_geom_friction_rolling: true
       floor_geom_friction_rolling_range: [0.00008, 0.00012]
+
+      randomize_pillars_geom_friction_tangential: true
+      pillars_geom_friction_tangential_range: [0.5, 1.5]
+      randomize_pillars_geom_friction_torsional: true
+      pillars_geom_friction_torsional_range: [0.1, 0.3]
+      randomize_pillars_geom_friction_rolling: true
+      pillars_geom_friction_rolling_range: [0.00008, 0.00012]
 
       randomize_geom_damping: false
       geom_damping_range: [100, 500]

@@ -12,6 +12,7 @@ from mujoco.mjx import Data, Model
 from loco_mujoco.core.domain_randomizer import DomainRandomizer
 from loco_mujoco.core.control_functions import ControlFunction, PDControl
 from loco_mujoco.core.utils.backend import assert_backend_is_supported
+from loco_mujoco.core.terrain import AdaPillarsTerrain
 
 
 @struct.dataclass
@@ -24,6 +25,7 @@ class CustomRandomizerState:
     gravity: Union[np.ndarray, jax.Array]
     geom_friction: Union[np.ndarray, jax.Array]
     floor_friction: Union[np.ndarray, jax.Array]
+    pils_friction: Union[np.ndarray, jax.Array]
     geom_stiffness: Union[np.ndarray, jax.Array]
     geom_damping: Union[np.ndarray, jax.Array]
     base_mass_to_add: float
@@ -66,6 +68,15 @@ class CustomRandomizer(DomainRandomizer):
 
         self._floor_geom_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
 
+        # get the geom ids for the pillars
+        self.terrain_is_adaptive = isinstance(env._terrain, AdaPillarsTerrain)
+        self.pil_ids = []
+        if self.terrain_is_adaptive:
+            for i in range(env._terrain.num_pillars):
+                pil_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_GEOM, f"pillar_{i}")
+                self.pil_ids.append(pil_id)
+        self.pil_ids = jnp.array(self.pil_ids)
+
         self._other_body_masks = np.ones(env.model.nbody, dtype=bool)
         self._other_body_masks[0] = False # exclude worldbody
         self._other_body_masks[self._root_body_id] = False
@@ -102,9 +113,12 @@ class CustomRandomizer(DomainRandomizer):
         else:
             filter_action_alpha = 0.0
 
+        init_pil_frictions = None if not self.terrain_is_adaptive else backend.array(model.geom_friction[self.pil_ids].copy())
+
         return CustomRandomizerState(gravity=backend.array([0.0, 0.0, -9.81]),
                                       geom_friction=backend.array(model.geom_friction.copy()),
                                       floor_friction=backend.array(model.geom_friction[self._floor_geom_id].copy()),
+                                      pils_friction=init_pil_frictions,
                                       geom_stiffness=backend.zeros(model.ngeom),
                                       geom_damping=backend.zeros(model.ngeom),
                                       base_mass_to_add=0.0,
@@ -177,11 +191,12 @@ class CustomRandomizer(DomainRandomizer):
                                                                                 pos_offset=backend.zeros_like(env._control_func._nominal_joint_positions),
                                                                                 ctrl_mult=backend.ones_like(env._control_func._nominal_joint_positions)))
 
-
+        udpated_pil_frictions = None if not self.terrain_is_adaptive else geom_friction[self.pil_ids]
 
         carry = carry.replace(domain_randomizer_state=domain_randomizer_state.replace(gravity=gravity,
                                                                                       geom_friction=geom_friction,
                                                                                       floor_friction=geom_friction[self._floor_geom_id],
+                                                                                      pils_friction=udpated_pil_frictions,
                                                                                       geom_stiffness=geom_stiffness,
                                                                                       geom_damping=geom_damping,
                                                                                       base_mass_to_add=base_mass_to_add,
@@ -692,10 +707,15 @@ class CustomRandomizer(DomainRandomizer):
         """
         assert_backend_is_supported(backend)
 
+        # get notable ids
         floor_id = self._floor_geom_id
+        pil_ids = self.pil_ids
 
         ngeom = len(model.geom_friction)
         floor_friction = model.geom_friction[floor_id]
+        npil = len(pil_ids)
+        if self.terrain_is_adaptive:
+            pil_frictions = model.geom_friction[pil_ids]
 
         any_model_flags = (
             self.rand_conf["randomize_model_geom_friction_tangential"]
@@ -706,6 +726,12 @@ class CustomRandomizer(DomainRandomizer):
             self.rand_conf["randomize_floor_geom_friction_tangential"]
             or self.rand_conf["randomize_floor_geom_friction_torsional"]
             or self.rand_conf["randomize_floor_geom_friction_rolling"]
+        )
+        any_pil_flags = (
+            self.rand_conf["randomize_pillars_geom_friction_tangential"]
+            or self.rand_conf["randomize_pillars_geom_friction_torsional"]
+            or self.rand_conf["randomize_pillars_geom_friction_rolling"]
+            or self.terrain_is_adaptive
         )
 
         if backend == jnp:
@@ -721,10 +747,18 @@ class CustomRandomizer(DomainRandomizer):
                 interp_floor = jax.random.uniform(subkey)
             else:
                 interp_floor = backend.zeros(())
+            
+            if any_pil_flags:
+                key, subkey = jax.random.split(key)
+                interp_pil = jax.random.uniform(subkey, shape=(npil,))
+            else:
+                interp_pil = backend.zeros(npil)
+
             carry = carry.replace(key=key)
         else:
             interp_model = np.random.uniform(size=(ngeom,)) if any_model_flags else np.zeros(ngeom)
             interp_floor = np.random.uniform() if any_floor_flags else 0.0
+            interp_pil = np.random.uniform(size=(npil,)) if any_pil_flags else np.zeros(npil)
 
         # Start from original values
         geom_friction = backend.array(model.geom_friction)
@@ -785,6 +819,32 @@ class CustomRandomizer(DomainRandomizer):
                 geom_friction = geom_friction.at[floor_id].set(new_floor_friction)
             else:
                 geom_friction[floor_id] = new_floor_friction
+
+        # sample the fricitons for the pillars if needed
+        if any_pil_flags:
+            tan = pil_frictions[:, 0]
+            tor = pil_frictions[:, 1]
+            roll = pil_frictions[:, 2]
+
+            if self.rand_conf["randomize_pillars_geom_friction_tangential"]:
+                min_, max_ = self.rand_conf["pillars_geom_friction_tangential_range"]
+                tan = min_ + (max_ - min_) * interp_pil
+
+            if self.rand_conf["randomize_pillars_geom_friction_torsional"]:
+                min_, max_ = self.rand_conf["pillars_geom_friction_torsional_range"]
+                tor = min_ + (max_ - min_) * interp_pil
+
+            if self.rand_conf["randomize_pillars_geom_friction_rolling"]:
+                min_, max_ = self.rand_conf["pillars_geom_friction_rolling_range"]
+                roll = min_ + (max_ - min_) * interp_pil
+
+            updated = backend.stack([tan, tor, roll], axis=1)
+
+            # Leave floor friction untouched
+            if backend == jnp:
+                geom_friction = geom_friction.at[pil_ids].set(updated)
+            else:
+                geom_friction[pil_ids] = updated
 
         return geom_friction, carry
 

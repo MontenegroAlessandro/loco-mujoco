@@ -551,6 +551,351 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         key = carry.key
         state = getattr(carry.observation_states, self.name)
         
+        # verify whether we are at reset time
+        hold_still = state.still_phase 
+
+        # ===========================================SWING / STANCE FOOT IDX===========================================
+        gp = initial_gait
+        left_swing = (gp < 0.5)
+        swing_foot_idx = backend.astype(~left_swing, backend.int32)
+        
+        stance_foot_idx = 1 - swing_foot_idx 
+        stance_is_right = (stance_foot_idx == 1)
+        
+        stance_foot_site_id = jax.lax.select(
+            stance_is_right, self._foot_site_id_right, self._foot_site_id_left
+        )
+        swing_foot_site_id = jax.lax.select(
+            ~stance_is_right, self._foot_site_id_right, self._foot_site_id_left
+        )
+        
+        # =====================================MODIFY FEET and MOVEMENT DIRECTIONS=====================================
+        # define the movement direction
+        key, subkey_dir, key_sampling = jax.random.split(key, 3)
+        
+        sign = backend.where(swing_foot_idx == 0, -1, 1)
+        rand_direction_change = sign * jax.random.uniform(
+            subkey_dir, minval=self.change_direction_range_rad[0], maxval=self.change_direction_range_rad[1]
+        )
+        rand_direction_change = jax.lax.select(hold_still, 0.0, rand_direction_change)
+        
+        mov_dir_rot = R.from_euler('z', rand_direction_change) * R.from_euler('z', movement_direction)
+        movement_direction = mov_dir_rot.as_euler('xyz')[2]
+        
+        # re-assign the feet direction if it is the case
+        feet_direction = jax.lax.select(self.track_movement_only, movement_direction, feet_direction)
+
+        # ============================================FOOT PLACEMENT TARGET============================================
+        # stance foot position in the WORLD
+        stance_foot_pos = data.site_xpos[stance_foot_site_id]
+        
+        # foot orientation
+        stance_foot_orn_mat = data.site_xmat[stance_foot_site_id].reshape(3, 3)
+        stance_foot_orn = R.from_matrix(stance_foot_orn_mat).as_quat(scalar_first=True)
+        current_stance_yaw = R.from_matrix(stance_foot_orn_mat).as_euler('xyz')[2]
+        
+        feet_direction = jax.lax.select(hold_still, current_stance_yaw, feet_direction)
+        
+        swing_foot_pos = data.site_xpos[swing_foot_site_id]
+        swing_foot_orn_mat = data.site_xmat[swing_foot_site_id].reshape(3, 3)
+        swing_foot_orn = R.from_matrix(swing_foot_orn_mat).as_quat(scalar_first=True)
+
+        # ============================================REJECTION SAMPLING============================================
+        
+        # Define the generator for a single candidate target
+        def _get_candidate_target(rng_key):
+            # Split keys for distance and angle
+            k1, k2 = jax.random.split(rng_key)
+            
+            # 1. Sample Distance
+            dist = jax.random.uniform(k1, minval=distance_range[0], maxval=distance_range[1])
+            dist = jax.lax.select(hold_still, self.still_feet_distance, dist)
+            
+            # 2. Logic for Tracking vs No-Tracking
+            def _no_tracking_candidate():
+                ref_pos, ref_yaw = stance_foot_pos, current_stance_yaw
+                angle_rnd = jax.random.uniform(k2, minval=angle_range_rad[0], maxval=angle_range_rad[1])
+                angle = (R.from_euler('z', angle_rnd) * mov_dir_rot).as_euler('xyz')[2]
+                
+                # Ideal world target
+                ideal = backend.array([dist * backend.cos(angle), dist * backend.sin(angle), 0.0])
+                
+                # Convert to local frame of stance foot
+                ref_yaw_rot = R.from_euler('z', ref_yaw)
+                local = ref_yaw_rot.apply(ideal, inverse=True)
+                
+                # Clip Lateral
+                max_lat = self.foot_safe_distance
+                # Apply clipping based on swing foot side logic
+                y_clipped = jax.lax.select(
+                    stance_is_right,
+                    backend.maximum(local[1], max_lat),  # Left swing needs +y
+                    backend.minimum(local[1], -max_lat)  # Right swing needs -y
+                )
+                local_clipped = local.at[1].set(y_clipped)
+                
+                return ref_yaw_rot.apply(local_clipped, inverse=False) + ref_pos
+
+            def _tracking_candidate():
+                min_ang, max_ang = self.local_angle_range_rad
+                lat_sign = backend.where(stance_is_right, 1, -1)
+                
+                angle_rnd = lat_sign * jax.random.uniform(k2, minval=angle_range_rad[0], maxval=angle_range_rad[1])
+                angle_world = (R.from_euler('z', angle_rnd) * mov_dir_rot).as_euler('xyz')[2]
+                
+                local_step_angle = self.wrap_to_pi(angle_world - current_stance_yaw, backend)
+                
+                clip_min = backend.where(stance_is_right, min_ang, -max_ang)
+                clip_max = backend.where(stance_is_right, max_ang, -min_ang)
+                clipped_angle = backend.clip(local_step_angle, clip_min, clip_max)
+                
+                final_world_angle = current_stance_yaw + clipped_angle
+                step_vec = backend.array([dist * backend.cos(final_world_angle), dist * backend.sin(final_world_angle), 0.0])
+                return stance_foot_pos + step_vec
+
+            def _hold_still_candidate():
+                sign = jnp.where((swing_foot_idx == 0), 1, -1)
+                ideal_local = backend.array([0.0, sign * dist, 0.0])
+                cur_rot = R.from_euler('z', current_stance_yaw)
+                return cur_rot.apply(ideal_local, inverse=False) + stance_foot_pos
+
+            # Select Strategy
+            candidate = jax.lax.cond(
+                hold_still,
+                _hold_still_candidate,
+                lambda: jax.lax.cond(
+                    self.track_movement_only,
+                    _tracking_candidate,
+                    _no_tracking_candidate
+                )
+            )
+            return candidate
+
+        # Collision Check Function
+        def _check_valid(pos_xy):
+            dist_stance = backend.linalg.norm(pos_xy[:2] - stance_foot_pos[:2])
+            valid_stance = dist_stance > self._pillar_min_center_dist 
+
+            dist_swing = backend.linalg.norm(pos_xy[:2] - swing_foot_pos[:2])
+            valid_swing = dist_swing > self._pillar_min_center_dist
+            
+            # TODO: avoid other pillars
+            
+            return valid_stance & valid_swing
+
+        # Perform Sampling
+        if backend == jnp:
+            def cond_fun(val):
+                _, count, found, _ = val
+                return (~found) & (count < 1000)
+
+            def body_fun(val):
+                rng, count, _, current_best = val
+                rng, step_key = jax.random.split(rng)
+                
+                candidate = _get_candidate_target(step_key)
+                is_valid = _check_valid(candidate)
+
+                return (rng, count + 1, is_valid, candidate)
+
+            # Initial sample 
+            key, init_key = jax.random.split(key_sampling)
+            initial_target = _get_candidate_target(init_key)
+            init_val = (key, 0, False, initial_target)
+            
+            # If hold_still is True, we don't need to loop 
+            final_val = jax.lax.cond(
+                hold_still,
+                lambda x: (x[0], x[1], True, x[3]), 
+                lambda x: jax.lax.while_loop(cond_fun, body_fun, x),
+                init_val
+            )
+            _, count, is_valid, target_pos_pre_z = final_val
+            jax.debug.print("{} - {}", count, is_valid)
+
+        else:
+            # NUMPY: Standard loop
+            found = False
+            count = 0
+            target_pos_pre_z = _get_candidate_target(key) # init
+            
+            if not hold_still:
+                while not found and count < 1000:
+                    key, subkey = jax.random.split(key) 
+                    cand = _get_candidate_target(subkey)
+                    if _check_valid(cand):
+                        target_pos_pre_z = cand
+                        found = True
+                    count += 1
+            else:
+                target_pos_pre_z = _get_candidate_target(key)
+
+        # =============================================PILLARS MANAGEMENT=============================================
+        
+        # management of the three pillars
+        num_pillars = backend.astype(getattr(getattr(env, "_terrain", None), "num_pillars", 0), backend.int32)
+        use_three_pillars = backend.astype(self.adaptive_terrain & (num_pillars >= 3) & ~hold_still, backend.int32)
+        
+        def _retrieve_pillar_id_for_goal(state_in):
+            foot_pillar_ids = state_in.foot_pillar_ids
+            free_pillar_id = state_in.free_pillar_id
+            pending_free = state_in.pending_free_pillar_id
+
+            neg_one = backend.array(-1, dtype=backend.int32)
+
+            # Release pending pillar (from previous swing) so it becomes the free pillar now
+            has_pending = pending_free >= 0
+            free_pillar_id = jax.lax.select(has_pending, pending_free, free_pillar_id)
+            pending_free = jax.lax.select(has_pending, neg_one, pending_free)
+
+            # Allocate the free pillar to the NEW swing-foot target
+            pillar_id_for_goal = free_pillar_id
+
+            # Mark the OLD swing-foot pillar as pending-free (do NOT reuse immediately)
+            old_swing_pillar = foot_pillar_ids[swing_foot_idx]
+            foot_pillar_ids = foot_pillar_ids.at[swing_foot_idx].set(pillar_id_for_goal)
+
+            pending_free = old_swing_pillar
+            free_pillar_id = neg_one
+
+            state_out = state_in.replace(
+                foot_pillar_ids=foot_pillar_ids,
+                free_pillar_id=free_pillar_id,
+                pending_free_pillar_id=pending_free,
+            )
+            return pillar_id_for_goal, state_out
+        
+        def _fallback(state_in):
+            return swing_foot_idx, state_in
+        
+        pillar_id_for_goal, state = jax.lax.cond(
+            use_three_pillars,
+            _retrieve_pillar_id_for_goal,
+            _fallback,
+            operand=state
+        )
+        
+        # NOTE: Removed the old _push_target_out_of_other_pillars call here as rejection sampling handles it.
+        
+        # =============================================FOOT HEIGHT TARGET=============================================
+        key, zkey = jax.random.split(key)
+        target_z = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
+        if self.adaptive_terrain:
+            z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
+            z_sampled = backend.where(hold_still, 0.0, z_sampled) 
+            target_z = backend.maximum(z_sampled + stance_foot_pos[2], 0.0)
+
+        target_pos = target_pos_pre_z.at[2].set(target_z)
+        
+        # when the terrain is adaptive, we need to build a pillar below the foot
+        terrain_state = carry.terrain_state
+        if self.adaptive_terrain:
+            terrain_state = env._terrain.set_height_at_xy(carry.terrain_state, target_pos[:2], target_z, pillar_id_for_goal, backend)
+        carry = carry.replace(terrain_state=terrain_state)
+
+        # ===========================================FOOT ORIENTATION TARGET===========================================
+        feet_dir_rot = R.from_euler('z', feet_direction)
+        key, subkey4 = jax.random.split(key)
+        
+        # sample the yaw relative to the current stance foot yaw
+        rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1])
+        angle_yaw = (R.from_euler('z', rand_yaw) * feet_dir_rot).as_euler('xyz')[2]
+        
+        # keep the angle in the safe range
+        yaw_displacement = self.wrap_to_pi(angle_yaw - current_stance_yaw, backend)
+        clipped_abs_displacement = backend.clip(backend.abs(yaw_displacement), 0, backend.pi / 2)
+        clipped_yaw_displacement = backend.sign(yaw_displacement) * clipped_abs_displacement
+        
+        # compute final yaw
+        final_yaw = self.wrap_to_pi(current_stance_yaw + clipped_yaw_displacement, backend)
+        target_orn_rot = R.from_euler('z', final_yaw)
+        
+        target_orn = jax.lax.select(
+            hold_still,
+            stance_foot_orn,
+            target_orn_rot.as_quat(scalar_first=True)
+        )
+
+        # ===============================================ASSIGN TARGETS===============================================
+        num_gaits = jax.lax.select(
+            reset,
+            1,
+            backend.fmod(state.num_gaits + 1, self.max_num_gaits)    
+        )
+        
+        state = state.replace(
+            swing_foot_idx=swing_foot_idx,
+            goal_height=self.goal_height,
+            gait_frequency=gait_frequency,
+            gait_height=self.gait_height,
+            gait_process=gp,
+            distance_range=distance_range,
+            angle_range_rad=angle_range_rad,
+            movement_direction=movement_direction,
+            feet_direction=feet_direction,
+            num_gaits=num_gaits,
+        )
+
+        if backend == np:
+            target_pos = swing_foot_pos if reset else target_pos
+            target_orn = swing_foot_orn if reset else target_orn
+        else:
+            target_pos = jax.lax.select(reset, swing_foot_pos, target_pos)
+            target_orn = jax.lax.select(reset, swing_foot_orn, target_orn)
+
+        if backend == np:
+            if not reset: 
+                if swing_foot_idx == 0:
+                    state = state.replace(left_foot_target_pos=target_pos, left_foot_target_orn=target_orn)
+                else:
+                    state = state.replace(right_foot_target_pos=target_pos, right_foot_target_orn=target_orn)
+            else:
+                if swing_foot_idx == 0:
+                    state = state.replace(
+                        left_foot_target_pos=target_pos, left_foot_target_orn=target_orn,
+                        right_foot_target_pos=stance_foot_pos, right_foot_target_orn=stance_foot_orn
+                    )
+                else:
+                    state = state.replace(
+                        right_foot_target_pos=target_pos, right_foot_target_orn=target_orn,
+                        left_foot_target_pos=stance_foot_pos, left_foot_target_orn=stance_foot_orn
+                    )
+        else:
+            def normal_step_update(s):
+                return jax.lax.cond(
+                    (swing_foot_idx == 0),
+                    lambda s_inner: s_inner.replace(left_foot_target_pos=target_pos, left_foot_target_orn=target_orn),
+                    lambda s_inner: s_inner.replace(right_foot_target_pos=target_pos, right_foot_target_orn=target_orn),
+                    operand=s
+                )
+            def reset_step_update(s):
+                return jax.lax.cond(
+                    (swing_foot_idx == 0), 
+                    lambda s_inner: s_inner.replace(
+                        left_foot_target_pos=target_pos, left_foot_target_orn=target_orn,
+                        right_foot_target_pos=stance_foot_pos, right_foot_target_orn=stance_foot_orn
+                    ),
+                    lambda s_inner: s_inner.replace( 
+                        right_foot_target_pos=target_pos, right_foot_target_orn=target_orn,
+                        left_foot_target_pos=stance_foot_pos, left_foot_target_orn=stance_foot_orn
+                    ),
+                    operand=s
+                )
+            state = jax.lax.cond(reset, reset_step_update, normal_step_update, operand=state)
+
+        return state, carry
+
+    def old_sample_goal(
+        self, env, data, carry, backend, initial_gait, gait_frequency, 
+        distance_range, angle_range_rad, z_distance_range, 
+        reset = False, movement_direction = 0.0, feet_direction = 0.0
+    ):
+        """Sample a new random foot placement goal for a random foot in any direction."""
+        # take rotation backend; key for jax randomness; goal state
+        R = jnp_R if backend == jnp else np_R
+        key = carry.key
+        state = getattr(carry.observation_states, self.name)
+        
         # verify whether we are at reset time: in that case we initialize the goal to stay still
         hold_still = state.still_phase 
 
