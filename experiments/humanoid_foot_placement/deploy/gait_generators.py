@@ -9,16 +9,13 @@ class GaitGenerator:
     def __init__(
         self,
         feet_distance: float = 0.2,
-        vertical_dist: float = 0.1,
-        lateral_dist: float = 0.3,
-        steering_angle: float = 0.0,
         stop_steps: int = 2,
     ):
         # map the parameters
         self.feet_distance = feet_distance
-        self.vertical_dist = vertical_dist
-        self.lateral_dist = lateral_dist
-        self.steering_angle = steering_angle
+        self.vertical_dist = 0.0
+        self.lateral_dist = 0.0
+        self.steering_angle =  0.0
         self.stop_steps = stop_steps
         # additional controlling parameters
         self.gaits_to_still = 0
@@ -27,10 +24,10 @@ class GaitGenerator:
         self.swing_foot_idx = 0  # 0 for left, 1 for right
         self.sample_goal = False
         self.foot_offset = [
-            np.array([0, self.feet_distance, 0.0]), 
-            np.array([1, 0, 0, 0]), 
-            np.array([0, -self.feet_distance, 0.0]), 
-            np.array([1, 0, 0, 0]), 
+            np.array([0, self.feet_distance, 0.0]),
+            np.array([1, 0, 0, 0]),
+            np.array([0, -self.feet_distance, 0.0]),
+            np.array([1, 0, 0, 0]),
         ]
 
         self.teleop = dict(
@@ -82,18 +79,18 @@ class GaitGenerator:
             assert self.move_dir in ["STILL", "FWD", "BWD", "LEFT", "RIGHT", "DIAG-L", "DIAG-R"], err_msg
 
             if self.move_dir == "STILL":
-                self.foot_offset = self._gen_still_cmd(gp=gp)
+                self.foot_offset = self._gen_still_cmd()
                 self.gaits_to_still = max(0, self.gaits_to_still - 1)
             elif self.move_dir in ["FWD", "BWD"]:
-                self.foot_offset = self._gen_vertical_cmd(gp=gp)
+                self.foot_offset = self._gen_vertical_cmd()
             elif self.move_dir in ["LEFT", "RIGHT"]:
-                self.foot_offset = self._gen_lateral_cmd(gp=gp)
+                self.foot_offset = self._gen_lateral_cmd()
             elif self.move_dir in ["DIAG-L", "DIAG-R"]:
                 direction = 1 if self.move_dir == "DIAG-L" else -1
-                self.foot_offset = self._gen_diag_cmd(gp=gp, direction=direction)
+                self.foot_offset = self._gen_diag_cmd(direction=direction)
         return self.foot_offset, gait_info
-    
-    def _gen_still_cmd(self, gp: float = 0.0):
+
+    def _gen_still_cmd(self):
         # no changing targets
         zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
         zero_pos_offset = np.zeros(3, dtype=np.float32)
@@ -115,7 +112,7 @@ class GaitGenerator:
 
         return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset
 
-    def _gen_vertical_cmd(self, gp: float = 0.0, direction: int = 1):# -> tuple[NDArray[Any] | NDArray[floating[_32Bit]], Any | NDA...:
+    def _gen_vertical_cmd(self):  # -> tuple[NDArray[Any] | NDArray[floating[_32Bit]], Any | NDA...:
         # no changing targets
         zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
         zero_pos_offset = np.zeros(3, dtype=np.float32)
@@ -126,7 +123,9 @@ class GaitGenerator:
         steering_orn_offset = np_R.from_euler("z", steering_angle).as_quat(scalar_first=True)
 
         # pos gen
-        l_pos_offset = np.array([self.vertical_dist, self.feet_distance, 0]) if self.swing_foot_idx == 0 else zero_pos_offset
+        l_pos_offset = (
+            np.array([self.vertical_dist, self.feet_distance, 0]) if self.swing_foot_idx == 0 else zero_pos_offset
+        )
         r_pos_offset = (
             np.array([self.vertical_dist, -self.feet_distance, 0]) if self.swing_foot_idx == 1 else zero_pos_offset
         )
@@ -136,7 +135,7 @@ class GaitGenerator:
 
         return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset
 
-    def _gen_lateral_cmd(self, gp: float = 0.0):
+    def _gen_lateral_cmd(self):
         # NOTE: direction 1 means left, -1 right
         direction = 1 if self.lateral_dist >= 0 else -1
         direction = 0 if abs(self.lateral_dist) < 1e-4 else direction
@@ -167,7 +166,7 @@ class GaitGenerator:
 
         return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset
 
-    def _gen_diag_cmd(self, gp: float = 0.0, direction: int = 1):
+    def _gen_diag_cmd(self, direction: int = 1):
         # NOTE: direction 1 means left, -1 right
         err_msg = f"[GaitGenerator: _gen_diag_cmd] Direction {direction} is not valid."
         assert direction in [-1, 1], err_msg
@@ -230,12 +229,16 @@ class GaitGenerator:
             print(f"[teleop] Vertical Distance: {self.vertical_dist:.2f}")
 
         elif keycode == LEFT_ARROW:
-            self.lateral_dist = float(np.clip(self.lateral_dist + self.teleop["lat_step"], self.teleop["lat_min"], self.teleop["lat_max"]))
+            self.lateral_dist = float(
+                np.clip(self.lateral_dist + self.teleop["lat_step"], self.teleop["lat_min"], self.teleop["lat_max"])
+            )
             self.teleop["mov_dir"] = "LEFT"
             print(f"[teleop] Lateral Distance: {self.lateral_dist:.2f}")
 
         elif keycode == RIGHT_ARROW:
-            self.lateral_dist = float(np.clip(self.lateral_dist - self.teleop["lat_step"], self.teleop["lat_min"], self.teleop["lat_max"]))
+            self.lateral_dist = float(
+                np.clip(self.lateral_dist - self.teleop["lat_step"], self.teleop["lat_min"], self.teleop["lat_max"])
+            )
             self.teleop["mov_dir"] = "RIGHT"
             print(f"[teleop] Lateral Distance: {self.lateral_dist:.2f}")
 
@@ -279,11 +282,16 @@ class GaitGenerator:
 
 
 class VisualGaitGenerator(GaitGenerator):
-    def __init__(self, robot_model, robot_data, cam_width, cam_height,
-                 feet_distance: float = 0.2, vertical_dist: float = 0.1, lateral_dist: float = 0.3, 
-                 steering_angle: float = 0.0, stop_steps: int = 2):
-        super().__init__(feet_distance = feet_distance, vertical_dist = vertical_dist, lateral_dist = lateral_dist, 
-                         steering_angle = steering_angle, stop_steps = stop_steps)
+    def __init__(
+        self,
+        robot_model,
+        robot_data,
+        cam_width,
+        cam_height,
+        feet_distance: float = 0.2,
+        stop_steps: int = 2,
+    ):
+        super().__init__(feet_distance=feet_distance, stop_steps=stop_steps)
 
         self.model = copy.deepcopy(robot_model)
         self.data = copy.deepcopy(robot_data)
@@ -299,29 +307,32 @@ class VisualGaitGenerator(GaitGenerator):
             "principal_point": (cam_width / 2.0, cam_height / 2.0),
         }
         self.cam_intrinsics = np.array(
-            [[self.cam_info["focal"], 0, self.cam_info["principal_point"][0]],
-             [0, self.cam_info["focal"], self.cam_info["principal_point"][1]],
-             [0, 0, 1]], dtype=np.float32
-             )
+            [
+                [self.cam_info["focal"], 0, self.cam_info["principal_point"][0]],
+                [0, self.cam_info["focal"], self.cam_info["principal_point"][1]],
+                [0, 0, 1],
+            ],
+            dtype=np.float32,
+        )
 
     def query_cmd(self, rgb_image, depth_image, joint_pos, gp: float):
         gait_info = self.preprocess_gp_info(gp=gp)
 
         if self.sample_goal:
             if self.move_dir == "STILL":
-                self.foot_offset = self._gen_still_cmd(gp=gp)
+                self.foot_offset = self._gen_still_cmd()
                 self.gaits_to_still = max(0, self.gaits_to_still - 1)
             elif self.move_dir in ["FWD", "BWD"]:
                 # detect the foot target
                 targets, rgb_image = self.detect_foot_target(rgb_image, depth_image)
                 if len(targets) > 0:
-                    self.foot_offset = self._gen_visual_cmd(targets, joint_pos, gp)
+                    self.foot_offset = self._gen_visual_cmd(targets, joint_pos)
                 else:
-                    self.foot_offset = self._gen_vertical_cmd(gp=gp)
+                    self.foot_offset = self._gen_vertical_cmd()
 
         return self.foot_offset, gait_info, rgb_image
 
-    def _gen_visual_cmd(self, targets, joint_pos, gp):
+    def _gen_visual_cmd(self, targets, joint_pos):
         l_rel_pos, l_rel_xmat, r_rel_pos, r_rel_xmat = self._get_foot_to_cam(joint_pos)
         zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
         zero_pos_offset = np.zeros(3, dtype=np.float32)
@@ -366,14 +377,14 @@ class VisualGaitGenerator(GaitGenerator):
                     if self.swing_foot_idx == 0:
                         next_r_to_target = r_rel_xmat @ next_target + r_rel_pos
                         target_dir = next_r_to_target - r_to_target
-                        yaw_offset = np.arcsin(-self.feet_distance/(np.linalg.norm(target_dir[:2]) + 1e-6))
+                        yaw_offset = np.arcsin(-self.feet_distance / (np.linalg.norm(target_dir[:2]) + 1e-6))
                         yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
                         yaw = np.clip(yaw, np.deg2rad(-30), np.deg2rad(90))
                         l_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
                     else:
                         next_l_to_target = l_rel_xmat @ next_target + l_rel_pos
                         target_dir = next_l_to_target - l_to_target
-                        yaw_offset = np.arcsin(self.feet_distance/(np.linalg.norm(target_dir[:2]) + 1e-6))
+                        yaw_offset = np.arcsin(self.feet_distance / (np.linalg.norm(target_dir[:2]) + 1e-6))
                         yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
                         yaw = np.clip(yaw, np.deg2rad(-90), np.deg2rad(30))
                         r_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
@@ -483,8 +494,42 @@ class VisualGaitGenerator(GaitGenerator):
         sorted_indices = np.argsort(distances)
         targets_cam = targets_cam[sorted_indices]
 
-        bgr = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR)
+        bgr = cv2.cvtColor(rgb_imageGaitGenerator, cv2.COLOR_RGB2BGR)
         for target in targets[sorted_indices][:3]:
             x, y, MA, ma, angle = target
             bgr = cv2.ellipse(bgr, (int(x), int(y)), (int(MA / 2), int(ma / 2)), angle, 0, 360, (0, 255, 0), 1)
         return targets_cam, cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+
+class GoalReachingGaitGenerator(GaitGenerator):
+    def __init__(self, model, data, max_angle, feet_distance: float = 0.2, stop_steps: int = 2):
+        super().__init__(feet_distance=feet_distance, stop_steps=stop_steps)
+        self.model = copy.deepcopy(model)
+        self.data = copy.deepcopy(data)
+
+        self.max_angle = max_angle
+
+
+    def query_cmd(self, cur_pos, foot_orn, goal_pos, q_pos, gp: float):
+        gait_info = self.preprocess_gp_info(gp=gp)
+
+        self.data.qpos[7:] = q_pos
+        self.data.qpos[:3] = np.array([0.0, 0.0, 1.0])  # set a fixed height for the base
+        self.data.qpos[3:7] = np.array([1.0, 0.0, 0.0, 0.0])  # no rotation for the base
+        mujoco.mj_fwdPosition(self.model, self.data)
+
+        target_dir = goal_pos - cur_pos
+        target_dist = np.linalg.norm(target_dir[:2])
+
+        foot_yaw_angle = np.arctan2(target_dir[1], target_dir[0])
+        foot_yaw_angle = np.clip(foot_yaw_angle, -self.max_angle + foot_orn, self.max_angle + foot_orn)
+        swing_orn_offset = np_R.from_euler("z", foot_yaw_angle).as_quat(scalar_first=True)
+
+        if self.sample_goal:
+            if target_dist < 0.2:
+                self.foot_offset = self._gen_still_cmd()
+                self.gaits_to_still = max(0, self.gaits_to_still - 1)
+            else:
+                self.foot_offset = self._gen_goal_reaching_cmd()
+
+        return self.foot_offset, gait_info

@@ -234,13 +234,12 @@ def main(config: DictConfig):
     cmd = np.zeros(16, dtype=np.float32)
     counter = 1
     gait_frequency = cmd_params["gait_frequency"]
-    feet_dist = cmd_params["feet_distance"]
 
     # init the gait generator
     # GG = GaitGenerator(feet_distance=feet_dist, vertical_dist=0.0, lateral_dist=0.0, steering_angle=0.0)
     GG = VisualGaitGenerator(
-        feet_distance=feet_dist, vertical_dist=0.0, lateral_dist=0.0, steering_angle=0.0, stop_steps=2,
-        robot_model=m, robot_data=d, cam_width=cam_width, cam_height=cam_height)
+        robot_model=m, robot_data=d, cam_width=cam_width, cam_height=cam_height,
+        feet_distance=cmd_params["feet_distance"], stop_steps=cmd_params["stop_steps"])
     GG.print_instruction()
 
     # ===========================================TELEOPERATION via KEYBOARD===========================================

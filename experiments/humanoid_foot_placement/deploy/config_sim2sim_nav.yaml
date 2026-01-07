@@ -4,13 +4,14 @@
 # Updated with parameters and correct joint limits for a 23 DoF robot model.
 
 # policy parameters
-agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl
+# agent_path: /home/alessandro/code/scripts/policies/T1/n_complete/maybe.pkl # mov_local_no_still_coeff 
+agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl # mov_local_no_still_coeff 
 # agent_path: /Users/ale/code/PyProjects/scripts/experiments/humanoid_foot_placement/policies/T1/still_fp_6.pkl 
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
 # train_config_name: conf.yaml
 # --- Simulation Parameters ---
+# xml_path: /home/alessandro/code/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
 xml_path: /home/puze/Projects/accu_loco/loco_mujoco/models/booster_t1/booster_t1_original.xml
-# xml_path: /Users/ale/code/PyProjects/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
 simulation_duration: 300.0 # seconds
 simulation_dt: 0.002 # seconds, physics timestep
 control_decimation: 10 # policy will run every N physics steps (policy freq = 1 / (dt * decimation))
@@ -75,7 +76,7 @@ lmj_kds:
 # --- Robot Pose and Limits (23 joints) ---
 default_angles:
   - 0.0   # AAHead_yaw
-  - 0.0   # Head_pitch
+  - 1.0   # Head_pitch
   - 0.2   # Left_Shoulder_Pitch
   - -1.2 # Left_Shoulder_Roll
   - 0.0   # Left_Elbow_Pitch
@@ -148,12 +149,31 @@ max_angles:
   - 0.35  # Right_Ankle_Pitch
   - 0.44  # Right_Ankle_Roll
 
+init_state_params:
+  qpos_init: [0, 0, 0.72, 
+              1, 0, 0, 0, 
+              0, 0,
+              0.2,-1.2, 0, -0.5,
+              0.2, 1.2, 0, 0.5,
+              0,
+              -0.2, 0, 0, 0.4, -0.25, 0,
+              -0.2, 0, 0, 0.4, -0.25, 0]
+  qvel_init: [0, 0, 0, 
+              0, 0, 0, 
+              0, 0, 
+              0, 0, 0, 0, 
+              0, 0, 0, 0, 
+              0, 
+              0, 0, 0, 0, 0, 0,
+              0, 0, 0, 0, 0, 0]
+
 # --- Policy Parameters ---
 num_actions: 23 # Base number of actions (one per joint). Script will handle varstiff extension.
 
 # --- Command Parameters (for generating the `cmd` vector) ---
 # These are default command values. The valid ranges are in the comments.
-command:
-  feet_distance: 0.2
+experiment:
+  step_size: 0.2
+  feet_distance: 0.25
   gait_frequency: 1.0
-  stop_steps: 2
+  goal_range: [2.0, 5.0]
