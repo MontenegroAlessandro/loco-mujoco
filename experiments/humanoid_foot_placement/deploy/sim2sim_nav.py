@@ -86,7 +86,33 @@ def pd_control(target_q, q, kp, target_dq, dq, kd):
     return (target_q - q) * kp + (target_dq - dq) * kd
 
 
-@hydra.main(config_name="config_sim2sim_visual.yaml")
+def reset_episode(m, d, config):
+    """Resets the simulation to the given initial state."""
+
+    initial_qpos = np.array(config.init_state_params.qpos_init, dtype=np.float32)
+    initial_qvel = np.array(config.init_state_params.qvel_init, dtype=np.float32)
+    if len(initial_qpos) == m.nq and len(initial_qvel) == m.nv:
+        d.qpos[:] = initial_qpos
+        d.qvel[:] = initial_qvel
+        print(initial_qpos)
+        print("Initial state (qpos, qvel) loaded from policy's environment config.")
+    else:
+        print(
+            f"Warning: Initial qpos/qvel length mismatch with model. "
+            f"Config qpos: {len(initial_qpos)} (expected {m.nq}), "
+            f"qvel: {len(initial_qvel)} (expected {m.nv}). Using default MuJoCo init."
+        )
+
+    target_dist = np.random.uniform(
+        low=config.experiment.goal_range[0], high=config.experiment.goal_range[1]
+    )
+    angle = np.random.uniform(low=-np.pi, high=np.pi)
+    target_site_pos = target_dist * np.array([np.cos(angle), np.sin(angle)])
+    m.site("goal").pos[:2] = target_site_pos
+    mujoco.mj_forward(m, d)
+
+
+@hydra.main(config_name="config_sim2sim_nav.yaml")
 def main(config: DictConfig):
 
     xml_path = config["xml_path"]
@@ -105,16 +131,13 @@ def main(config: DictConfig):
     num_qj = len(default_angles)  # Number of actuated joints (23)
     base_num_actions = config["num_actions"]  # This is also 23
 
-    cmd_params = config["command"]
+    exp_params = config.experiment
 
     # --- Load Policy ---
     # Initialize Hydra to access environment config used during training
     # The config_path should point to the directory containing your hydra config files
     # hydra.initialize(config_path="./") # Adjust path if your hydra config is elsewhere
-    lmj_hydra_config = hydra.compose(config_name="conf_t1")
     policy = LMJPolicy(policy_path=agent_path)
-
-    # Determine actual num_actions and observation size based on policy's environment config
     num_actions = base_num_actions
 
     # Calculate the total observation size for policy warmup and runtime
@@ -136,6 +159,16 @@ def main(config: DictConfig):
     # ==================================================OBSTACLEs==================================================
     # this part is only needed for initialization, then the boxes will be added when doing the reset
     wb.add_site(
+        name=f"goal",
+        type=mujoco.mjtGeom.mjGEOM_CYLINDER,
+        size=(0.2, 0.65, 0.0), 
+        pos=(0, 0, 0.65), 
+        quat=(0.0, 0.0, 0.0, 1.0),
+        group=0,
+        rgba=(0.0, 1.0, 0.0, 0.5) # Green for GOAL
+    )
+
+    wb.add_site(
         name=f"foot_0",
         type=mujoco.mjtGeom.mjGEOM_BOX,
         size=(0.1, 0.04, 0.001),  # *
@@ -155,29 +188,6 @@ def main(config: DictConfig):
         rgba=(1.0, 1.0, 0.0, 0.5),
     )
 
-    # Add visual sites as foot targets
-    target_dist = 0.25
-    target_angle_range = 45  # degrees
-    target_site_pos = np.zeros(3)
-    angle = 0
-    site_idx = 0
-    for i in range(10):
-        if i > 5:
-            angle += np.random.uniform(-target_angle_range, target_angle_range)
-        target_site_pos += target_dist * np.array([np.cos(np.deg2rad(angle)), np.sin(np.deg2rad(angle)), 0.0])
-        feet_pos = target_site_pos + cmd_params["feet_distance"] / 2 * np.array(
-            [np.cos(np.deg2rad(angle + (-1) ** i * 90)), np.sin(np.deg2rad(angle + (-1) ** i * 90)), 0.0]
-        )
-        wb.add_site(
-            name=f"target_{i}",
-            type=mujoco.mjtGeom.mjGEOM_CYLINDER,
-            size=(0.08, 0.005, 0.0),  # *
-            pos=feet_pos,
-            quat=(0, 0, 0, 1),
-            group=0,
-            rgba=(0.0, 0.0, 1.0, 1.0),
-        )
-
     # get model spec
     # delete all geoms whose names end in "_col" from spec
     for geom in spec.geoms:
@@ -192,36 +202,8 @@ def main(config: DictConfig):
     # # --- Initialize Simulation ---
     m.opt.timestep = simulation_dt
 
-    cam_width = 320
-    cam_height = 200
-    rgb_renderer = mujoco.Renderer(m, width=cam_width, height=cam_height)
-    depth_renderer = mujoco.Renderer(m, width=cam_width, height=cam_height)
-    depth_renderer.enable_depth_rendering()
-    rgb_renderer._scene_option.sitegroup[1] = 0
-    depth_renderer._scene_option.sitegroup[1] = 0
-
-    rgb_viewport = mujoco.MjrRect(920, 0, cam_width, cam_height)
-    depth_viewport = mujoco.MjrRect(1240, 0, cam_width, cam_height)
     # Set initial robot state from policy's environment config
-    try:
-        initial_qpos = np.array(lmj_hydra_config.experiment.env_params.init_state_params.qpos_init, dtype=np.float32)
-        initial_qvel = np.array(lmj_hydra_config.experiment.env_params.init_state_params.qvel_init, dtype=np.float32)
-        if len(initial_qpos) == m.nq and len(initial_qvel) == m.nv:
-            d.qpos[:] = initial_qpos
-            d.qvel[:] = initial_qvel
-            print(initial_qpos)
-            print("Initial state (qpos, qvel) loaded from policy's environment config.")
-        else:
-            print(
-                f"Warning: Initial qpos/qvel length mismatch with model. "
-                f"Config qpos: {len(initial_qpos)} (expected {m.nq}), "
-                f"qvel: {len(initial_qvel)} (expected {m.nv}). Using default MuJoCo init."
-            )
-    except (AttributeError, KeyError) as e:
-        print(f"Warning: Could not load initial state from policy config ({e}). Using default MuJoCo initialization.")
-
-    # Update physics state after setting qpos/qvel (important for correct sensor readings etc.)
-    mujoco.mj_forward(m, d)
+    reset_episode(m, d, config)
 
     # Initialize context variables
     action = np.zeros(num_actions, dtype=np.float32)
@@ -232,14 +214,12 @@ def main(config: DictConfig):
     # command parameters
     cmd = np.zeros(16, dtype=np.float32)
     counter = 1
-    gait_frequency = cmd_params["gait_frequency"]
-    feet_dist = cmd_params["feet_distance"]
 
     # init the gait generator
     # GG = GaitGenerator(feet_distance=feet_dist, vertical_dist=0.0, lateral_dist=0.0, steering_angle=0.0)
     GG = VisualGaitGenerator(
-        feet_distance=feet_dist, vertical_dist=0.0, lateral_dist=0.0, steering_angle=0.0, stop_steps=2,
-        robot_model=m, robot_data=d, cam_width=cam_width, cam_height=cam_height)
+        robot_model=m, robot_data=d, feet_distance=exp_params["feet_distance"], stop_steps=exp_params["stop_steps"]
+    )
     GG.print_instruction()
 
     # ===========================================TELEOPERATION via KEYBOARD===========================================
@@ -257,14 +237,6 @@ def main(config: DictConfig):
                 d.ctrl[:] = tau
 
                 mujoco.mj_step(m, d)
-
-            # get rgb and depth images from head camera
-            rgb_renderer.update_scene(d, camera="head_camera")
-            depth_renderer.update_scene(d, camera="head_camera")
-            rgb_array = rgb_renderer.render()
-            depth_array = depth_renderer.render()
-            depth_rgb = np.clip((depth_array - 0.2) / 1.8 * 255.0, 0, 255)
-            depth_rgb = depth_rgb[:, :, None].repeat(3, axis=2).astype(np.uint8)
 
             # --- Prepare Observations ---
             qj = d.qpos[7:]
@@ -314,28 +286,6 @@ def main(config: DictConfig):
                     m.site("foot_0").pos[2] = 0
                     m.site("foot_0").quat = target_rot.as_quat(scalar_first=True)
 
-                # move the visual targets
-                target_has_passed = False
-                target_pos = m.site("target_{}".format(site_idx)).pos
-                robot_pos = d.qpos[:3]
-                robot_orn = np_R.from_quat(d.qpos[3:7], scalar_first=True).as_matrix()
-                target_pos_in_robot = robot_orn.T @ (target_pos - robot_pos)
-                if target_pos_in_robot[0] < -0.05:
-                    target_has_passed = True
-
-                if target_has_passed:
-                    angle += np.random.uniform(-target_angle_range, target_angle_range)
-                    target_site_pos += target_dist * np.array([np.cos(np.deg2rad(angle)), np.sin(np.deg2rad(angle)), 0.0])
-                    feet_pos = target_site_pos + cmd_params["feet_distance"] / 2 * np.array(
-                        [
-                            np.cos(np.deg2rad(angle + (-1) ** site_idx * 90)),
-                            np.sin(np.deg2rad(angle + (-1) ** site_idx * 90)),
-                            0.0,
-                        ]
-                    )
-                    m.site("target_{}".format(site_idx)).pos = feet_pos
-                    site_idx = (site_idx + 1) % 10
-
                 mujoco.mj_fwdPosition(m, d)
 
             cmd = np.concatenate([l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32)
@@ -382,7 +332,6 @@ def main(config: DictConfig):
 
             # Sync viewer and maintain real-time simulation speed
             viewer.sync()
-            viewer.set_images([(rgb_viewport, rgb_array), (depth_viewport, depth_rgb)])
 
             time_until_next_step = m.opt.timestep * control_decimation - (time.time() - step_start)
             # time.sleep(0.1)

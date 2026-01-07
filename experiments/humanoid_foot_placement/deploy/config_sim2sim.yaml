@@ -149,6 +149,24 @@ max_angles:
   - 0.35  # Right_Ankle_Pitch
   - 0.44  # Right_Ankle_Roll
 
+init_state_params:
+  qpos_init: [0, 0, 0.72, 
+              1, 0, 0, 0, 
+              0, 0,
+              0.2,-1.2, 0, -0.5,
+              0.2, 1.2, 0, 0.5,
+              0,
+              -0.2, 0, 0, 0.4, -0.25, 0,
+              -0.2, 0, 0, 0.4, -0.25, 0]
+  qvel_init: [0, 0, 0, 
+              0, 0, 0, 
+              0, 0, 
+              0, 0, 0, 0, 
+              0, 0, 0, 0, 
+              0, 
+              0, 0, 0, 0, 0, 0,
+              0, 0, 0, 0, 0, 0]
+
 # --- Policy Parameters ---
 num_actions: 23 # Base number of actions (one per joint). Script will handle varstiff extension.
 
@@ -156,4 +174,5 @@ num_actions: 23 # Base number of actions (one per joint). Script will handle var
 # These are default command values. The valid ranges are in the comments.
 command:
   feet_distance: 0.2
-  gait_frequency: 1.0   
+  gait_frequency: 1.0
+  stop_steps: 2
