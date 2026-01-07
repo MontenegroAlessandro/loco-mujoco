@@ -1502,8 +1502,9 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         )
 
         # verify the goal-based absorbing condition
-        absorbing = (backend.linalg.norm(stance_pos - stance_pos_target) > self.stance_absorbing_threshold) & self.goal_based_absorbing
-        jax.debug.print("[G] Dist = {} \t Abs = {}", backend.linalg.norm(stance_pos - stance_pos_target), absorbing)
+        absorbing = False
+        if self.goal_based_absorbing:
+            absorbing = backend.linalg.norm(stance_pos - stance_pos_target) > self.stance_absorbing_threshold
 
         # make the gait process progress
         gp = backend.fmod(gp + env.dt * state.gait_frequency, 1.0)
