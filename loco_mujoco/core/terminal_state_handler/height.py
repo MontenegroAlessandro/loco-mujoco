@@ -189,5 +189,4 @@ class HeightAndStanceBasedTerminalStateHandler(HeightBasedTerminalStateHandler):
         goal_based_absorbing = goal_state.absorbing # if goal_state is not None else False
         # compute the final condition
         cond = height_cond | goal_based_absorbing
-        jax.debug.print("[TERM] Heigh {} - GB {} - Tot {}", height_cond, goal_based_absorbing, cond)
         return cond, carry
