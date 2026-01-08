@@ -3,6 +3,7 @@
 import time, os, sys, mujoco, mujoco.viewer, numpy as np, yaml, hydra, jax, jax.numpy as jnp, argparse
 from scipy.spatial.transform import Rotation as np_R
 from loco_mujoco.algorithms import PPOJax
+from loco_mujoco.environments.utils import add_box, add_stair, add_slope, add_ramp_platform_ramp
 
 # Add parent directory to import path to find lmj and other modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -274,6 +275,43 @@ if __name__ == "__main__":
         quat=(0, 0, 0, 1),     
         group=0,
         rgba=(1.0, 0.55, 0.0, 0.9),
+    )
+
+    # wb = add_box(world_body=wb, name="box", coordinates=[goal_coordinates[0]/2, goal_coordinates[1], 0.15/2], orientation_yaw_deg=0.0, length=0.15, width=1, height=0.15)
+    step_h = 0.02
+    # wb = add_stair(
+    #     world_body=wb, 
+    #     name="stair", 
+    #     first_step_coordinates=[goal_coordinates[0]/2, goal_coordinates[1], step_h/2], 
+    #     orientation_yaw_deg=0.0, 
+    #     num_steps=15, 
+    #     step_width=1, 
+    #     step_length=0.2, 
+    #     step_height=step_h
+    # )
+
+    # wb = add_slope(
+    #     world_body=wb, 
+    #     name="slope", 
+    #     coordinates=[goal_coordinates[0]/2, goal_coordinates[1], step_h/2], 
+    #     orientation_yaw_deg=0.0, 
+    #     width=1, 
+    #     run=0.2 * 20, 
+    #     rise=step_h * 20,
+    #     thickness=0.02,
+    #     down=False
+    # )
+    wb = add_ramp_platform_ramp(
+        world_body=wb, 
+        name="trap", 
+        coordinates=[goal_coordinates[0]/2, goal_coordinates[1], step_h/2], 
+        orientation_yaw_deg=0.0, 
+        width=1, 
+        run=0.2 * 20, 
+        rise=step_h * 20,
+        thickness=0.02,
+        platform_length=1.0,
+        platform_width=0.2
     )
 
     # get model spec

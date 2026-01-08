@@ -163,5 +163,5 @@ num_actions: 23 # Base number of actions (one per joint). Script will handle var
 experiment:
   gait_frequency: 1.0       # [0.5, 2.0] Hz
   feet_distance: 0.2        # [0.0, 0.5] meters
-  goal_coordinates: [7.0, 5.0, 0.0] # (x,y,z)
+  goal_coordinates: [7.0, 0.0, 0.0] # (x,y,z)
   max_step_len: 0.4

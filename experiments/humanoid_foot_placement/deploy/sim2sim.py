@@ -2,6 +2,7 @@ from shutil import move
 import time
 import os
 import sys
+from loco_mujoco.environments.utils import add_box, add_stair, add_slope, add_ramp_platform_ramp
 
 # Add parent directory to import path to find lmj and other modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -87,7 +88,7 @@ def pd_control(target_q, q, kp, target_dq, dq, kd):
     return (target_q - q) * kp + (target_dq - dq) * kd
 
 
-@hydra.main(config_name="config_sim2sim_visual.yaml")
+@hydra.main(config_name="config_sim2sim.yaml")
 def main(config: DictConfig):
 
     xml_path = config["xml_path"]
@@ -107,6 +108,7 @@ def main(config: DictConfig):
     base_num_actions = config["num_actions"]  # This is also 23
 
     cmd_params = config["command"]
+    obs_coo = config["obs"]["obs_coordinates"]
 
     # --- Load Policy ---
     # Initialize Hydra to access environment config used during training
@@ -155,6 +157,42 @@ def main(config: DictConfig):
         group=1,
         rgba=(1.0, 1.0, 0.0, 0.5),
     )
+
+    # step_h = 0.02
+    # wb = add_stair(
+    #     world_body=wb, 
+    #     name="stair", 
+    #     first_step_coordinates=[goal_coordinates[0]/2, goal_coordinates[1], step_h/2], 
+    #     orientation_yaw_deg=0.0, 
+    #     num_steps=15, 
+    #     step_width=1, 
+    #     step_length=0.2, 
+    #     step_height=step_h
+    # )
+
+    # wb = add_slope(
+    #     world_body=wb, 
+    #     name="slope", 
+    #     coordinates=[goal_coordinates[0]/2, goal_coordinates[1], step_h/2], 
+    #     orientation_yaw_deg=0.0, 
+    #     width=1, 
+    #     run=0.2 * 20, 
+    #     rise=step_h * 20,
+    #     thickness=0.02,
+    #     down=False
+    # )
+    # wb = add_ramp_platform_ramp(
+    #     world_body=wb, 
+    #     name="trap", 
+    #     coordinates=[obs_coo[0]/2, obs_coo[1], step_h/2], 
+    #     orientation_yaw_deg=0.0, 
+    #     width=1, 
+    #     run=0.2 * 20, 
+    #     rise=step_h * 20,
+    #     thickness=0.02,
+    #     platform_length=1.0,
+    #     platform_width=0.2
+    # )
 
     # get model spec
     # delete all geoms whose names end in "_col" from spec
