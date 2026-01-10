@@ -15,7 +15,7 @@ curriculum: &curriculum false
 
 # Experiment Vars
 experiment:
-  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/new_steps/maybe.pkl 
+  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/new_steps/maybe2.pkl 
 
   task_factory:
     name: RLFactory
