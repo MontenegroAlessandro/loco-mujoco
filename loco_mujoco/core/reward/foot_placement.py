@@ -392,6 +392,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             # we add a slack to z just when the gait phase is before its half, otherwise no slack
             swing_target_z_slack = swing_target_z + backend.where(scaled_gp <= 0.25, goal_state.gait_height, 0.0)
             swing_z_error_sq = backend.sum(backend.square(swing_curr_z - swing_target_z_slack))
+            swing_z_error_sq_plain = backend.sum(backend.square(swing_curr_z - swing_target_z))
             
             def _wrap_to_pi(angle):
                 return (angle + backend.pi) % (2 * backend.pi) - backend.pi
@@ -422,13 +423,14 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             # swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq * gait_sharpness) * still_coeff
             # swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq * gait_sharpness * still_coeff)
             swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq)
+            swing_z_reward_plain = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq_plain)
             stance_z_reward = reward_state.stance_z_reward
             
             # update in the state the last reward
             reward_state = reward_state.replace(
                 last_swing_pos_reward=swing_pos_reward, 
                 last_swing_orn_reward=swing_orn_reward, 
-                last_swing_z_reward=swing_z_reward
+                last_swing_z_reward=swing_z_reward_plain
             )
         else:
             # swing_target_pos = goal_state.swing_target_pos[:2] # just (x,y)
