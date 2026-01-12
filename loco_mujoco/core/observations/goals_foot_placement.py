@@ -93,7 +93,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # curriculum parameters
             n_envs: float = 0,
             num_total_timesteps: float = 0,
-            curriculum_starts_from: float = 0, 
+            curriculum_starts_from: float = 0,
+            curriculum_ends_at: float = 0, 
             curriculum: bool = False,
             update_z_every: float = 1.0,
             # start still flag
@@ -131,8 +132,10 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         # curriculum parmeters
         self.curriculum = curriculum
+        curriculum_ends_at = min(curriculum_ends_at, num_total_timesteps)
+        self.curriculum_end = int(curriculum_ends_at // n_envs)
         self.curriculum_start = int(curriculum_starts_from // n_envs)
-        self.tot_curriculum_steps = int((num_total_timesteps - curriculum_starts_from) //n_envs)
+        self.tot_curriculum_steps = int((curriculum_ends_at - curriculum_starts_from) //n_envs)
         self.incremental_z_up = (self.max_z_distance_up - self.z_distance_range[1]) / self.tot_curriculum_steps
         self.incremental_z_low = (self.max_z_distance_low - self.z_distance_range[0]) / self.tot_curriculum_steps
         # phase-based curriculum
@@ -1336,7 +1339,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # compute steps elapsed in the curriculum phase
             steps_in_curriculum = state.steps - self.curriculum_start
             # compute the update condition
-            should_update = (steps_in_curriculum > 0) & (steps_in_curriculum % self.update_z_every == 0)
+            should_update = (steps_in_curriculum > 0) & (steps_in_curriculum % self.update_z_every == 0) & (steps_in_curriculum <= self.curriculum_end)
             # prepare the update vector
             update_vector = backend.array([self.delta_pcurr_low, self.delta_pcurr_up])
             # prepare the (redundant but safe) clipping edges

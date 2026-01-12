@@ -11,6 +11,7 @@ wandb:
 n_envs: &n_envs 8192
 num_total_timesteps: &num_total_timesteps 900e6
 curriculum_starts_from: &curriculum_starts_from 0
+curriculum_ends_at: &curriculum_ends_at 800e6
 curriculum: &curriculum false
 update_z_every: &update_z_every 1.0
 
@@ -71,6 +72,7 @@ experiment:
       n_envs: ${n_envs}
       num_total_timesteps: ${num_total_timesteps}
       curriculum_starts_from: ${curriculum_starts_from}
+      curriculum_ends_at: ${curriculum_ends_at}
       curriculum: ${curriculum}
       update_z_every: ${update_z_every}
       # absorbing stuff
