@@ -38,6 +38,7 @@ class GaitGenerator:
         self.lateral_dist = lateral_dist
         self.steering_angle = steering_angle
         self.stop_steps = stop_steps
+        self.z_dist = 0.0
         
         self.gaits_to_still = 0
         self.n_gaits = 0
@@ -121,8 +122,8 @@ class GaitGenerator:
         steering_orn_offset = np_R.from_euler("z", steering_angle).as_quat(scalar_first=True)
         zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
         
-        l_orn = steering_orn_offset if steering_foot_idx == 0 else zero_orn_offset
-        r_orn = steering_orn_offset if steering_foot_idx == 1 else zero_orn_offset
+        l_orn = steering_orn_offset # if steering_foot_idx == 0 else zero_orn_offset
+        r_orn = steering_orn_offset # if steering_foot_idx == 1 else zero_orn_offset
         
         return l_orn, r_orn
 
@@ -148,10 +149,10 @@ class GaitGenerator:
         l_orn_offset, r_orn_offset = self._get_steering_info()
 
         l_pos_offset = (
-            np.array([self.vertical_dist, self.feet_distance, 0]) if self.swing_foot_idx == 0 else zero_pos_offset
+            np.array([self.vertical_dist, self.feet_distance, self.z_dist]) if self.swing_foot_idx == 0 else zero_pos_offset
         )
         r_pos_offset = (
-            np.array([self.vertical_dist, -self.feet_distance, 0]) if self.swing_foot_idx == 1 else zero_pos_offset
+            np.array([self.vertical_dist, -self.feet_distance, self.z_dist]) if self.swing_foot_idx == 1 else zero_pos_offset
         )
 
         return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset
@@ -246,7 +247,7 @@ class CheckpointController:
             max_step_len: float = 0.2,
             max_lat_len: float = 0.3,
             max_steer_deg: float = 45.0,
-            dist_threshold: float = 0.2
+            dist_threshold: float = 0.3
         ):
         self.gg = gait_generator
         self.checkpoints = checkpoints
@@ -301,11 +302,13 @@ class CheckpointController:
 
         target_chk = self.checkpoints[self.current_chk_idx]
         target_pos = np.array(target_chk.chk_pos)
+        self.max_step_len = target_chk.xy_max_offset
+        self.gg.z_dist = target_chk.z_offset
         
         diff_vec = target_pos[:2] - robot_pos[:2]
         dist_to_target = np.linalg.norm(diff_vec)
         
-        tolerance = target_chk.xy_max_offset if target_chk.xy_max_offset > 0 else self.dist_threshold
+        tolerance = self.dist_threshold
         if dist_to_target < tolerance:
             print(f"[Controller] Reached Checkpoint {self.current_chk_idx} at {target_pos}")
             if (self.current_chk_idx + 1) >= len(self.checkpoints):
@@ -331,6 +334,7 @@ class CheckpointController:
         target_vert = 0.0
         target_lat = 0.0
         target_steer = 0.0
+        z_cmd = self.gg.z_dist
         move_dir_str = "FWD"
 
         heading_err = np.arctan2(local_y, local_x)
@@ -374,8 +378,9 @@ class CheckpointController:
             target_steer = np.clip(heading_err * (self.kp_ang * 0.75), -self.max_steer_rad, self.max_steer_rad)
             target_lat = 0.0 
             
-            if abs(heading_err) > np.deg2rad(45):
+            if abs(heading_err) > np.deg2rad(30):
                 target_vert = 0.0 
+                z_cmd = 0.0
             
             move_dir_str = "FWD" if target_vert >= -0.01 else "BWD"
             if abs(target_vert) < 0.01 and abs(target_steer) < 0.01:
@@ -390,5 +395,6 @@ class CheckpointController:
         self.gg.lateral_dist = float(self.cmd_lat)
         self.gg.steering_angle = float(self.cmd_steer)
         self.gg.teleop["mov_dir"] = move_dir_str
+        self.gg.z_dist = z_cmd
         
         return self.gg.query_cmd(gp)

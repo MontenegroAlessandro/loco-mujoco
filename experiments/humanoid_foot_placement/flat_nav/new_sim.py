@@ -82,11 +82,23 @@ if __name__ == "__main__":
     max_step_len = experiment["max_step_len"]
 
     # Checkpoints
+    init_x = 2.0
+    delta_x = 2.5
+    delta_z = 0.3
+    z_off = min(0.08, delta_z/delta_x)
     checkpoints = [
-        Checkpoint(chk_pos=[2.0, 0.0, 0.0], next_pos=[2.0, 2.0, 0.0], mov_mode="FWD", xy_max_offset=0.2, z_offset=0.0),
-        Checkpoint(chk_pos=[2.0, 2.0, 0.0], next_pos=[0.0, 0.0, 0.0], mov_mode="LATERAL", xy_max_offset=0.2, z_offset=0.0),
-        Checkpoint(chk_pos=[0.0, 0.0, 0.0], next_pos=None, mov_mode="FWD", xy_max_offset=0.1, z_offset=0.0),
+        # start (j) ramp
+        Checkpoint(chk_pos=[init_x, 0.0, 0.0], next_pos=None, mov_mode="FWD", xy_max_offset=0.2, z_offset=0.0),
+        # start plane
+        Checkpoint(chk_pos=[init_x + delta_x, 0.0, delta_z], next_pos=None, mov_mode="FWD", xy_max_offset=0.2, z_offset=z_off),
+        # end plane
+        Checkpoint(chk_pos=[init_x + 2 * delta_x, 0.0, delta_z], next_pos=None, mov_mode="FWD", xy_max_offset=0.1, z_offset=0.0),
+        # end ramp
+        Checkpoint(chk_pos=[init_x + 3 * delta_x, 0.0, 0.0], next_pos=None, mov_mode="FWD", xy_max_offset=0.1, z_offset=0.0),
+        # end end
+        Checkpoint(chk_pos=[init_x + 4 * delta_x, 0.0, 0.0], next_pos=None, mov_mode="FWD", xy_max_offset=0.2, z_offset=0.0),
     ]
+
     initial_goal = checkpoints[0].chk_pos
 
     # Policy
@@ -107,6 +119,20 @@ if __name__ == "__main__":
                 pos=(0.1, 0.0, 0.0), rgba=(0.0, 1.0, 1.0, 0.9), quat=(0.0, 0.0, 0.0, 1.0))
     wb.add_site(name="foot_1", type=mujoco.mjtGeom.mjGEOM_BOX, size=(0.1, 0.04, 0.01),      
                 pos=(0.1, 0.0, 0.0), rgba=(1.0, 0.55, 0.0, 0.9), quat=(0.0, 0.0, 0.0, 1.0))
+
+    # Add obstacles
+    wb = add_ramp_platform_ramp(
+        world_body = wb, 
+        name = "Ramp-Platform-Ramp",
+        coordinates = checkpoints[0].chk_pos, 
+        run = delta_x,           
+        rise = delta_z,          
+        platform_length = delta_x, 
+        platform_width = 1.0, 
+        width = 1.0,
+        thickness = 0.01,
+        orientation_yaw_deg = 0.0
+    )
 
     for geom in spec.geoms:
         if geom.name.endswith("_col"): geom.delete()

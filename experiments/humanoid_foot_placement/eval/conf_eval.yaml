@@ -16,7 +16,7 @@ curriculum: &curriculum false
 
 # Experiment Vars
 experiment:
-  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/new_steps_2/gh0_ccv.pkl 
+  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/new_steps_2/gh0_contd.pkl 
 
   task_factory:
     name: RLFactory
@@ -36,63 +36,17 @@ experiment:
     goal_type: GoalDoubleFootPlacement 
     goal_params:
       ############################# RAND ############################
-      # visualize_goal: true
-      # # Names of the foot sites from the booster_t1_dfki.xml file
-      # left_foot_site_name: left_foot
-      # right_foot_site_name: right_foot
-      # feet_distance: 0.15
-      # # Range for the random step length [min, max] in meters
-      # xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
-      # # Range for omnidirectional step angle [-180, 180] for a full circle
-      # angle_range_deg: [-30, 30] # [-20, 20] # [20, 90] 
-      # # Range for randomizing the target foot yaw relative to the body
-      # yaw_range_deg: [-10, 60] # [-20, 20] # [-30, 30]
-      # # gait frequency target
-      # gait_frequency_range: [1.0, 1.0] 
-      # # gait height
-      # gait_height: 0.05
-      # # desired height to maintain
-      # goal_height: 0.68
-      # # direction range in deg
-      # direction_range_deg: [-180, 180] # [-180, 180]
-      # change_direction_range_deg: [0, 0]
-      # # feet direction range in deg
-      # track_movement_only: false
-      # feet_direction_range_deg: [0,0] # [-180, 180]
-      # # still proportion
-      # still_proportion: 0.0
-      # still_feet_distance: 0.25
-      # max_num_gaits: 10
-      # # adaptive terrains 
-      # adaptive_terrain: true
-      # z_distance_range: [-0.1, 0.1]
-      # max_z_distance_up: 0.0
-      # max_z_distance_low: 0.0
-      # # start still flag
-      # start_still: false
-      # # curriculum parameters
-      # n_envs: ${n_envs}
-      # num_total_timesteps: ${num_total_timesteps}
-      # curriculum_starts_from: ${curriculum_starts_from}
-      # curriculum_ends_at: ${curriculum_ends_at}
-      # curriculum: ${curriculum}
-      # # absorbing stuff
-      # tracking_fail_is_absorbing: true
-      # stance_absorbing_threshold: 0.25
-      # # observation group
-      # group: [prioritized, policy]
-      ############################# FORWARD ############################
       visualize_goal: true
       # Names of the foot sites from the booster_t1_dfki.xml file
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       feet_distance: 0.15
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.3, 0.3] # [0.2, 0.5]
+      xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [30, 50] # [-20, 20] # [20, 90] 
+      angle_range_deg: [-30, 30] # [-20, 20] # [20, 90] 
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [0, 0] # [-20, 20] # [-30, 30]
+      yaw_range_deg: [-10, 60] # [-20, 20] # [-30, 30]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
@@ -100,7 +54,7 @@ experiment:
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
-      direction_range_deg: [0, 0] # [-180, 180]
+      direction_range_deg: [-180, 180] # [-180, 180]
       change_direction_range_deg: [0, 0]
       # feet direction range in deg
       track_movement_only: false
@@ -108,10 +62,10 @@ experiment:
       # still proportion
       still_proportion: 0.0
       still_feet_distance: 0.25
-      max_num_gaits: 5
+      max_num_gaits: 10
       # adaptive terrains 
       adaptive_terrain: true
-      z_distance_range: [0.1, 0.1]
+      z_distance_range: [-0.1, 0.1]
       max_z_distance_up: 0.0
       max_z_distance_low: 0.0
       # start still flag
@@ -127,6 +81,52 @@ experiment:
       stance_absorbing_threshold: 0.25
       # observation group
       group: [prioritized, policy]
+      ############################# FORWARD ############################
+      # visualize_goal: true
+      # # Names of the foot sites from the booster_t1_dfki.xml file
+      # left_foot_site_name: left_foot
+      # right_foot_site_name: right_foot
+      # feet_distance: 0.15
+      # # Range for the random step length [min, max] in meters
+      # xy_distance_range: [0.3, 0.3] # [0.2, 0.5]
+      # # Range for omnidirectional step angle [-180, 180] for a full circle
+      # angle_range_deg: [30, 50] # [-20, 20] # [20, 90] 
+      # # Range for randomizing the target foot yaw relative to the body
+      # yaw_range_deg: [0, 0] # [-20, 20] # [-30, 30]
+      # # gait frequency target
+      # gait_frequency_range: [1.0, 1.0] 
+      # # gait height
+      # gait_height: 0.05
+      # # desired height to maintain
+      # goal_height: 0.68
+      # # direction range in deg
+      # direction_range_deg: [0, 0] # [-180, 180]
+      # change_direction_range_deg: [0, 0]
+      # # feet direction range in deg
+      # track_movement_only: false
+      # feet_direction_range_deg: [0,0] # [-180, 180]
+      # # still proportion
+      # still_proportion: 0.0
+      # still_feet_distance: 0.25
+      # max_num_gaits: 5
+      # # adaptive terrains 
+      # adaptive_terrain: true
+      # z_distance_range: [0.1, 0.1]
+      # max_z_distance_up: 0.0
+      # max_z_distance_low: 0.0
+      # # start still flag
+      # start_still: false
+      # # curriculum parameters
+      # n_envs: ${n_envs}
+      # num_total_timesteps: ${num_total_timesteps}
+      # curriculum_starts_from: ${curriculum_starts_from}
+      # curriculum_ends_at: ${curriculum_ends_at}
+      # curriculum: ${curriculum}
+      # # absorbing stuff
+      # tracking_fail_is_absorbing: true
+      # stance_absorbing_threshold: 0.25
+      # # observation group
+      # group: [prioritized, policy]
     headless: true
 
     reward_type: CrispBoosterLocomotionFootPlacementReward

@@ -30,7 +30,7 @@ experiment:
       diameter: null
       feet_collision: null
 
-    terminal_state_type: HeightBasedTerminalStateHandler
+    terminal_state_type: HeightAndStanceBasedTerminalStateHandler # HeightBasedTerminalStateHandler
 
     goal_type: GoalDoubleFootPlacement
     goal_params:
