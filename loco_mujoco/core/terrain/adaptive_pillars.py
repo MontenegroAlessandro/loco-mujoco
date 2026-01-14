@@ -95,8 +95,8 @@ class AdaPillarsTerrain(DynamicTerrain):
             wb.add_geom(
                 name=f"pillar_{i}",
                 type=mujoco.mjtGeom.mjGEOM_CYLINDER,
-                size=(0.3, 0.5, 0.0),   # *      
-                pos=(5.0, 0.0, -0.5),    # **             
+                size=(0.3, 0.1, 0.0),   # *      
+                pos=(-5.0, 0.0, -0.5),    # **             
                 quat=(0.0, 0.0, 0.0, 1.0),     
                 group=0,
                 rgba=(0.26, 0.4, 0.82, 1.0),

@@ -3,7 +3,8 @@ import time
 import os
 import sys
 
-from experiments.humanoid_foot_placement.deploy.gait_generators import GoalReachingGaitGenerator, GaitGenerator
+# from experiments.humanoid_foot_placement.deploy.gait_generators import GoalReachingGaitGenerator, GaitGenerator
+from gait_generators import GoalReachingGaitGenerator, GaitGenerator
 
 # Add parent directory to import path to find lmj and other modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))

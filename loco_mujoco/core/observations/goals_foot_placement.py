@@ -175,10 +175,10 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         if fd is not None and len(fd) >= 2:
             L, W = float(fd[0]), float(fd[1])
             foot_r = 0.5 * np.sqrt(L * L + W * W)
-        overlap_margin = 0.05
-        foot_margin = 0.05
-        safe_overlap = pillar_d + overlap_margin
-        safe_foot = pillar_r + foot_r + foot_margin
+        self._overlap_margin = 0.05
+        self._foot_margin = 0.05
+        safe_overlap = pillar_d + self._overlap_margin
+        safe_foot = pillar_r + foot_r + self._foot_margin
         self._pillar_min_center_dist = float(max(safe_overlap, safe_foot))
 
         assert self._foot_site_id_left != -1, f"Site '{self.foot_site_names[0]}' not found."
@@ -743,7 +743,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             if self.adaptive_terrain:
                 pil_coo = carry.terrain_state.positions
                 pillars_d = backend.linalg.norm(pil_coo[:, :2] - pos_xy[None, :2], axis=1)
-                valid_pillars = pillars_d > (env._terrain.diameter + 0.05)
+                valid_pillars = pillars_d > (env._terrain.diameter + self._overlap_margin)
                 valid_pillars = valid_pillars.at[pillar_id_for_goal].set(True)
                 valid_pillars = valid_pillars.all()
 
