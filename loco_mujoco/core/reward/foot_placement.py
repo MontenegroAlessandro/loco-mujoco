@@ -500,7 +500,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
 
         # Base height reward
         floor_offset = env._terrain.get_height_at_xy(carry.terrain_state, global_pos_root[:2], backend)
-        desired_z = float(getattr(carry.terrain_state, "desired_z", 0.0))
+        desired_z = getattr(carry.terrain_state, "desired_z", 0.0)
         if backend == np:
             if isinstance(env._terrain, AdaPillarsTerrain):
                 floor_offset = desired_z
