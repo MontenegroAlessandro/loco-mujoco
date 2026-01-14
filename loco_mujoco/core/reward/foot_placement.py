@@ -238,6 +238,39 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             "penalties/impact_reward": 0.,
         }
 
+        # Pillars ids
+        self.terrain_is_adaptive = isinstance(env._terrain, AdaPillarsTerrain)
+        self.pil_ids = []
+        if self.terrain_is_adaptive:
+            for i in range(env._terrain.num_pillars):
+                pil_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_GEOM, f"pillar_{i}")
+                self.pil_ids.append(pil_id)
+            
+            # get new ids since they have been modified when adding the pillars!
+            foot_names = self._info_props["foot_geom_names"]
+            self._left_foot_names = [name for name in foot_names if "left" in name]
+            self._right_foot_names = [name for name in foot_names if "right" in name]
+            self._left_foot_ids = [
+                mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_GEOM, name) 
+                for name in self._left_foot_names
+            ]
+            self._right_foot_ids = [
+                mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_GEOM, name) 
+                for name in self._right_foot_names
+            ]
+            self._floor_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
+            self._left_foot_site_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, "left_foot")
+            self._right_foot_site_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, "right_foot")
+            foot_sensor_adrs = []
+            for foot_sensor in ['left_foot_global_linvel', 'right_foot_global_linvel']:
+                sensor_id = env.model.sensor(foot_sensor).id
+                sensor_adr = env.model.sensor_adr[sensor_id]
+                sensor_dim = env.model.sensor_dim[sensor_id]
+                foot_sensor_adrs.append(list(range(sensor_adr, sensor_adr + sensor_dim)))
+            
+            self._left_foot_sensor_adr = np.array(foot_sensor_adrs[0])
+            self._right_foot_sensor_adr = np.array(foot_sensor_adrs[1])
+
         return CrispBoosterLocomotionRewardFootPlacementState(
             gait_process=0.0,
             last_qvel=data.qvel, 
@@ -467,13 +500,14 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
 
         # Base height reward
         floor_offset = env._terrain.get_height_at_xy(carry.terrain_state, global_pos_root[:2], backend)
+        desired_z = float(getattr(carry.terrain_state, "desired_z", 0.0))
         if backend == np:
             if isinstance(env._terrain, AdaPillarsTerrain):
-                floor_offset = carry.terrain_state.desired_z
+                floor_offset = desired_z
         else:
             floor_offset = jax.lax.cond(
                 isinstance(env._terrain, AdaPillarsTerrain),
-                lambda: carry.terrain_state.desired_z,
+                lambda: desired_z,
                 lambda: floor_offset
             )
         base_height_target = goal_state.goal_height + floor_offset
@@ -536,7 +570,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
 
         # ==================== FEET-RELATED REWARDS ====================
         
-        def get_feet_contact_states():
+        def old_get_feet_contact_states():
             """Check if the foot is in contact with the floor."""
             left_contacts = [
                 mj_check_collisions(f_id, self._floor_id, data, backend) 
@@ -564,7 +598,44 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
                 foots_on_ground = jnp.array([left_foot_on_ground, right_foot_on_ground])
             
             return foots_on_ground
+    
+        def get_feet_contact_states():
+            """Check if the foot is in contact with the floor or pillars."""
+            def check_single_contact(f_id):
+                floor_contact = mj_check_collisions(f_id, self._floor_id, data, backend) 
+                is_pillar = False
 
+                if self.terrain_is_adaptive and len(self.pil_ids) > 0:
+                    pil_contacts = [
+                        mj_check_collisions(f_id, p_id, data, backend)
+                        for p_id in self.pil_ids
+                    ]
+                    if backend == np:
+                        is_pillar = any(pil_contacts)
+                    else:
+                        is_pillar = jnp.logical_or.reduce(jnp.array(pil_contacts)) if pil_contacts else jnp.array(False)
+                return floor_contact | is_pillar
+
+            left_contacts = [check_single_contact(f_id) for f_id in self._left_foot_ids]
+            right_contacts = [check_single_contact(f_id) for f_id in self._right_foot_ids]
+            
+            if backend == np:
+                left_foot_on_ground = any(left_contacts)
+                right_foot_on_ground = any(right_contacts)
+                foots_on_ground = np.array([left_foot_on_ground, right_foot_on_ground])
+            else:
+                left_foot_on_ground = (
+                    jnp.logical_or.reduce(jnp.array(left_contacts)) if left_contacts 
+                    else jnp.array(False)
+                )
+                right_foot_on_ground = (
+                    jnp.logical_or.reduce(jnp.array(right_contacts)) if right_contacts 
+                    else jnp.array(False)
+                )
+                foots_on_ground = jnp.array([left_foot_on_ground, right_foot_on_ground])
+            
+            return foots_on_ground
+        
         # Feet slip reward
         left_foot_body_id = self._left_foot_body_ids[0]
         right_foot_body_id = self._right_foot_body_ids[0]

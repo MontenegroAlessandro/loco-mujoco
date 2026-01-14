@@ -91,7 +91,6 @@ class MjxBoosterT1(BoosterT1):
 
         left_arm_geoms = ["left_forearm_col"]
         right_arm_geoms = ["right_forearm_col"]
-        
 
         # --- Make all geoms have contype and conaffinity of 0 ---
         for g in spec.geoms:
@@ -122,6 +121,5 @@ class MjxBoosterT1(BoosterT1):
         for g_name in head_geoms + ['torso_col'] + left_leg_geoms + right_leg_geoms:
             spec.add_pair(geomname1="left_forearm_col", geomname2=g_name)
             spec.add_pair(geomname1="right_forearm_col", geomname2=g_name)
-
 
         return spec

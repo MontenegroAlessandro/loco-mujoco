@@ -32,6 +32,7 @@ experiment:
       feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
 
     terminal_state_type: HeightAndStanceBasedTerminalStateHandler
+    # terminal_state_type: HeightBasedTerminalStateHandler
 
     goal_type: GoalDoubleFootPlacement 
     goal_params:
@@ -65,7 +66,7 @@ experiment:
       max_num_gaits: 10
       # adaptive terrains 
       adaptive_terrain: true
-      z_distance_range: [-0.2, 0.2]
+      z_distance_range: [0.05, 0.05]
       max_z_distance_up: 0.0
       max_z_distance_low: 0.0
       # start still flag
@@ -499,7 +500,7 @@ experiment:
       filter_action_alpha: 0.0
 
       # Kicking
-      kick_robots: true # true
+      kick_robots: false # true
       kick_min_vel: 0.1
       kick_max_vel: 0.4 # m/s
       kick_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 kick per second

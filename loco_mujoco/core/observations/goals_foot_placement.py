@@ -197,6 +197,28 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             free_pillar_id = backend.array(-1, dtype=backend.int32)
 
         pending_free_pillar_id = backend.array(-1, dtype=backend.int32)
+
+        # udoate ids after adding of pillars
+        self._foot_site_id_left = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[0])
+        self._foot_site_id_right = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[1])
+        self._root_qpos_ids = jnp.array(mj_jntname2qposid(self._root_joint_name, env.model))
+
+        pillar_d = float(getattr(getattr(env, "_terrain", None), "diameter", 0.0))
+        pillar_r = 0.5 * pillar_d
+        foot_r = 0.0
+        fd = getattr(getattr(env, "_terrain", None), "foot_dimension", None)
+        if fd is not None and len(fd) >= 2:
+            L, W = float(fd[0]), float(fd[1])
+            foot_r = 0.5 * np.sqrt(L * L + W * W)
+        self._overlap_margin = 0.05
+        self._foot_margin = 0.05
+        safe_overlap = pillar_d + self._overlap_margin
+        safe_foot = pillar_r + foot_r + self._foot_margin
+        self._pillar_min_center_dist = float(max(safe_overlap, safe_foot))
+
+        assert self._foot_site_id_left != -1, f"Site '{self.foot_site_names[0]}' not found."
+        assert self._foot_site_id_right != -1, f"Site '{self.foot_site_names[1]}' not found."
+        self._initialized_from_mj = True
         
         return GoalDoubleFootPlacementState(
             # goals to track

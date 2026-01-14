@@ -827,7 +827,7 @@ class CustomRandomizer(DomainRandomizer):
                 geom_friction[floor_id] = new_floor_friction
 
         # sample the fricitons for the pillars if needed
-        if any_pil_flags:
+        if any_pil_flags and self.terrain_is_adaptive:
             tan = pil_frictions[:, 0]
             tor = pil_frictions[:, 1]
             roll = pil_frictions[:, 2]
