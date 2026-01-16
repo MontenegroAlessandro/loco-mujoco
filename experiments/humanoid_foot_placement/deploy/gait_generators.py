@@ -546,6 +546,7 @@ class GoalReachingGaitGenerator(GaitGenerator):
 
         goal_st = stance_foot_xmat.T @ target_to_stance
         base_st = stance_foot_xmat.T @ base_st_to_stance
+        desired_yaw = np.clip(self._compute_desired_foot_yaw(goal_st, base_st), -self.max_angle, self.max_angle)
 
         if self.sample_goal:
             if self.move_dir == "STILL":
@@ -560,20 +561,22 @@ class GoalReachingGaitGenerator(GaitGenerator):
                 else:
                     self.gaits_to_still = self.stop_steps
                     self.foot_offset = self._gen_goal_reaching_cmd(
-                        base_st = base_st[:2],
                         target_st=goal_st[:2],
+                        desired_yaw=desired_yaw,
                     )
 
         return self.foot_offset, gait_info
 
-    def _gen_goal_reaching_cmd(self, base_st: np.ndarray, target_st: np.ndarray):
+    def _compute_desired_foot_yaw(self, end_point, start_point):
+        end_to_start = end_point - start_point
+        end_to_start_dir = end_to_start / np.linalg.norm(end_to_start) + 1e-6
+        yaw = np.arctan2(end_to_start_dir[1], end_to_start_dir[0]) + np.pi * (np.sign(self.vertical_dist) < 0)
+        return yaw
+
+    def _gen_goal_reaching_cmd(self, target_st: np.ndarray, desired_yaw: float):
         zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
         zero_pos_offset = np.zeros(3, dtype=np.float32)
 
-        base_to_target_st = target_st - base_st
-        head_dir = base_to_target_st / np.linalg.norm(base_to_target_st) + 1e-6
-        head_yaw = np.arctan2(head_dir[1], head_dir[0]) + np.pi * (np.sign(self.vertical_dist) < 0)
-        desired_yaw = np.clip(self._wrap_to_pi(head_yaw), -self.max_angle, self.max_angle)
         swing_orn_offset = np_R.from_euler("z", float(desired_yaw)).as_quat(scalar_first=True).astype(np.float32)
 
         y_min, y_max = self.feet_distance, 1.5 * self.feet_distance
@@ -594,7 +597,6 @@ class GoalReachingGaitGenerator(GaitGenerator):
 
         swing_pos = np.array([x, y, 0.0], dtype=np.float32)
 
-
         l_pos_offset = swing_pos if self.swing_foot_idx == 0 else zero_pos_offset
         r_pos_offset = swing_pos if self.swing_foot_idx == 1 else zero_pos_offset
         l_orn_offset = swing_orn_offset if self.swing_foot_idx == 0 else zero_orn_offset
@@ -605,3 +607,120 @@ class GoalReachingGaitGenerator(GaitGenerator):
     @staticmethod
     def _wrap_to_pi(a: float) -> float:
         return (a + np.pi) % (2 * np.pi) - np.pi
+
+
+class NarrowPathGaitGenerator(GoalReachingGaitGenerator):
+
+    def __init__(
+        self,
+        model,
+        data,
+        max_angle,
+        path_pts,
+        feet_distance: float = 0.2,
+        stop_steps: int = 2,
+    ):
+        super().__init__(model=model, data=data, max_angle=max_angle, feet_distance=feet_distance, stop_steps=stop_steps)
+        assert path_pts is not None and len(path_pts) >= 3, "Need path_pts (>=3)."
+        self.path_pts = [np.asarray(p, dtype=np.float32) for p in path_pts]
+
+
+    def query_cmd(self, goal_pos, q_pos, gp: float, goal_stage: int):
+        self.data.qpos[:] = q_pos
+        mujoco.mj_fwdPosition(self.model, self.data)
+
+        target_dir = goal_pos - q_pos[:3]
+        target_dist = np.linalg.norm(target_dir[:2])
+
+        if self.move_dir == "STILL":
+            self.first_step = True
+        if self.move_dir in ["FWD", "BWD"] and self.first_step:
+            self.first_step = False
+            swing_foot_idx = 0 if target_dir[1] >= 0.0 else 1
+            self.swing_foot_idx = 1 - swing_foot_idx
+            desired_gp = 0.25 if swing_foot_idx == 0 else 0.75
+            self.gp_shift = (desired_gp - (gp % 1.0)) % 1.0
+
+        gp = (gp + self.gp_shift) % 1.0
+        gait_info = self.preprocess_gp_info(gp=gp)
+
+        stance_foot = self.left_foot_id if self.swing_foot_idx == 1 else self.right_foot_id
+        stance_foot_pos = self.data.site_xpos[stance_foot]
+        stance_foot_xmat = self.data.site_xmat[stance_foot].reshape(3, 3)
+
+        target_to_stance = goal_pos - stance_foot_pos
+        base_st_to_stance = q_pos[:3] - stance_foot_pos
+        prev_waypoint_to_stance = np.array(
+            [self.path_pts[goal_stage - 1][0], self.path_pts[goal_stage - 1][1], 0.0]) - stance_foot_pos
+
+        goal_st = stance_foot_xmat.T @ target_to_stance
+        base_st = stance_foot_xmat.T @ base_st_to_stance
+        prev_waypoint_st = stance_foot_xmat.T @ prev_waypoint_to_stance
+
+        if (goal_stage >= 1) and (goal_stage <= len(self.path_pts) - 2):
+            yaw =self._compute_desired_foot_yaw(goal_st, prev_waypoint_st)
+            desired_yaw = np.clip(self._choose_perpendicular_yaw(yaw), -self.max_angle, self.max_angle)
+
+        else:
+            desired_yaw = np.clip(self._compute_desired_foot_yaw(goal_st, base_st), -self.max_angle, self.max_angle)
+
+        if self.sample_goal:
+            if self.move_dir == "STILL":
+                self.foot_offset = self._gen_still_cmd()
+                self.gaits_to_still = max(0, self.gaits_to_still - 1)
+
+            elif self.move_dir in ["FWD", "BWD"]:
+                if target_dist < 0.2:
+                    self.foot_offset = self._gen_still_cmd()
+                    self.gaits_to_still = max(0, self.gaits_to_still - 1)
+                    if self.gaits_to_still == 0:
+                        self.first_step = True
+                else:
+                    self.gaits_to_still = self.stop_steps
+                    if (goal_stage > 1) and (goal_stage <= len(self.path_pts) - 2):
+                        self.foot_offset = self._gen_side_step_cmd(
+                            desired_yaw=desired_yaw,
+                            target_st=goal_st[:2]
+                        )
+                    else:
+                        self.foot_offset = self._gen_goal_reaching_cmd(
+                            desired_yaw=desired_yaw,
+                            target_st=goal_st[:2]
+                        )
+        return self.foot_offset, gait_info
+
+
+    def _gen_side_step_cmd(self, desired_yaw, target_st: np.ndarray) -> np.ndarray:
+        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
+        zero_pos_offset = np.zeros(3, dtype=np.float32)
+
+        sign = +1.0 if self.swing_foot_idx == 0 else -1.0
+        if sign * float(target_st[1]) >= 0.0:
+            y = self.feet_distance * sign + sign * self.vertical_dist
+
+        else:
+            y = -self.feet_distance * sign / 2.0
+
+        x = target_st[0]
+        turn = abs(desired_yaw) / self.max_angle
+        rad = self.feet_distance ** 2 + ((1 - 0.2 * turn) * self.vertical_dist) ** 2 - y ** 2
+        x_max = np.sqrt(max(rad, 0.0))
+        x = np.clip(x, -x_max, x_max)
+
+        swing_pos = np.array([x, y, 0.0], dtype=np.float32)
+
+        swing_orn_offset = np_R.from_euler("z", float(desired_yaw)).as_quat(scalar_first=True).astype(
+            np.float32)
+
+        l_pos_offset = swing_pos if self.swing_foot_idx == 0 else zero_pos_offset
+        r_pos_offset = swing_pos if self.swing_foot_idx == 1 else zero_pos_offset
+        l_orn_offset = swing_orn_offset if self.swing_foot_idx == 0 else zero_orn_offset
+        r_orn_offset = swing_orn_offset if self.swing_foot_idx == 1 else zero_orn_offset
+
+        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset
+
+    def _choose_perpendicular_yaw(self, hear_yaw: float) -> float:
+        cand1 = self._wrap_to_pi(hear_yaw + np.pi / 2)
+        cand2 = self._wrap_to_pi(hear_yaw - np.pi / 2)
+
+        return cand1 if abs(cand1) < abs(cand2) else cand2
