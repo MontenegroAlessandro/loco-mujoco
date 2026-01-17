@@ -290,6 +290,7 @@ class VisualGaitGenerator(GaitGenerator):
         cam_height,
         feet_distance: float = 0.2,
         stop_steps: int = 2,
+        debug_vis: bool = False,
     ):
         super().__init__(feet_distance=feet_distance, stop_steps=stop_steps)
 
@@ -303,32 +304,68 @@ class VisualGaitGenerator(GaitGenerator):
         self.cam_info = {
             "width": cam_width,
             "height": cam_height,
-            "focal": cam_height / (2.0 * np.tan(np.deg2rad(self.model.cam_fovy[self.cam_id]) / 2.0)),
+            "focal_x": cam_height / (2.0 * np.tan(np.deg2rad(self.model.cam_fovy[self.cam_id]) / 2.0)),
+            "focal_y": cam_height / (2.0 * np.tan(np.deg2rad(self.model.cam_fovy[self.cam_id]) / 2.0)),
             "principal_point": (cam_width / 2.0, cam_height / 2.0),
         }
         self.cam_intrinsics = np.array(
             [
-                [self.cam_info["focal"], 0, self.cam_info["principal_point"][0]],
-                [0, self.cam_info["focal"], self.cam_info["principal_point"][1]],
+                [self.cam_info["focal_x"], 0, self.cam_info["principal_point"][0]],
+                [0, self.cam_info["focal_y"], self.cam_info["principal_point"][1]],
                 [0, 0, 1],
             ],
             dtype=np.float32,
         )
 
-    def query_cmd(self, rgb_image, depth_image, joint_pos, gp: float):
+        self.debug_vis = debug_vis
+
+    def update_camera_info(self, width, height, focal_x, focal_y, pp_x, pp_y):
+        self.cam_info = {
+            "width": width,
+            "height": height,
+            "focal_x": focal_x,
+            "focal_y": focal_y,
+            "principal_point": (pp_x, pp_y),
+        }
+        self.cam_intrinsics = np.array(
+            [
+                [self.cam_info["focal_x"], 0, self.cam_info["principal_point"][0]],
+                [0, self.cam_info["focal_y"], self.cam_info["principal_point"][1]],
+                [0, 0, 1],
+            ],
+            dtype=np.float32,
+        )
+
+    def query_cmd(self, rgb_image, depth_image, joint_pos, gp: float, image_updated: bool):
         gait_info = self.preprocess_gp_info(gp=gp)
 
         if self.sample_goal:
+            targets, rgb_image, mask_image = self.detect_foot_target(rgb_image, depth_image)
+
             if self.move_dir == "STILL":
                 self.foot_offset = self._gen_still_cmd()
                 self.gaits_to_still = max(0, self.gaits_to_still - 1)
             elif self.move_dir in ["FWD", "BWD"]:
-                # detect the foot target
-                targets, rgb_image = self.detect_foot_target(rgb_image, depth_image)
-                if len(targets) > 0:
+                # # detect the foot target
+                # targets, rgb_image, mask_image = self.detect_foot_target(rgb_image, depth_image)
+                print(len(targets), "targets detected.")
+                if image_updated and len(targets) > 0:
                     self.foot_offset = self._gen_visual_cmd(targets, joint_pos)
+                    self.foot_offset[0][2] = 0.0
+                    self.foot_offset[2][2] = 0.0
+                    print(
+                        f"Left foot offset from vision: {np.array(self.foot_offset[0])}, Right foot offset from vision: {np.array(self.foot_offset[2])}"
+                    )
                 else:
                     self.foot_offset = self._gen_vertical_cmd()
+
+                # TODO remove
+                # self.foot_offset = self._gen_vertical_cmd()
+
+            if self.debug_vis:
+                cv2.imshow("rgb_image", cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR))
+                cv2.imshow("mask_image", cv2.cvtColor(mask_image, cv2.COLOR_RGB2BGR))
+                cv2.waitKey(1)
 
         return self.foot_offset, gait_info, rgb_image
 
@@ -337,10 +374,13 @@ class VisualGaitGenerator(GaitGenerator):
         zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
         zero_pos_offset = np.zeros(3, dtype=np.float32)
 
-        l_pos_offset = np.array([0, self.feet_distance, 0.0]) if self.swing_foot_idx == 0 else zero_pos_offset
-        r_pos_offset = np.array([0, -self.feet_distance, 0.0]) if self.swing_foot_idx == 1 else zero_pos_offset
+        l_pos_offset = np.array([self.vertical_dist, self.feet_distance, 0.0]) if self.swing_foot_idx == 0 else zero_pos_offset
+        r_pos_offset = np.array([self.vertical_dist, -self.feet_distance, 0.0]) if self.swing_foot_idx == 1 else zero_pos_offset
         l_orn_offset = zero_orn_offset
         r_orn_offset = zero_orn_offset
+
+        target_in_l_foot = (l_rel_xmat @ targets[:3].T).T + l_rel_pos
+        print("Target in left foot frame:", target_in_l_foot)
 
         for target_idx, target in enumerate(targets):
             l_to_target = l_rel_xmat @ target + l_rel_pos
@@ -455,7 +495,8 @@ class VisualGaitGenerator(GaitGenerator):
         # Convert to grayscale and denoise
         hsv = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2HSV)
 
-        mask = cv2.inRange(hsv, (107, 100, 0), (120, 255, 255))
+        # mask = cv2.inRange(hsv, (107, 100, 0), (120, 255, 255)) # Range for simulation
+        mask = cv2.inRange(hsv, (90, 88, 100), (120, 255, 255)) # Range for real world
 
         contours = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -472,33 +513,40 @@ class VisualGaitGenerator(GaitGenerator):
             if MA / ma < 0.5:  # Filter out non-elliptical shapes
                 continue
 
-            targets.append((x, y, MA, ma, angle))
+            # Get average depth within the ellipse
+            mask_ellipse = np.zeros_like(mask)
+            cv2.ellipse(mask_ellipse, (int(x), int(y)), (int(MA / 2), int(ma / 2)), angle, 0, 360, 1, -1)
+            # Mask out invalid depth values
+            valid_depth_mask = (depth_image > 0.1) & (depth_image < 5.0)
+            mask_ellipse = mask_ellipse.astype(bool) & valid_depth_mask
+            if np.sum(mask_ellipse) == 0:
+                continue
+            else:
+                depth = np.mean(depth_image[mask_ellipse])
 
+            targets.append((x, y, depth, MA, ma, angle))
         if len(targets) == 0:
-            return [], rgb_image
+            return [], rgb_image, mask
 
         targets = np.array(targets, dtype=np.float32)
 
         # Sort the targets by distance to the bottom center of the image
         x_pixel = targets[:, 0]
         y_pixel = targets[:, 1]
-        z = depth_image[
-            np.clip(y_pixel.round().astype(int), 0, depth_image.shape[0] - 1),
-            np.clip(x_pixel.round().astype(int), 0, depth_image.shape[1] - 1),
-        ]
+        z = targets[:, 2]
 
-        x_cam = (x_pixel - self.cam_info["principal_point"][0]) * z / self.cam_info["focal"]
-        y_cam = (y_pixel - self.cam_info["principal_point"][1]) * z / self.cam_info["focal"]
+        x_cam = (x_pixel - self.cam_info["principal_point"][0]) * z / self.cam_info["focal_x"]
+        y_cam = (y_pixel - self.cam_info["principal_point"][1]) * z / self.cam_info["focal_y"]
         targets_cam = np.stack([x_cam, -y_cam, -z], axis=1)
         distances = np.linalg.norm(targets_cam, axis=1)
         sorted_indices = np.argsort(distances)
         targets_cam = targets_cam[sorted_indices]
 
-        bgr = cv2.cvtColor(rgb_imageGaitGenerator, cv2.COLOR_RGB2BGR)
+        bgr = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR)
         for target in targets[sorted_indices][:3]:
-            x, y, MA, ma, angle = target
-            bgr = cv2.ellipse(bgr, (int(x), int(y)), (int(MA / 2), int(ma / 2)), angle, 0, 360, (0, 255, 0), 1)
-        return targets_cam, cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            x, y, depth, MA, ma, angle = target
+            bgr = cv2.ellipse(bgr, (int(x), int(y)), (int(MA / 2), int(ma / 2)), angle, 0, 360, (0, 0, 255), 2)
+        return targets_cam, cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), cv2.cvtColor(mask, cv2.COLOR_BGR2RGB)
 
 
 class GoalReachingGaitGenerator(GaitGenerator):

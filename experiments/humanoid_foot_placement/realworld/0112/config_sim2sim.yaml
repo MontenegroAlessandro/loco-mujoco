@@ -4,13 +4,13 @@
 # Updated with parameters and correct joint limits for a 23 DoF robot model.
 
 # policy parameters
-
 agent_path: /home/puze/Projects/accu_loco/experiments/humanoid_foot_placement/policies/kick.pkl
+# agent_path: /Users/ale/code/PyProjects/scripts/experiments/humanoid_foot_placement/policies/T1/still_fp_6.pkl 
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
 # train_config_name: conf.yaml
 # --- Simulation Parameters ---
-# xml_path: /home/puze/Projects/accu_loco/loco_mujoco/models/booster_t1/booster_t1_original.xml
-xml_path: /Users/ale/code/PyProjects/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
+xml_path: /home/puze/Projects/accu_loco/loco_mujoco/models/booster_t1/booster_t1_original.xml
+# xml_path: /Users/ale/code/PyProjects/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
 simulation_duration: 300.0 # seconds
 simulation_dt: 0.002 # seconds, physics timestep
 control_decimation: 10 # policy will run every N physics steps (policy freq = 1 / (dt * decimation))
@@ -25,15 +25,15 @@ control_decimation: 10 # policy will run every N physics steps (policy freq = 1 
 # - Right_Hip_Pitch, Right_Hip_Roll, Right_Hip_Yaw, Right_Knee_Pitch, Right_Ankle_Pitch, Right_Ankle_Roll
 lmj_kps:
   - 10 # 40 # AAHead_yaw
-  - 10 # 40 # Head_pitch
+  - 20 # 40 # Head_pitch
   - 20 # 40 # Left_Shoulder_Pitch
   - 20 # 40 # Left_Shoulder_Roll
-  - 20 # 40 # Left_Elbow_Pitch
-  - 20 # 40 # Left_Elbow_Yaw
+  - 20 # 40 # Left_Shoulder_Yaw
+  - 20 # 40 # Left_Elbow
   - 20 # 40 # Right_Shoulder_Pitch
   - 20 # 40 # Right_Shoulder_Roll
-  - 20 # 40 # Right_Elbow_Pitch
-  - 20 # 40 # Right_Elbow_Yaw
+  - 20 # 40 # Right_Shoulder_Yaw
+  - 20 # 40 # Right_Elbow
   - 150 # Waist
   - 120 # Left_Hip_Pitch
   - 120 # Left_Hip_Roll
@@ -75,40 +75,65 @@ lmj_kds:
 # --- Robot Pose and Limits (23 joints) ---
 default_angles:
   - 0.0   # AAHead_yaw
-  - 0.0   # Head_pitch
+  - 1.0   # Head_pitch
   - 0.2   # Left_Shoulder_Pitch
-  - -1.2 # Left_Shoulder_Roll
-  - 0.0   # Left_Elbow_Pitch
-  - -0.5  # Left_Elbow_Yaw
+  - -1.2  # Left_Shoulder_Roll
+  - 0.0   # Left_Shoulder_Yaw
+  - -0.5  # Left_Elbow
   - 0.2   # Right_Shoulder_Pitch
-  - 1.2  # Right_Shoulder_Roll
-  - 0.0   # Right_Elbow_Pitch
-  - 0.5   # Right_Elbow_Yaw
+  - 1.2   # Right_Shoulder_Roll
+  - 0.0   # Right_Shoulder_Yaw
+  - 0.5   # Right_Elbow
   - 0.0   # Waist
   - -0.2  # Left_Hip_Pitch
   - 0.0   # Left_Hip_Roll
   - 0.0   # Left_Hip_Yaw
-  - 0.4   # Left_Knee_Pitch
+  - 0.5   # Left_Knee_Pitch
   - -0.25 # Left_Ankle_Pitch
   - 0.0   # Left_Ankle_Roll
   - -0.2  # Right_Hip_Pitch
   - 0.0   # Right_Hip_Roll
   - 0.0   # Right_Hip_Yaw
-  - 0.4   # Right_Knee_Pitch
+  - 0.5   # Right_Knee_Pitch
   - -0.25 # Right_Ankle_Pitch
   - 0.0   # Right_Ankle_Roll
+
+# default_angles:
+#   - 0.0   # AAHead_yaw
+#   - 1.0   # Head_pitch
+#   - -0.5   # Left_Shoulder_Pitch
+#   - -1.2  # Left_Shoulder_Roll
+#   - 1.2   # Left_Shoulder_Yaw
+#   - -1.0  # Left_Elbow
+#   - -0.5   # Right_Shoulder_Pitch
+#   - 1.2   # Right_Shoulder_Roll
+#   - 1.2   # Right_Shoulder_Yaw
+#   - 1.0   # Right_Elbow
+#   - 0.0   # Waist
+#   - -0.2  # Left_Hip_Pitch
+#   - 0.0   # Left_Hip_Roll
+#   - 0.0   # Left_Hip_Yaw
+#   - 0.5   # Left_Knee_Pitch
+#   - -0.25 # Left_Ankle_Pitch
+#   - 0.0   # Left_Ankle_Roll
+#   - -0.2  # Right_Hip_Pitch
+#   - 0.0   # Right_Hip_Roll
+#   - 0.0   # Right_Hip_Yaw
+#   - 0.5   # Right_Knee_Pitch
+#   - -0.25 # Right_Ankle_Pitch
+#   - 0.0   # Right_Ankle_Roll
 
 min_angles:
   - -1.57 # AAHead_yaw
   - -0.35 # Head_pitch
   - -3.31 # Left_Shoulder_Pitch
   - -1.74 # Left_Shoulder_Roll
-  - -2.27 # Left_Elbow_Pitch
-  - -2.44 # Left_Elbow_Yaw
+  - -2.27 # Left_Shoulder_Yaw
+  - -2.44 # Left_Elbow
   - -3.31 # Right_Shoulder_Pitch
   - -1.57 # Right_Shoulder_Roll
-  - -2.27 # Right_Elbow_Pitch
-  - 0.0   # Right_Elbow_Yaw
+  - -2.27 # Right_Shoulder_Yaw
+  - 0.0   # Right_Elbow
   - -1.57 # Waist
   - -1.8  # Left_Hip_Pitch
   - -0.2  # Left_Hip_Roll
@@ -128,12 +153,12 @@ max_angles:
   - 1.22  # Head_pitch
   - 1.22  # Left_Shoulder_Pitch
   - 1.57  # Left_Shoulder_Roll
-  - 2.27  # Left_Elbow_Pitch
-  - 0.0   # Left_Elbow_Yaw
+  - 2.27  # Left_Shoulder_Yaw
+  - 0.0   # Left_Elbow
   - 1.22  # Right_Shoulder_Pitch
   - 1.74  # Right_Shoulder_Roll
-  - 2.27  # Right_Elbow_Pitch
-  - 2.44  # Right_Elbow_Yaw
+  - 2.27  # Right_Shoulder_Yaw
+  - 2.44  # Right_Elbow
   - 1.57  # Waist
   - 1.57  # Left_Hip_Pitch
   - 1.57  # Left_Hip_Roll
@@ -154,6 +179,7 @@ num_actions: 23 # Base number of actions (one per joint). Script will handle var
 # --- Command Parameters (for generating the `cmd` vector) ---
 # These are default command values. The valid ranges are in the comments.
 command:
-  feet_distance: 0.2
-  gait_frequency: 1.0
+  feet_distance: 0.25
+  gait_frequency: 1.0   
   stop_steps: 2
+  
