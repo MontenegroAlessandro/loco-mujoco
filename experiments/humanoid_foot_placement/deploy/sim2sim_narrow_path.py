@@ -428,13 +428,15 @@ def main(config: DictConfig):
     target_dof_kps = kps.copy()
     target_dof_kds = kds.copy()
 
-    counter = 1
     gait_frequency = float(cmd_params["gait_frequency"])
+    policy_dt = simulation_dt * control_decimation
 
     GG = NarrowPathGaitGenerator(
         model=m,
         data=d,
         max_angle=np.deg2rad(30.0),
+        gait_frequency=gait_frequency,
+        policy_dt=policy_dt,
         feet_distance=float(cmd_params["feet_distance"]),
         stop_steps=int(cmd_params["stop_steps"]),
         path_pts=path_pts
@@ -460,7 +462,6 @@ def main(config: DictConfig):
 
             # physics steps
             for _ in range(control_decimation):
-                counter += 1
                 tau = pd_control(
                     target_dof_pos, d.qpos[7:], target_dof_kps, np.zeros_like(kds), d.qvel[6:], target_dof_kds
                 )
@@ -504,12 +505,10 @@ def main(config: DictConfig):
                     t_start_walk = sim_t
                     print(f"[time] walking started at sim_t={t_start_walk:.3f}s")
 
-            gp = (counter * simulation_dt * gait_frequency) % 1.0
-
             gxy = path_pts[goal_stage]
             goal_pos = np.array([float(gxy[0]), float(gxy[1]), 0.0], dtype=np.float32)
 
-            foot_offset, gait_info = GG.query_cmd(goal_pos=goal_pos, q_pos=d.qpos[:].copy(), gp=gp, goal_stage=goal_stage)
+            foot_offset, gait_info = GG.query_cmd(goal_pos=goal_pos, q_pos=d.qpos[:].copy(), goal_stage=goal_stage)
             l_offset, l_orn_offset, r_offset, r_orn_offset = foot_offset
 
             # visualize sampled foot target

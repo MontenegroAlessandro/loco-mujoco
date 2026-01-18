@@ -67,8 +67,8 @@
         <geom size="0.08" pos="0.01 0 0.11" class="collision" name="head"/>
         <!-- <camera name="head_camera" pos="0.07266 0 0.10956" euler="0 -1.6 -1.5708" mode="fixed" fovy="57" /> -->
         <camera name="head_camera" pos="0.08381 0.0475 0.12406" euler="0 -1.6 -1.5708" mode="fixed" fovy="57" />
-          <!-- <site name="head_cam" pos="0.07266 0 0.10956" euler="0 -1.5708 1.5708"
-            size="0.05 0.02 0.001" type="box" rgba="1.0 0 0 1.0" /> -->
+          <site name="head_cam" pos="0.07266 0 0.10956" euler="0 -1.5708 -1.5708"
+            size="0.05 0.02 0.001" type="box" rgba="1.0 0 0 1.0" />
       </body>
     </body>
     <body name="AL1" pos="0.0575 0.1063 0.219" quat="1 0 0.000440565 0">

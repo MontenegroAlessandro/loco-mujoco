@@ -73,131 +73,6 @@ class JAXPolicy:
         return action
 
 
-class GaitGenerator1:
-    def __init__(
-        self,
-        feet_distance: float = 0.2,
-        vertical_dist: float = 0.1,
-        lateral_dist: float = 0.3,
-        steering_angle: float = 0.0,
-    ):
-        self.feet_distance = feet_distance
-        self.vertical_dist = vertical_dist
-        self.lateral_dist = lateral_dist
-        self.steering_angle = steering_angle
-        self.gaits_to_still = 0
-
-    def query_cmd(self, mov_dir: str = "STILL", reset: bool = False, gp: float = 0.0):
-        err_msg = f"[GaitGenerator: query_cmd] Mode {mov_dir} is not valid."
-        assert mov_dir in ["STILL", "FWD", "BWD", "LEFT", "RIGHT", "DIAG-L", "DIAG-R"], err_msg
-
-        if mov_dir == "STILL":
-            cmd = self._gen_still_cmd(reset=reset, gp=gp)
-        elif mov_dir in ["FWD", "BWD"]:
-            # direction = 1 if mov_dir == "FWD" else -1
-            direction = 1
-            cmd = self._gen_vertical_cmd(gp=gp, direction=direction)
-        elif mov_dir in ["LEFT", "RIGHT"]:
-            direction = 1 if mov_dir == "LEFT" else -1
-            cmd = self._gen_lateral_cmd(gp=gp, direction=direction)
-        elif mov_dir in ["DIAG-L", "DIAG-R"]:
-            direction = 1 if mov_dir == "DIAG-L" else -1
-            cmd = self._gen_diag_cmd(gp=gp, direction=direction)
-
-        return cmd
-
-    def _gen_still_cmd(self, reset: bool = False, gp: float = 0.0):
-        swing_foot_idx = 0 if (gp < 0.5) else 1
-
-        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
-        zero_pos_offset = np.zeros(3, dtype=np.float32)
-
-        if self.gaits_to_still > 0:
-            gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
-            l_pos_offset = np.array([0, self.feet_distance, 0]) if swing_foot_idx == 0 else zero_pos_offset
-            r_pos_offset = np.array([0, -self.feet_distance, 0]) if swing_foot_idx == 1 else zero_pos_offset
-            l_orn_offset = zero_orn_offset
-            r_orn_offset = zero_orn_offset
-        else:
-            gait_info = np.zeros(2, dtype=np.float32)
-            l_pos_offset = np.array([0, self.feet_distance, 0])
-            r_pos_offset = np.array([0, -self.feet_distance, 0])
-            l_orn_offset = zero_orn_offset
-            r_orn_offset = zero_orn_offset
-
-        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
-
-    def _gen_vertical_cmd(self, gp: float = 0.0, direction: int = 1):
-        err_msg = f"[GaitGenerator: _gen_vertical_cmd] Direction {direction} is not valid."
-        assert direction in [-1, 1], err_msg
-
-        swing_foot_idx = 0 if (gp < 0.5) else 1
-
-        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
-        zero_pos_offset = np.zeros(3, dtype=np.float32)
-
-        steering_angle = np.clip(self.steering_angle, -np.pi, np.pi) if direction == 1 else 0.0
-        steering_foot_idx = 0 if (steering_angle >= 0 and steering_angle <= np.pi) else 1
-        steering_orn_offset = np_R.from_euler("z", steering_angle).as_quat(scalar_first=True)
-
-        gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
-        l_pos_offset = np.array([direction * self.vertical_dist, self.feet_distance, 0]) if swing_foot_idx == 0 else zero_pos_offset
-        r_pos_offset = np.array([direction * self.vertical_dist, -self.feet_distance, 0]) if swing_foot_idx == 1 else zero_pos_offset
-        l_orn_offset = steering_orn_offset if steering_foot_idx == 0 else zero_orn_offset
-        r_orn_offset = steering_orn_offset if steering_foot_idx == 1 else zero_orn_offset
-
-        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
-
-    def _gen_lateral_cmd(self, gp: float = 0.0, direction: int = 1):
-        err_msg = f"[GaitGenerator: _gen_lateral_cmd] Direction {direction} is not valid."
-        # assert direction in [-1, 1], err_msg
-        direction = 1 if self.lateral_dist >= 0 else -1
-
-        swing_foot_idx = 0 if (gp < 0.5) else 1
-
-        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
-        zero_pos_offset = np.zeros(3, dtype=np.float32)
-
-        lat_dist = self.feet_distance * direction + self.lateral_dist
-        max_evil_movement = - lat_dist / 2.0
-
-        gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
-
-        if direction == 1:  # left
-            l_pos_offset = np.array([0.0, lat_dist, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
-            r_pos_offset = np.array([0.0, max_evil_movement, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
-        else:  # right
-            l_pos_offset = np.array([0.0, max_evil_movement, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
-            r_pos_offset = np.array([0.0, lat_dist, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
-
-        l_orn_offset = zero_orn_offset
-        r_orn_offset = zero_orn_offset
-        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
-
-    def _gen_diag_cmd(self, gp: float = 0.0, direction: int = 1):
-        err_msg = f"[GaitGenerator: _gen_diag_cmd] Direction {direction} is not valid."
-        assert direction in [-1, 1], err_msg
-
-        swing_foot_idx = 0 if (gp < 0.5) else 1
-
-        zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
-        zero_pos_offset = np.zeros(3, dtype=np.float32)
-
-        gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
-        max_evil_movement = self.lateral_dist / 2.0
-
-        if direction == 1:  # diag-left
-            l_pos_offset = np.array([self.lateral_dist, self.lateral_dist, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
-            r_pos_offset = np.array([-max_evil_movement, -max_evil_movement, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
-        else:  # diag-right
-            l_pos_offset = np.array([-max_evil_movement, max_evil_movement, 0.0]) if swing_foot_idx == 0 else zero_pos_offset
-            r_pos_offset = np.array([self.lateral_dist, -self.lateral_dist, 0.0]) if swing_foot_idx == 1 else zero_pos_offset
-
-        l_orn_offset = zero_orn_offset
-        r_orn_offset = zero_orn_offset
-        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset, gait_info
-
-
 class RobotController:
     def __init__(self, node, cfg):
         self.node: Node = node
@@ -212,12 +87,12 @@ class RobotController:
 
         self.depth_sub = Subscriber(self.node, Image, '/camera/camera/aligned_depth_to_color/image_raw')
         self.color_sub = Subscriber(self.node, Image, '/camera/camera/color/image_raw')
-        self.info_sub = Subscriber(self.node, CameraInfo, '/camera/camera/color/camera_info')
+        self.info_sub = Subscriber(self.node, CameraInfo, "/camera/camera/aligned_depth_to_color/camera_info")
 
         # Publish TF from base_link to camera frame
         self.base_to_cam_tf_pub = self.node.create_publisher(TFMessage, "/tf", 10)
 
-        self.ts = ApproximateTimeSynchronizer([self.color_sub, self.depth_sub, self.info_sub], queue_size=5, slop=0.1)
+        self.ts = ApproximateTimeSynchronizer([self.color_sub, self.depth_sub, self.info_sub], queue_size=5, slop=0.05)
         self.ts.registerCallback(self.synchronized_callback)
 
         self.cv_bridge = cv_bridge.CvBridge()
@@ -243,10 +118,6 @@ class RobotController:
         self.agent_started = False
         self.prev_action = np.zeros(self.num_actions, dtype=np.float32)
 
-        # Gait / foot placement
-        self.counter = 0
-        self.gait_frequency = self.command["gait_frequency"]
-
         # self.GG = GaitGenerator(feet_distance=self.command.feet_distance, stop_steps=self.command.stop_steps)
 
         spec = mujoco.MjSpec.from_file(cfg.xml_path)
@@ -256,11 +127,11 @@ class RobotController:
         self.last_img_time = self.cam_info.header.stamp.sec + self.cam_info.header.stamp.nanosec * 1e-9
 
         self.GG = VisualGaitGenerator(robot_model=self._model, robot_data=self._data, 
-                                             cam_width=self.cam_info.width, cam_height=self.cam_info.height,
-                                             feet_distance=self.command.feet_distance, stop_steps=self.command.stop_steps,
-                                             debug_vis=True)
-
-        self.swing_foot_idx = 0 if ((self.counter * self.policy_dt * self.gait_frequency) % 1.0 < 0.5) else 1
+                                      gait_frequency=self.command.gait_frequency, policy_dt=self.policy_dt,
+                                      cam_width=self.cam_info.width, cam_height=self.cam_info.height,
+                                      feet_distance=self.command.feet_distance, stop_steps=self.command.stop_steps,
+                                        img_delay_steps=self.command.img_delay_steps,
+                                      debug_vis=True)
 
         print(
             "Controller bindings:\n"
@@ -364,10 +235,12 @@ class RobotController:
         # targets, rgb_image, mask_image = self.GG.detect_foot_target(self.color_image, self.depth_image)
         # joint_pos = self.robot.q_pos
         # l_rel_pos, l_rel_xmat, r_rel_pos, r_rel_xmat = self.GG._get_foot_to_cam(joint_pos)
+        # print(l_rel_pos, r_rel_pos)
         # target_in_l_foot = (l_rel_xmat @ targets.T).T + l_rel_pos
 
         # cv2.imshow("rgb_image", cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR))
         # cv2.imshow("mask_image", cv2.cvtColor(mask_image, cv2.COLOR_RGB2BGR))
+        # print("Detected targets (camera frame):", targets)
         # print(f"Detected targets in left foot frame: {target_in_l_foot}")
         # cv2.waitKey(0)
 
@@ -382,26 +255,33 @@ class RobotController:
         dof_vel = self.robot.q_vel
         base_ang_vel = self.robot.angular_velocity
 
-        # gait phase
-        gait_process = (self.counter * self.policy_dt * self.gait_frequency) % 1.0
-
         # build command vector
         new_img_time = self.cam_info.header.stamp.sec + self.cam_info.header.stamp.nanosec * 1e-9
         if new_img_time > self.last_img_time:
             image_updated = True
         else:
             image_updated = False
-            # self.GG_visual.update_camera_info(width=self.cam_info.width, height=self.cam_info.height,
-            #                                  focal_x=self.cam_info.k[0], focal_y=self.cam_info.k[4],
-            #                                  pp_x=self.cam_info.k[2], pp_y=self.cam_info.k[5])
 
-        foot_offset, gait_info, _ = self.GG.query_cmd(self.color_image, self.depth_image, dof_pos, gp=gait_process, image_updated=image_updated)
+        foot_offset, gait_info, rgb_image, depth_image, targets = self.GG.query_cmd(
+            self.color_image.copy(), self.depth_image.copy(), dof_pos, image_updated=image_updated
+        )
 
-        if self.GG.sample_goal and image_updated:
+        if self.GG.sample_goal and self.GG.remaining_delay_steps==0 and image_updated:
             self.last_img_time = new_img_time
+
+        if self.GG.sample_goal:
+            self.publish_cam_target_tf(targets)
+            self.publish_foot_target_tf(foot_offset, self.GG.swing_foot_idx)
 
         # foot_offset, gait_info = self.GG.query_cmd(gp=gait_process)
         l_offset, l_orn_offset, r_offset, r_orn_offset = foot_offset
+
+        # # TODO remove
+        # l_offset = np.array([0, self.GG.feet_distance, 0.0])
+        # l_orn_offset = np.array([1, 0, 0, 0])
+        # r_offset = np.array([0, -self.GG.feet_distance, 0.0])
+        # r_orn_offset = np.array([1, 0, 0, 0])
+        # gait_info = np.array([0.0, 0.0])
 
         cmd = np.concatenate(
             [l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32
@@ -429,7 +309,6 @@ class RobotController:
         q_des = np.clip(q_des, self.min_angles, self.max_angles)
 
         self.robot.send_cmd(q_target_pos=q_des, target_kp=self.kps, target_kd=self.kds)
-        self.counter += 1
 
     # ---------------- Utility ----------------
     def convert_quat_to_rot_mat(self, quat):
@@ -451,6 +330,8 @@ class RobotController:
 
         self._publish_base_to_camera_tf()
 
+        self.GG.update_camera_info(cam_info=self.cam_info)
+
         if self.robot.joy_key is not None:
             # 1) LT + RT + A : initialization in still mode
             if (self.robot.joy_key.lt and self.robot.joy_key.rt and self.robot.joy_key.a and self.robot.key_count == 3):
@@ -463,9 +344,9 @@ class RobotController:
                     self.GG.teleop["last_mov_dir"] = "STILL"
                     self.GG.gaits_to_still = 0
 
-                    # optional: reset counters for clean phase
-                    self.counter = 0
-                    self.swing_foot_idx = 0
+                    # optional: reset gait process for clean phase
+                    self.GG.gait_process = 0.0
+                    self.GG.swing_foot_idx = 0
 
                     # reset
                     self.GG.vertical_dist = 0.0
@@ -495,14 +376,10 @@ class RobotController:
 
                 # 5) RIGHT
                 elif self.robot.joy_key.hat_r and self.robot.key_count == 1:
-                    # self.counter = int(0.5 / (self.policy_dt * self.gait_frequency))
-                    # self.GG.lateral_dist = self.lat_dist
                     self._teleop_right()
 
                 # 6) LEFT
                 elif self.robot.joy_key.hat_l and self.robot.key_count == 1:
-                    # self.counter = 0
-                    # self.GG.lateral_dist = self.lat_dist
                     self._teleop_left()
 
                 # 7) RB
@@ -606,7 +483,7 @@ class RobotController:
 
         transform.transform.translation.x = 0.0
         transform.transform.translation.y = 0.0
-        transform.transform.translation.z = 0.0
+        transform.transform.translation.z = 0.05
         rot = np_R.from_euler("xyz", [0.0, np.pi / 2.0, np.pi / 2.0])
         quat = rot.as_quat()  # x, y, z, w
         transform.transform.rotation.x = quat[0]
@@ -615,6 +492,56 @@ class RobotController:
         transform.transform.rotation.w = quat[3]
         tf.transforms.append(transform)
 
+        self.base_to_cam_tf_pub.publish(tf)
+
+    def publish_cam_target_tf(self, targets):
+        tf = TFMessage()
+        stamp = self.node.get_clock().now().to_msg()
+
+        for i, target in enumerate(targets):
+            transform = TransformStamped()
+            transform.header.stamp = stamp
+            transform.header.frame_id = "camera_color_optical_frame"
+            transform.child_frame_id = f"foot_target_{i}"
+            transform.transform.translation.x = float(target[0])
+            transform.transform.translation.y = -float(target[1])
+            transform.transform.translation.z = -float(target[2])
+            transform.transform.rotation.w = 1.0
+            transform.transform.rotation.x = 0.0
+            transform.transform.rotation.y = 0.0
+            transform.transform.rotation.z = 0.0
+
+            tf.transforms.append(transform)
+        self.base_to_cam_tf_pub.publish(tf)
+
+    def publish_foot_target_tf(self, foot_offset, swing_foot_idx):
+        tf = TFMessage()
+        stamp = self.node.get_clock().now().to_msg()
+
+        l_offset, l_orn_offset, r_offset, r_orn_offset = foot_offset
+
+        if swing_foot_idx == 0:
+            offset = l_offset
+            orn_offset = l_orn_offset
+            parent_frame_id = "right_foot_site"
+        else:
+            offset = r_offset
+            orn_offset = r_orn_offset
+            parent_frame_id = "left_foot_site"
+
+        transform = TransformStamped()
+        transform.header.stamp = stamp
+        transform.header.frame_id = parent_frame_id
+        transform.child_frame_id = "foot_target"
+        transform.transform.translation.x = float(offset[0])
+        transform.transform.translation.y = float(offset[1])
+        transform.transform.translation.z = float(offset[2])
+        transform.transform.rotation.w = float(orn_offset[0])
+        transform.transform.rotation.x = float(orn_offset[1])
+        transform.transform.rotation.y = float(orn_offset[2])
+        transform.transform.rotation.z = float(orn_offset[3])
+
+        tf.transforms.append(transform)
         self.base_to_cam_tf_pub.publish(tf)
 
 

@@ -107,7 +107,7 @@ def pd_control(target_q, q, kp, target_dq, dq, kd):
     return (target_q - q) * kp + (target_dq - dq) * kd
 
 
-@hydra.main(config_name="config_sim2sim_visual.yaml")
+@hydra.main(config_name="config_sim2sim_goal_reach.yaml")
 def main(config: DictConfig):
 
     xml_path = config["xml_path"]
@@ -218,14 +218,16 @@ def main(config: DictConfig):
     target_dof_kds = kds.copy()
 
     cmd = np.zeros(16, dtype=np.float32)
-    counter = 1
     gait_frequency = float(cmd_params["gait_frequency"])
+    policy_dt = simulation_dt * control_decimation
 
     # init goal-reaching gait generator
     GG = GoalReachingGaitGenerator(
         model=m,
         data=d,
         max_angle=np.deg2rad(30.0),
+        gait_frequency=gait_frequency,
+        policy_dt=policy_dt,
         feet_distance=float(cmd_params["feet_distance"]),
         stop_steps=int(cmd_params["stop_steps"]),
     )
@@ -244,7 +246,6 @@ def main(config: DictConfig):
                 break
 
             for i in range(control_decimation):
-                counter += 1
                 tau = pd_control(
                     target_dof_pos, d.qpos[7:], target_dof_kps, np.zeros_like(kds), d.qvel[6:], target_dof_kds
                 )
@@ -260,12 +261,10 @@ def main(config: DictConfig):
             projected_gravity = quat_rotate_inverse(quat, np.array([0.0, 0.0, -1.0]))
 
             # --- gait phase ---
-            gp = (counter * simulation_dt * gait_frequency) % 1.0
 
             foot_offset, gait_info = GG.query_cmd(
                 goal_pos=goal_pos,
                 q_pos=d.qpos[:].copy(),
-                gp=gp,
             )
             l_offset, l_orn_offset, r_offset, r_orn_offset = foot_offset
 

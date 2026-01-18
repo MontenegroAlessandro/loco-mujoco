@@ -3,6 +3,7 @@ from scipy.spatial.transform import Rotation as np_R
 import copy
 import mujoco
 import cv2
+import pyrealsense2 as rs
 
 
 class GaitGenerator:
@@ -10,6 +11,8 @@ class GaitGenerator:
         self,
         feet_distance: float = 0.2,
         stop_steps: int = 2,
+        gait_frequency: float = 1.0,
+        policy_dt: float = 0.02,
     ):
         # map the parameters
         self.feet_distance = feet_distance
@@ -20,6 +23,10 @@ class GaitGenerator:
         # additional controlling parameters
         self.gaits_to_still = 0
         self.move_dir = "STILL"
+
+        self.gait_process = 0.0
+        self.policy_dt = policy_dt
+        self.gait_frequency = gait_frequency
 
         self.swing_foot_idx = 0  # 0 for left, 1 for right
         self.sample_goal = False
@@ -48,8 +55,9 @@ class GaitGenerator:
             lat_max=0.3,
         )
 
-    def preprocess_gp_info(self, gp: float):
-        swing_foot_idx = 0 if (gp < 0.5) else 1
+    def preprocess_gp_info(self):
+        self.gait_process = (self.gait_process + self.policy_dt * self.gait_frequency) % 1.0
+        swing_foot_idx = 0 if (self.gait_process < 0.5) else 1
 
         if self.swing_foot_idx != swing_foot_idx:
             self.sample_goal = True
@@ -66,13 +74,13 @@ class GaitGenerator:
             self.move_dir = mov_dir
 
         if self.gaits_to_still > 0:
-            gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
+            gait_info = np.array([np.cos(2 * np.pi * self.gait_process), np.sin(2 * np.pi * self.gait_process)])
         else:
             gait_info = np.array([0.0, 0.0])
         return gait_info
 
-    def query_cmd(self, gp: float = 0.0):
-        gait_info = self.preprocess_gp_info(gp=gp)
+    def query_cmd(self):
+        gait_info = self.preprocess_gp_info()
 
         if self.sample_goal:
             err_msg = f"[GaitGenerator: query_cmd] Mode {self.move_dir} is not valid."
@@ -282,17 +290,21 @@ class GaitGenerator:
 
 
 class VisualGaitGenerator(GaitGenerator):
+
     def __init__(
         self,
         robot_model,
         robot_data,
         cam_width,
         cam_height,
+        gait_frequency: float = 1.0,
+        policy_dt: float = 0.02,
         feet_distance: float = 0.2,
         stop_steps: int = 2,
+        img_delay_steps: int = 2,
         debug_vis: bool = False,
     ):
-        super().__init__(feet_distance=feet_distance, stop_steps=stop_steps)
+        super().__init__(feet_distance=feet_distance, stop_steps=stop_steps, gait_frequency=gait_frequency, policy_dt=policy_dt)
 
         self.model = copy.deepcopy(robot_model)
         self.data = copy.deepcopy(robot_data)
@@ -301,43 +313,109 @@ class VisualGaitGenerator(GaitGenerator):
         self.right_foot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "right_foot")
         self.cam_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_CAMERA, "head_camera")
 
-        self.cam_info = {
-            "width": cam_width,
-            "height": cam_height,
-            "focal_x": cam_height / (2.0 * np.tan(np.deg2rad(self.model.cam_fovy[self.cam_id]) / 2.0)),
-            "focal_y": cam_height / (2.0 * np.tan(np.deg2rad(self.model.cam_fovy[self.cam_id]) / 2.0)),
-            "principal_point": (cam_width / 2.0, cam_height / 2.0),
-        }
-        self.cam_intrinsics = np.array(
-            [
-                [self.cam_info["focal_x"], 0, self.cam_info["principal_point"][0]],
-                [0, self.cam_info["focal_y"], self.cam_info["principal_point"][1]],
-                [0, 0, 1],
-            ],
-            dtype=np.float32,
-        )
+        # self.cam_info = {
+        #     "width": cam_width,
+        #     "height": cam_height,
+        #     "focal_x": cam_height / (2.0 * np.tan(np.deg2rad(self.model.cam_fovy[self.cam_id]) / 2.0)),
+        #     "focal_y": cam_height / (2.0 * np.tan(np.deg2rad(self.model.cam_fovy[self.cam_id]) / 2.0)),
+        #     "principal_point": (cam_width / 2.0, cam_height / 2.0),
+        # }
+        # self.cam_intrinsics = np.array(
+        #     [
+        #         [self.cam_info["focal_x"], 0, self.cam_info["principal_point"][0]],
+        #         [0, self.cam_info["focal_y"], self.cam_info["principal_point"][1]],
+        #         [0, 0, 1],
+        #     ],
+        #     dtype=np.float32,
+        # )
+
+        self.img_delay_steps = img_delay_steps
+        self.remaining_delay_steps = 0
 
         self.debug_vis = debug_vis
+        self.img_count = 0
 
-    def update_camera_info(self, width, height, focal_x, focal_y, pp_x, pp_y):
-        self.cam_info = {
-            "width": width,
-            "height": height,
-            "focal_x": focal_x,
-            "focal_y": focal_y,
-            "principal_point": (pp_x, pp_y),
+        self.rs_intrinsics = rs.intrinsics()
+        self.rs_intrinsics.width = cam_width
+        self.rs_intrinsics.height = cam_height
+        self.rs_intrinsics.ppx = cam_width / 2.0
+        self.rs_intrinsics.ppy = cam_height / 2.0
+        self.rs_intrinsics.fx = cam_height / (2.0 * np.tan(np.deg2rad(self.model.cam_fovy[self.cam_id]) / 2.0))
+        self.rs_intrinsics.fy = cam_height / (2.0 * np.tan(np.deg2rad(self.model.cam_fovy[self.cam_id]) / 2.0))
+        self.rs_intrinsics.model = rs.distortion.none
+        self.rs_intrinsics.coeffs = [0, 0, 0, 0, 0]
+
+    def update_camera_info(self, cam_info):
+        # self.cam_info = {
+        #     "width": width,
+        #     "height": height,
+        #     "focal_x": focal_x,
+        #     "focal_y": focal_y,
+        #     "principal_point": (pp_x, pp_y),
+        # }
+        # self.cam_intrinsics = np.array(
+        #     [
+        #         [self.cam_info["focal_x"], 0, self.cam_info["principal_point"][0]],
+        #         [0, self.cam_info["focal_y"], self.cam_info["principal_point"][1]],
+        #         [0, 0, 1],
+        #     ],
+        #     dtype=np.float32,
+        # )
+
+        self.rs_intrinsics.width = cam_info.width
+        self.rs_intrinsics.height = cam_info.height
+        self.rs_intrinsics.ppx = cam_info.k[2]
+        self.rs_intrinsics.ppy = cam_info.k[5]
+        self.rs_intrinsics.fx = cam_info.k[0]
+        self.rs_intrinsics.fy = cam_info.k[4]
+        self.rs_intrinsics.model = self.get_rs_distortion_model(cam_info.distortion_model)
+        self.rs_intrinsics.coeffs = [i for i in cam_info.d]
+
+    @staticmethod
+    def get_rs_distortion_model(ros_model_str):
+        """
+        Maps ROS distortion_model strings to pyrealsense2 distortion enums.
+        """
+        mapping = {
+            "plumb_bob": rs.distortion.brown_conrady,
+            "equidistant": rs.distortion.kannala_brandt4,
+            # RealSense sometimes uses 'inverse_brown_conrady' for specific modules
+            "inverse_brown_conrady": rs.distortion.inverse_brown_conrady,
         }
-        self.cam_intrinsics = np.array(
-            [
-                [self.cam_info["focal_x"], 0, self.cam_info["principal_point"][0]],
-                [0, self.cam_info["focal_y"], self.cam_info["principal_point"][1]],
-                [0, 0, 1],
-            ],
-            dtype=np.float32,
-        )
+        # Default to 'none' if unknown or empty
+        return mapping.get(ros_model_str, rs.distortion.none)
 
-    def query_cmd(self, rgb_image, depth_image, joint_pos, gp: float, image_updated: bool):
-        gait_info = self.preprocess_gp_info(gp=gp)
+    def preprocess_gp_info(self):
+        if self.remaining_delay_steps > 0:
+            self.remaining_delay_steps -= 1
+        else:
+            self.gait_process = (self.gait_process + self.policy_dt * self.gait_frequency) % 1.0
+            swing_foot_idx = 0 if (self.gait_process < 0.5) else 1
+
+            if self.swing_foot_idx != swing_foot_idx:
+                self.sample_goal = True
+                self.swing_foot_idx = swing_foot_idx
+                self.remaining_delay_steps = self.img_delay_steps
+            else:
+                self.sample_goal = False
+
+        # Keyboard-controlled movement direction
+        mov_dir = self.teleop["mov_dir"] if self.teleop["move_enabled"] else "STILL"
+        if mov_dir != self.move_dir:
+            # When coming to a stop, let the gait generator settle for a couple half-steps.
+            if mov_dir != "STILL":
+                self.gaits_to_still = self.stop_steps
+            self.move_dir = mov_dir
+
+        if self.gaits_to_still > 0:
+            gait_info = np.array([np.cos(2 * np.pi * self.gait_process), np.sin(2 * np.pi * self.gait_process)])
+        else:
+            gait_info = np.array([0.0, 0.0])
+        return gait_info
+
+    def query_cmd(self, rgb_image, depth_image, joint_pos, image_updated: bool):
+        gait_info = self.preprocess_gp_info()
+        targets = []
 
         if self.sample_goal:
             targets, rgb_image, mask_image = self.detect_foot_target(rgb_image, depth_image)
@@ -346,28 +424,46 @@ class VisualGaitGenerator(GaitGenerator):
                 self.foot_offset = self._gen_still_cmd()
                 self.gaits_to_still = max(0, self.gaits_to_still - 1)
             elif self.move_dir in ["FWD", "BWD"]:
-                # # detect the foot target
-                # targets, rgb_image, mask_image = self.detect_foot_target(rgb_image, depth_image)
-                print(len(targets), "targets detected.")
-                if image_updated and len(targets) > 0:
-                    self.foot_offset = self._gen_visual_cmd(targets, joint_pos)
-                    self.foot_offset[0][2] = 0.0
-                    self.foot_offset[2][2] = 0.0
+                if self.remaining_delay_steps == 0:
+                    depth_image = depth_image * (mask_image > 0)
+                    # targets, rgb_image, mask_image = self.detect_foot_target(rgb_image, depth_image)
+                    print(f"#################### STEP {self.img_count} # SWING FOOT {self.swing_foot_idx} ######################")
+                    if image_updated and len(targets) > 0:
+                        self.foot_offset = self._gen_visual_cmd(targets, joint_pos)
+                        # set z offset to zero to avoid unexpected behaviors
+                        self.foot_offset[0][2] = 0.0
+                        self.foot_offset[2][2] = 0.0
+                    else:
+                        print(f"No valid targets detected")
+                        self.foot_offset = self._gen_vertical_cmd()
                     print(
-                        f"Left foot offset from vision: {np.array(self.foot_offset[0])}, Right foot offset from vision: {np.array(self.foot_offset[2])}"
-                    )
-                else:
-                    self.foot_offset = self._gen_vertical_cmd()
+                            f"Left foot offset from vision: {np.array(self.foot_offset[0])}, "
+                            f"Right foot offset from vision: {np.array(self.foot_offset[2])}"
+                        )
 
-                # TODO remove
-                # self.foot_offset = self._gen_vertical_cmd()
+            if self.debug_vis and self.remaining_delay_steps == 0:
+                mask_image = cv2.cvtColor(mask_image, cv2.COLOR_GRAY2RGB)
+                # Merge RGB and mask images side by side
+                img = np.concatenate((rgb_image, mask_image), axis=1)
 
-            if self.debug_vis:
-                cv2.imshow("rgb_image", cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR))
-                cv2.imshow("mask_image", cv2.cvtColor(mask_image, cv2.COLOR_RGB2BGR))
-                cv2.waitKey(1)
+                cv2.imwrite(f"rgb_mask_{self.img_count}.png", cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+                self.img_count += 1
 
-        return self.foot_offset, gait_info, rgb_image
+                # cv2.imshow("rgb_image", cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+                # cv2.waitKey(1)
+
+            # # TODO remove
+            # if self.remaining_delay_steps == 0:
+            #     print(
+            #         f"#################### STEP {self.img_count} # SWING FOOT {self.swing_foot_idx} ######################"
+            #     )
+            #     self.foot_offset = self._gen_visual_cmd(targets, joint_pos)
+            #     print(
+            #         f"Left foot offset from vision: {np.array(self.foot_offset[0])}, "
+            #         f"Right foot offset from vision: {np.array(self.foot_offset[2])}"
+            #     )
+
+        return self.foot_offset, gait_info, rgb_image, depth_image, targets
 
     def _gen_visual_cmd(self, targets, joint_pos):
         l_rel_pos, l_rel_xmat, r_rel_pos, r_rel_xmat = self._get_foot_to_cam(joint_pos)
@@ -379,31 +475,55 @@ class VisualGaitGenerator(GaitGenerator):
         l_orn_offset = zero_orn_offset
         r_orn_offset = zero_orn_offset
 
-        target_in_l_foot = (l_rel_xmat @ targets[:3].T).T + l_rel_pos
-        print("Target in left foot frame:", target_in_l_foot)
-
         for target_idx, target in enumerate(targets):
             l_to_target = l_rel_xmat @ target + l_rel_pos
             r_to_target = r_rel_xmat @ target + r_rel_pos
-            l_dist = np.linalg.norm(l_to_target)
-            r_dist = np.linalg.norm(r_to_target)
+            l_dist = np.linalg.norm(l_to_target[:2])
+            r_dist = np.linalg.norm(r_to_target[:2])
 
             # break if both feet are too far
-            if min(l_dist, r_dist) > 0.5:
-                break
+            # if min(l_dist, r_dist) > 0.5:
+            #     break
 
             # Check feasibility for the swing foot
             feasible = True
             if self.swing_foot_idx == 0:
                 stance_target_offset = r_to_target
                 stance_dist = r_dist
-                if stance_target_offset[1] < self.feet_distance / 2.0 or stance_dist > 0.5 or stance_dist < 0.2:
+                if stance_dist > 0.5 or stance_dist < 0.2:
+                    print(f"Stance foot distance {stance_dist} out of range.")
                     feasible = False
+                else:
+                    if stance_target_offset[1] < self.feet_distance / 2.0:
+                        print(f"Stance foot offset {stance_target_offset[1]} < {self.feet_distance / 2.0}.")
+                        feasible = False
+                        # Wait for one step
+                        l_pos_offset = np.array([0.0, self.feet_distance, 0.0])
+
+                # if stance_target_offset[1] < self.feet_distance / 4.0 or stance_dist > 0.45 or stance_dist < 0.2:
+                #     if target_idx == 0:
+                #         print(f"Stance foot offset: {stance_target_offset[1]} < {self.feet_distance / 4.0}, Distance: {stance_dist}")
+                #     feasible = False
             else:
                 stance_target_offset = l_to_target
                 stance_dist = l_dist
-                if stance_target_offset[1] > -self.feet_distance / 2.0 or stance_dist > 0.5 or stance_dist < 0.2:
+                if stance_dist > 0.5 or stance_dist < 0.2:
+                    print(f"Stance foot distance {stance_dist} out of range.")
                     feasible = False
+                else:
+                    if stance_target_offset[1] > -self.feet_distance / 2.0:
+                        print(f"Stance foot offset {stance_target_offset[1]} > {-self.feet_distance / 2.0}.")
+                        feasible = False
+                        # Wait for one step
+                        r_pos_offset = np.array([0.0, -self.feet_distance, 0.0])
+
+                # if stance_target_offset[1] > -self.feet_distance / 4.0 or stance_dist > 0.45 or stance_dist < 0.2:
+                #     if target_idx == 0:
+                #         print(f"Stance foot offset: {stance_target_offset[1]} > {-self.feet_distance / 4.0}, Distance: {stance_dist}")
+                #     feasible = False
+
+            # # TODO remove
+            # feasible = True
 
             if feasible:
                 l_pos_offset = r_to_target if self.swing_foot_idx == 0 else zero_pos_offset
@@ -417,14 +537,18 @@ class VisualGaitGenerator(GaitGenerator):
                     if self.swing_foot_idx == 0:
                         next_r_to_target = r_rel_xmat @ next_target + r_rel_pos
                         target_dir = next_r_to_target - r_to_target
-                        yaw_offset = np.arcsin(-self.feet_distance / (np.linalg.norm(target_dir[:2]) + 1e-6))
+                        yaw_offset = np.arcsin(
+                            -self.feet_distance / (np.maximum(np.linalg.norm(target_dir[:2]), self.feet_distance) + 1e-6)
+                        )
                         yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
                         yaw = np.clip(yaw, np.deg2rad(-30), np.deg2rad(90))
                         l_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
                     else:
                         next_l_to_target = l_rel_xmat @ next_target + l_rel_pos
                         target_dir = next_l_to_target - l_to_target
-                        yaw_offset = np.arcsin(self.feet_distance / (np.linalg.norm(target_dir[:2]) + 1e-6))
+                        yaw_offset = np.arcsin(
+                            self.feet_distance / (np.maximum(np.linalg.norm(target_dir[:2]), self.feet_distance) + 1e-6)
+                        )
                         yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
                         yaw = np.clip(yaw, np.deg2rad(-90), np.deg2rad(30))
                         r_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
@@ -502,10 +626,18 @@ class VisualGaitGenerator(GaitGenerator):
 
         # Draw contours for visualization
         contours = contours[0] if len(contours) == 2 else contours[1]
+
         targets = []
+        N = 3
+        h, w = depth_image.shape
+
         for cnt in contours:
             area = cv2.contourArea(cnt)
             if area < 50:  # Minimum area threshold to filter noise
+                continue
+
+            # fitEllipse requires at least 5 points
+            if len(cnt) < 5:
                 continue
 
             (x, y), (MA, ma), angle = cv2.fitEllipse(cnt)
@@ -513,31 +645,47 @@ class VisualGaitGenerator(GaitGenerator):
             if MA / ma < 0.5:  # Filter out non-elliptical shapes
                 continue
 
-            # Get average depth within the ellipse
-            mask_ellipse = np.zeros_like(mask)
-            cv2.ellipse(mask_ellipse, (int(x), int(y)), (int(MA / 2), int(ma / 2)), angle, 0, 360, 1, -1)
-            # Mask out invalid depth values
-            valid_depth_mask = (depth_image > 0.1) & (depth_image < 5.0)
-            mask_ellipse = mask_ellipse.astype(bool) & valid_depth_mask
-            if np.sum(mask_ellipse) == 0:
-                continue
-            else:
-                depth = np.mean(depth_image[mask_ellipse])
+            # 1. Calculate the ROI (Region of Interest) bounds with safety clipping
+            x_start = int(max(0, x - N))
+            x_end = int(min(w, x + N))
+            y_start = int(max(0, y - N))
+            y_end = int(min(h, y + N))
 
-            targets.append((x, y, depth, MA, ma, angle))
+            # 2. Extract the neighborhood depth slice
+            depth_roi = depth_image[y_start:y_end, x_start:x_end]
+            valid_mask = (depth_roi > 0.1) & (depth_roi < 5.0)
+            valid_depths = depth_roi[valid_mask]
+
+            if valid_depths.size == 0:
+                continue # Skip if no pixels in the window meet the criteria
+
+            # 4. Use Median to calculate the representative depth
+            target_depth = np.median(valid_depths)
+
+            targets.append((x, y, target_depth, MA, ma, angle))
         if len(targets) == 0:
             return [], rgb_image, mask
 
         targets = np.array(targets, dtype=np.float32)
 
         # Sort the targets by distance to the bottom center of the image
-        x_pixel = targets[:, 0]
-        y_pixel = targets[:, 1]
-        z = targets[:, 2]
+        # x_pixel = targets[:, 0]
+        # y_pixel = targets[:, 1]
+        # z = targets[:, 2]
 
-        x_cam = (x_pixel - self.cam_info["principal_point"][0]) * z / self.cam_info["focal_x"]
-        y_cam = (y_pixel - self.cam_info["principal_point"][1]) * z / self.cam_info["focal_y"]
-        targets_cam = np.stack([x_cam, -y_cam, -z], axis=1)
+        # x_cam = (x_pixel - self.cam_info["principal_point"][0]) * z / self.cam_info["focal_x"]
+        # y_cam = (y_pixel - self.cam_info["principal_point"][1]) * z / self.cam_info["focal_y"]
+        # # targets_cam = np.stack([x_cam, -y_cam, -z], axis=1)
+        # targets_cam = np.stack([x_cam, y_cam, z], axis=1)
+
+        # Assuming targets is a numpy array of [u, v, depth]
+        points_3d = [rs.rs2_deproject_pixel_to_point(self.rs_intrinsics, [t[0], t[1]], t[2]) for t in targets]
+
+        # Convert back to numpy if needed
+        targets_cam = np.array(points_3d)
+        targets_cam[:, 1] = -targets_cam[:, 1]
+        targets_cam[:, 2] = -targets_cam[:, 2]
+
         distances = np.linalg.norm(targets_cam, axis=1)
         sorted_indices = np.argsort(distances)
         targets_cam = targets_cam[sorted_indices]
@@ -546,12 +694,13 @@ class VisualGaitGenerator(GaitGenerator):
         for target in targets[sorted_indices][:3]:
             x, y, depth, MA, ma, angle = target
             bgr = cv2.ellipse(bgr, (int(x), int(y)), (int(MA / 2), int(ma / 2)), angle, 0, 360, (0, 0, 255), 2)
-        return targets_cam, cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), cv2.cvtColor(mask, cv2.COLOR_BGR2RGB)
+            bgr = cv2.circle(bgr, (int(x), int(y)), 3, (0, 255, 255), -1)
+        return targets_cam, cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), mask
 
 
 class GoalReachingGaitGenerator(GaitGenerator):
-    def __init__(self, model, data, max_angle, feet_distance: float = 0.2, stop_steps: int = 2):
-        super().__init__(feet_distance=feet_distance, stop_steps=stop_steps)
+    def __init__(self, model, data, max_angle, gait_frequency, policy_dt, feet_distance: float = 0.2, stop_steps: int = 2):
+        super().__init__(feet_distance=feet_distance, stop_steps=stop_steps, gait_frequency=gait_frequency, policy_dt=policy_dt)
         self.model = copy.deepcopy(model)
         self.data = copy.deepcopy(data)
 
@@ -564,7 +713,7 @@ class GoalReachingGaitGenerator(GaitGenerator):
         self.max_angle = max_angle
         self.turning_threshold = self.max_angle * 2
 
-    def query_cmd(self, goal_pos, q_pos, gp: float):
+    def query_cmd(self, goal_pos, q_pos):
         self.data.qpos[:] = q_pos
         mujoco.mj_fwdPosition(self.model, self.data)
 
@@ -579,10 +728,10 @@ class GoalReachingGaitGenerator(GaitGenerator):
             swing_foot_idx = 0 if target_dir[1] >= 0.0 else 1
             self.swing_foot_idx = 1 - swing_foot_idx
             desired_gp = 0.25 if swing_foot_idx == 0 else 0.75
-            self.gp_shift = (desired_gp - (gp % 1.0)) % 1.0
+            # self.gp_shift = (desired_gp - (gp % 1.0)) % 1.0
 
-        gp = (gp + self.gp_shift) % 1.0
-        gait_info = self.preprocess_gp_info(gp=gp)
+        # gp = (gp + self.gp_shift) % 1.0
+        gait_info = self.preprocess_gp_info()
 
         stance_foot = self.left_foot_id if self.swing_foot_idx == 1 else self.right_foot_id
 
@@ -665,15 +814,17 @@ class NarrowPathGaitGenerator(GoalReachingGaitGenerator):
         data,
         max_angle,
         path_pts,
+        gait_frequency,
+        policy_dt,
         feet_distance: float = 0.2,
         stop_steps: int = 2,
     ):
-        super().__init__(model=model, data=data, max_angle=max_angle, feet_distance=feet_distance, stop_steps=stop_steps)
+        super().__init__(model=model, data=data, max_angle=max_angle, feet_distance=feet_distance, stop_steps=stop_steps, gait_frequency=gait_frequency, policy_dt=policy_dt)
         assert path_pts is not None and len(path_pts) >= 3, "Need path_pts (>=3)."
         self.path_pts = [np.asarray(p, dtype=np.float32) for p in path_pts]
 
 
-    def query_cmd(self, goal_pos, q_pos, gp: float, goal_stage: int):
+    def query_cmd(self, goal_pos, q_pos, goal_stage: int):
         self.data.qpos[:] = q_pos
         mujoco.mj_fwdPosition(self.model, self.data)
 
@@ -687,10 +838,10 @@ class NarrowPathGaitGenerator(GoalReachingGaitGenerator):
             swing_foot_idx = 0 if target_dir[1] >= 0.0 else 1
             self.swing_foot_idx = 1 - swing_foot_idx
             desired_gp = 0.25 if swing_foot_idx == 0 else 0.75
-            self.gp_shift = (desired_gp - (gp % 1.0)) % 1.0
+            # self.gp_shift = (desired_gp - (gp % 1.0)) % 1.0
 
-        gp = (gp + self.gp_shift) % 1.0
-        gait_info = self.preprocess_gp_info(gp=gp)
+        # gp = (gp + self.gp_shift) % 1.0
+        gait_info = self.preprocess_gp_info()
 
         stance_foot = self.left_foot_id if self.swing_foot_idx == 1 else self.right_foot_id
         stance_foot_pos = self.data.site_xpos[stance_foot]
