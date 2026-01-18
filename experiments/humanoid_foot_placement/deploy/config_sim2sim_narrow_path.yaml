@@ -1,19 +1,21 @@
-    
 # Configuration for deploying the H1 policy in a MuJoCo simulation.
 # Name: deploy_mujoco_config_h1_dfki.yaml
 # Updated with parameters and correct joint limits for a 23 DoF robot model.
 
-# policy parameters
 
-agent_path: /home/puze/Projects/accu_loco/experiments/humanoid_foot_placement/policies/kick.pkl
-# train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
-# train_config_name: conf.yaml
-# --- Simulation Parameters ---
-# xml_path: /home/puze/Projects/accu_loco/loco_mujoco/models/booster_t1/booster_t1_original.xml
+# seed for sample start point and goal point
+seed: 0
+
+# policy parameters
+agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl
+#agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/kick.pkl
+
+# Simulation Parameters
 xml_path: /home/puze/Projects/accu_loco/loco_mujoco/models/booster_t1/booster_t1_original.xml
-simulation_duration: 300.0 # seconds
-simulation_dt: 0.002 # seconds, physics timestep
-control_decimation: 10 # policy will run every N physics steps (policy freq = 1 / (dt * decimation))
+#xml_path: /Users/ale/code/PyProjects/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
+simulation_duration: 300.0
+simulation_dt: 0.002
+control_decimation: 10
 
 # --- PD Control Gains (for 23 actuated joints) ---
 # Joint Order:
@@ -23,6 +25,7 @@ control_decimation: 10 # policy will run every N physics steps (policy freq = 1 
 # - Waist
 # - Left_Hip_Pitch, Left_Hip_Roll, Left_Hip_Yaw, Left_Knee_Pitch, Left_Ankle_Pitch, Left_Ankle_Roll
 # - Right_Hip_Pitch, Right_Hip_Roll, Right_Hip_Yaw, Right_Knee_Pitch, Right_Ankle_Pitch, Right_Ankle_Roll
+
 lmj_kps:
   - 10 # 40 # AAHead_yaw
   - 10 # 40 # Head_pitch
@@ -157,4 +160,40 @@ command:
   feet_distance: 0.2
   gait_frequency: 1.0
   stop_steps: 2
-  img_delay_steps: 2
+
+
+# TASK: Narrow Path Configuration
+task:
+  name: narrow_path
+  mode: bridge          # bridge
+
+  # Robot spawn: FORCE on left platform
+  spawn_on_platform: true
+  start_xy: [-2.0, 0.0]  # left platform center
+  goal_xy:  [ 2.0, 0.0]  # right platform center
+
+  # Reach condition for waypoint following
+  reach_thresh: 0.25
+  reach_hold_steps: 12
+
+  # Geometry: platforms and path
+  platform:
+    half_xy: [0.9, 0.9]     # platform half size in x/y
+    half_z: 0.25            # platform half height -> top_z = 2*half_z
+    rgba: [0.22, 0.22, 0.26, 1.0]
+
+  path:
+    width: 0.24
+    thickness: 0.05
+    extra_height: 0.0      # path_top_z = platform_top_z + extra_height
+    rgba: [0.55, 0.45, 0.25, 1.0]
+
+  # Falling detection: if base_z < platform_top_z - fall_margin
+  fall_margin: 0.35
+
+  anchors:
+    edge_epsilon: 0.01
+
+  modes:
+    bridge:
+      waypoints_xy: []

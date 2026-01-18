@@ -65,9 +65,10 @@
         <joint name="Head_pitch" pos="0 0 0" axis="0 1 0" range="-0.35 1.0" actuatorfrcrange="-7 7"/>
         <geom class="visual" material="gray" mesh="H2"/>
         <geom size="0.08" pos="0.01 0 0.11" class="collision" name="head"/>
-        <camera name="head_camera" pos="0.07266 0 0.10956" euler="1.5708 -1.5708 0" mode="fixed" fovy="57" />
-        <!-- <site name="head_cam" pos="0.07266 0 0.10956" euler="1.5708 -1.5708 0"
-            size="0.05 0.02 0.001" type="box" rgba="1.0 0 0 1.0" /> -->
+        <!-- <camera name="head_camera" pos="0.07266 0 0.10956" euler="0 -1.6 -1.5708" mode="fixed" fovy="57" /> -->
+        <camera name="head_camera" pos="0.08381 0.0475 0.12406" euler="0 -1.6 -1.5708" mode="fixed" fovy="57" />
+          <site name="head_cam" pos="0.07266 0 0.10956" euler="0 -1.5708 -1.5708"
+            size="0.05 0.02 0.001" type="box" rgba="1.0 0 0 1.0" />
       </body>
     </body>
     <body name="AL1" pos="0.0575 0.1063 0.219" quat="1 0 0.000440565 0">
@@ -84,6 +85,7 @@
           <geom class="visual" material="gray" mesh="AL3"/>
           <geom size="0.03 0.075" pos="0 0.05 0" quat="0.707105 0.707108 0 0" type="capsule" class="collision" name="left_forearm"/>
           <body name="left_hand_link" pos="0 0.1471 0">
+            <site name="left_hand" size="0.01" pos="0.0 0.25 0.0" type="sphere" rgba="1 0 0 1"/>
             <inertial pos="-0.000108 0.109573 0.000591" quat="0.707866 0.706347 -5.22939e-05 -0.000214913" mass="0.327214" diaginertia="0.008159 0.00813104 0.000214962"/>
             <joint name="Left_Elbow_Yaw" pos="0 0 0" axis="0 0 1" range="-2.44 0" actuatorfrcrange="-18 18"/>
             <geom class="visual" material="gray" mesh="left_hand_link"/>
@@ -106,6 +108,7 @@
           <geom class="visual" material="gray" mesh="AR3"/>
           <geom size="0.03 0.075" pos="0 -0.05 0" quat="0.707105 0.707108 0 0" type="capsule" class="collision" name="right_forearm"/>
           <body name="right_hand_link" pos="0 -0.1471 0">
+            <site name="right_hand" size="0.01" pos="0.0 -0.25 0.0" type="sphere" rgba="1 0 0 1"/>
             <inertial pos="-0.000108 -0.109573 0.000591" quat="0.706347 0.707866 0.000214913 5.22939e-05" mass="0.327214" diaginertia="0.008159 0.00813104 0.000214962"/>
             <joint name="Right_Elbow_Yaw" pos="0 0 0" axis="0 0 1" range="0 2.44" actuatorfrcrange="-18 18"/>
             <geom class="visual" material="gray" mesh="right_hand_link"/>
@@ -146,7 +149,7 @@
                   <geom class="visual" material="gray" mesh="left_foot_link"/>
                   <geom size="0.02 0.0915" pos="0.01 0.035 -0.01"  quat="0.707105 0 0.707108 0" type="capsule" class="collision" name="left_foot_1"/>
                   <geom size="0.02 0.0915" pos="0.01 -0.035 -0.01"  quat="0.707105 0 0.707108 0" type="capsule" class="collision" name="left_foot_2"/>
-                  <site name="left_foot" size="0.015" pos="0.0 0 -0.025" type="box"/>
+                  <site name="left_foot" size="0.015" pos="0.0 0 -0.0325" type="box" rgba="1 0 0 1"/>
                 </body>
               </body>
             </body>
@@ -181,7 +184,7 @@
                   <geom class="visual" material="gray" mesh="right_foot_link"/>
                   <geom size="0.02 0.0915" pos="0.01 0.035 -0.01"  quat="0.707105 0 0.707108 0" type="capsule" class="collision" name="right_foot_1"/>
                   <geom size="0.02 0.0915" pos="0.01 -0.035 -0.01"  quat="0.707105 0 0.707108 0" type="capsule" class="collision" name="right_foot_2"/>
-                  <site name="right_foot" size="0.015" pos="0.0 0 -0.025" type="box"/>
+                  <site name="right_foot" size="0.015" pos="0.0 0 -0.0325" type="box" rgba="1 0 0 1"/>
                 </body>
               </body>
             </body>

@@ -5,7 +5,7 @@
 
 # policy parameters
 
-agent_path: /home/puze/Projects/accu_loco/experiments/humanoid_foot_placement/policies/kick.pkl
+agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
 # train_config_name: conf.yaml
 # --- Simulation Parameters ---
