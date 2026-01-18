@@ -41,6 +41,7 @@ class PDControl(ControlFunction):
                  scale_action_to_jnt_limits: bool = False,
                  action_scale: float = 1.0,
                  clip_actions: float = 1.0,
+                 expand_action_space_by: int = 0,
                  **kwargs: Any):
         """
         Initialize the PDControl class.
@@ -101,6 +102,10 @@ class PDControl(ControlFunction):
 
         low = self._low_pos_target
         high = self._high_pos_target
+
+        if expand_action_space_by > 0:
+            low = np.concatenate([low, -np.ones(expand_action_space_by)], axis=0)
+            high = np.concatenate([high, np.ones(expand_action_space_by)], axis=0)
 
         super(PDControl, self).__init__(env, low, high, **kwargs)
 
@@ -200,3 +205,102 @@ class PDControl(ControlFunction):
         If true, the control function is called with the simulation frequency.
         """
         return True
+
+
+@struct.dataclass
+class PDControlGaitState(PDControlState):
+    """
+    Extended state for PDControlGait that includes gait phase information.
+    """
+    gait_phase_offset: Union[np.ndarray, jax.Array]  # Store the gait offset for use in goals/rewards
+    
+class PDControlGait(PDControl):
+    """
+    Extended PD controller handling an additional output of the policy that will serve as an offset
+    to update the gait phase indicator in other points of the training pipeline.
+    """
+
+    def __init__(
+            self,
+            env: Any,
+            gait_phase_delta_max: float = 0.1,
+            gait_action_name: str = "gait_phase_offset",  # ← NEW: Explicit name
+            **kwargs: Any
+        ):
+        
+        self.gait_phase_delta_max = gait_phase_delta_max
+        self.gait_action_name = gait_action_name
+        
+        super().__init__(env, expand_action_space_by=1, **kwargs)
+
+        self._num_physical_actions = len(env._action_indices)
+        
+        if hasattr(env, '_full_actuation_spec'):
+            try:
+                self._gait_action_idx = env._full_actuation_spec.index(gait_action_name)
+                print(f"Gait action '{gait_action_name}' found at index {self._gait_action_idx}")
+            except ValueError:
+                raise ValueError(f"Gait action '{gait_action_name}' not found in actuation_spec!")
+        else:
+            self._gait_action_idx = self._num_physical_actions
+            print(f"Warning: _full_actuation_spec not found. Assuming gait action is at index {self._gait_action_idx}")
+        
+        # Verify the index is correct
+        total_actions = self._num_physical_actions + 1 
+        if self._gait_action_idx >= total_actions:
+            raise ValueError(f"Gait action index {self._gait_action_idx} exceeds total actions {total_actions}")
+
+    def init_state(self,
+                   env: Any,
+                   key: Union[jax.random.PRNGKey, Any],
+                   model: Union[MjModel, Model],
+                   data: Union[MjData, Data],
+                   backend: ModuleType) -> PDControlGaitState:
+        """
+        Initialize the state for PDControlGait, extending the base state with gait phase offset.
+        
+        Args:
+            env (Any): The environment instance.
+            key (Union[jax.random.PRNGKey, Any]): Random key for noise generation.
+            model (Union[MjModel, Model]): The simulation model instance.
+            data (Union[MjData, Data]): The simulation data instance.
+            backend (ModuleType): Backend module (e.g., numpy or jax.numpy).
+            
+        Returns:
+            PDControlGaitState: The initialized state with gait phase information.
+        """
+        assert_backend_is_supported(backend)
+        return PDControlGaitState(
+            p_gain_noise=backend.zeros_like(self._nominal_joint_positions),
+            d_gain_noise=backend.zeros_like(self._nominal_joint_positions),
+            pos_offset=backend.zeros_like(self._nominal_joint_positions),
+            ctrl_mult=backend.ones_like(self._nominal_joint_positions),
+            gait_phase_offset=backend.array(0.0)  # Initialize gait phase offset to zero
+        )
+
+    def generate_action(self, env: Any,
+                        action: Union[np.ndarray, jax.Array],
+                        model: Union[MjModel, Model],
+                        data: Union[MjData, Data],
+                        carry: Any,
+                        backend: ModuleType) -> Tuple[Union[np.ndarray, jax.Array], Any]:
+        
+        assert_backend_is_supported(backend)
+        
+        if self._gait_action_idx == len(action) - 1:
+            pd_action = action[:-1]
+            gait_raw = action[-1]
+        else:
+            mask = backend.ones(len(action), dtype=bool)
+            mask = mask.at[self._gait_action_idx].set(False)
+            pd_action = action[mask]
+            gait_raw = action[self._gait_action_idx]
+        
+        gait_offset = (gait_raw + 1.0) / 2.0 * self.gait_phase_delta_max
+        
+        updated_control_state = carry.control_func_state.replace(gait_phase_offset=gait_offset)
+        carry = carry.replace(control_func_state=updated_control_state)
+        
+        ctrl, carry = super().generate_action(env, pd_action, model, data, carry, backend)
+        
+        return ctrl, carry

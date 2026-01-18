@@ -1,12 +1,20 @@
-# policy parameters
-# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/kick.pkl
-agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/new_steps_2/gh0.pkl
+    
+# Configuration for deploying the H1 policy in a MuJoCo simulation.
+# Name: deploy_mujoco_config_h1_dfki.yaml
+# Updated with parameters and correct joint limits for a 23 DoF robot model.
 
+# policy parameters
+# agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl
+# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/kick.pkl 
+agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/long_steps/gh5_delta40_slip_cv.pkl 
+# train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
+# train_config_name: conf.yaml
 # --- Simulation Parameters ---
+# xml_path: /home/puze/Projects/accu_loco/loco_mujoco/models/booster_t1/booster_t1_original.xml
 xml_path: /Users/ale/code/PyProjects/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
-simulation_duration: 300.0 
-simulation_dt: 0.002 
-control_decimation: 10 
+simulation_duration: 300.0 # seconds
+simulation_dt: 0.002 # seconds, physics timestep
+control_decimation: 10 # policy will run every N physics steps (policy freq = 1 / (dt * decimation))
 
 # --- PD Control Gains (for 23 actuated joints) ---
 # Joint Order:
@@ -90,6 +98,7 @@ default_angles:
   - 0.4   # Right_Knee_Pitch
   - -0.25 # Right_Ankle_Pitch
   - 0.0   # Right_Ankle_Roll
+
 min_angles:
   - -1.57 # AAHead_yaw
   - -0.35 # Head_pitch
@@ -114,6 +123,7 @@ min_angles:
   - 0.0   # Right_Knee_Pitch
   - -0.87 # Right_Ankle_Pitch
   - -0.44 # Right_Ankle_Roll
+
 max_angles:
   - 1.57  # AAHead_yaw
   - 1.22  # Head_pitch
@@ -138,31 +148,13 @@ max_angles:
   - 2.34  # Right_Knee_Pitch
   - 0.35  # Right_Ankle_Pitch
   - 0.44  # Right_Ankle_Roll
-init_state_params:
-  qpos_init: [0, 0, 0.72, 
-              1, 0, 0, 0, 
-              0, 0,
-              0.2,-1.2, 0, -0.5,
-              0.2, 1.2, 0, 0.5,
-              0,
-              -0.2, 0, 0, 0.4, -0.25, 0,
-              -0.2, 0, 0, 0.4, -0.25, 0]
-  qvel_init: [0, 0, 0, 
-              0, 0, 0, 
-              0, 0, 
-              0, 0, 0, 0, 
-              0, 0, 0, 0, 
-              0, 
-              0, 0, 0, 0, 0, 0,
-              0, 0, 0, 0, 0, 0]
 
 # --- Policy Parameters ---
 num_actions: 23 # Base number of actions (one per joint). Script will handle varstiff extension.
 
 # --- Command Parameters (for generating the `cmd` vector) ---
 # These are default command values. The valid ranges are in the comments.
-experiment:
-  gait_frequency: 1.0       # [0.5, 2.0] Hz
-  feet_distance: 0.2        # [0.0, 0.5] meters
-  goal_coordinates: [7.0, 0.0, 0.0] # (x,y,z)
-  max_step_len: 0.4
+command:
+  feet_distance: 0.2
+  gait_frequency: 1.0
+  stop_steps: 2

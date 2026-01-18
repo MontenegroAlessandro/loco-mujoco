@@ -2,7 +2,10 @@ from shutil import move
 import time
 import os
 import sys
-from loco_mujoco.environments.utils import add_box, add_stair, add_slope, add_ramp_platform_ramp
+
+# from experiments.humanoid_foot_placement.deploy.gait_generators import GoalReachingGaitGenerator, GaitGenerator
+from gait_generators import GoalReachingGaitGenerator, GaitGenerator
+from loco_mujoco.environments.utils import *
 
 # Add parent directory to import path to find lmj and other modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -13,30 +16,69 @@ os.environ["XLA_FLAGS"] = "--xla_gpu_triton_gemm_any=True"
 import mujoco.viewer
 import mujoco
 import numpy as np
-import yaml
 import hydra
-from omegaconf import DictConfig  # Using omegaconf.DictConfig for hydra config type
-import pickle  # Still needed for PPOJax.load_agent
+from omegaconf import DictConfig
 import jax
 import jax.numpy as jnp
 from scipy.spatial.transform import Rotation as np_R
-from loco_mujoco.core.utils.math import quat_scalarfirst2scalarlast
-import copy
-import cv2
 
 from loco_mujoco.algorithms import PPOJax
 
-from gait_generators import GaitGenerator
+# =========================
+# GOAL MODE
+# =========================
+MODE_STOP = "stop"
+MODE_RANDOM_NEXT = "random_next"
+GOAL_MODE = MODE_RANDOM_NEXT
+
+# Obstacle parameters
+STEP_HEIGHT = 0.08
+STEP_WIDTH = 1.0
+STEP_LENGTH = 0.3
+INIT_STAIRS = 2.5
+N_STEPS = 5 
+
+# =========================
+# GOAL
+# =========================
+GOAL_z_off = 0.035
+INIT_GOAL_POS = np.array([2.0, 0.0, STEP_HEIGHT + GOAL_z_off], dtype=np.float32)
+REACH_THRESH = 0.25
+REACH_HOLD_STEPS = 15
+
+# ---- random goal sampling box (edit to your scene) ----
+GOAL_X_RANGE = (-3.0, 3.0)
+GOAL_Y_RANGE = (-4.0, -0.5)
+GOAL_Z = 0.0
+
+MIN_GOAL_DIST = 0.8
+
+# goal array
+GOALs = [np.array([INIT_STAIRS - STEP_LENGTH, 0.0, GOAL_z_off], dtype=np.float32)]
+for i in range(1, N_STEPS+1):
+    GOALs.append(
+        np.array([INIT_STAIRS + i * STEP_LENGTH, 0.0, i * STEP_HEIGHT + GOAL_z_off], dtype=np.float32)
+    )
+
+def sample_next_goal(cur_pos_xy: np.ndarray, rng: np.random.Generator, stairs: bool = False, step_idx: int = 0) -> np.ndarray:
+    """Sample a new goal in world frame."""
+    if not stairs:
+        for _ in range(100):  # avoid infinite loop
+            gx = rng.uniform(GOAL_X_RANGE[0], GOAL_X_RANGE[1])
+            gy = rng.uniform(GOAL_Y_RANGE[0], GOAL_Y_RANGE[1])
+            g = np.array([gx, gy, GOAL_Z], dtype=np.float32)
+            if np.linalg.norm((g - np.array([cur_pos_xy[0], cur_pos_xy[1], 0.0], dtype=np.float32))[:2]) >= MIN_GOAL_DIST:
+                return g
+    else:
+        return GOALs[np.clip(step_idx, 0, len(GOALs)-1)]
+    # fallback if too strict
+    return np.array([gx, gy, GOAL_Z], dtype=np.float32)
 
 
 class LMJPolicy:
-    def __init__(self, policy_path: str) -> None:  # Removed control_func_path
-        # Load agent configuration and state from the policy checkpoint
+    def __init__(self, policy_path: str) -> None:
         agent_conf, agent_state = PPOJax.load_agent(policy_path)
 
-        # Removed: self.control_func = pickle.load(fileobj) as it's no longer used
-
-        # Set policy to be deterministic by setting log_std to negative infinity
         train_state = agent_state.train_state
         train_state.params["log_std"] = np.ones_like(train_state.params["log_std"]) * -np.inf
 
@@ -47,26 +89,19 @@ class LMJPolicy:
         self.train_state = train_state
         self._rng = _rng
 
-        # Precompute the network apply function to avoid passing non-hashable objects
         self.network_apply = agent_conf.network.apply
-
-        # Define the JIT-compiled function once for performance
         self._jit_sample_action = jax.jit(self._sample_action, static_argnames=["network_apply"])
         print("Policy loaded and JIT function compiled.")
 
     @staticmethod
-    def _sample_action(network_apply, params, run_stats, rng, obs):  # MODIFIED: Removed batch_stats
-        """This function is JIT-compiled for speed."""
-        # MODIFIED: Removed batch_stats from the dictionary and mutable list
+    def _sample_action(network_apply, params, run_stats, rng, obs):
         y, updates = network_apply({"params": params, "run_stats": run_stats}, obs, mutable=["run_stats"])
         pi, _ = y
-        a = pi.mode()  # Get the deterministic action
+        a = pi.mode()
         a = jnp.atleast_2d(a)
         return a
 
     def predict_action(self, obs):
-        """Uses the precompiled JIT function to get the action."""
-        # MODIFIED: Removed self.train_state.batch_stats from the call
         a = self._jit_sample_action(
             self.network_apply, self.train_state.params, self.train_state.run_stats, self._rng, obs
         )
@@ -84,11 +119,10 @@ def quat_rotate_inverse(q, v):
 
 
 def pd_control(target_q, q, kp, target_dq, dq, kd):
-    """Calculates PD control torques."""
     return (target_q - q) * kp + (target_dq - dq) * kd
 
 
-@hydra.main(config_name="config_sim2sim.yaml")
+@hydra.main(config_name="fp_config.yaml")
 def main(config: DictConfig):
 
     xml_path = config["xml_path"]
@@ -104,30 +138,20 @@ def main(config: DictConfig):
     min_angles = np.array(config["min_angles"], dtype=np.float32)
     max_angles = np.array(config["max_angles"], dtype=np.float32)
 
-    num_qj = len(default_angles)  # Number of actuated joints (23)
-    base_num_actions = config["num_actions"]  # This is also 23
+    num_qj = len(default_angles)
+    num_actions = config["num_actions"]
 
     cmd_params = config["command"]
-    obs_coo = config["obs"]["obs_coordinates"]
 
     # --- Load Policy ---
-    # Initialize Hydra to access environment config used during training
-    # The config_path should point to the directory containing your hydra config files
-    # hydra.initialize(config_path="./") # Adjust path if your hydra config is elsewhere
     lmj_hydra_config = hydra.compose(config_name="conf_t1")
     policy = LMJPolicy(policy_path=agent_path)
 
-    # Determine actual num_actions and observation size based on policy's environment config
-    num_actions = base_num_actions
-
-    # Calculate the total observation size for policy warmup and runtime
-    # obs = [projected_gravity (3), qj (num_qj), base_ang_vel (3), dqj (num_qj), action (num_actions), cmd (6)]
     num_obs = 3 + num_qj + 3 + num_qj + num_actions + 6
-
     print(f"Policy expects an observation size of: {num_obs}")
     print("Warming up the policy network for JIT compilation...")
     total_obs = max(policy.agent_conf.network.actor_obs_ind.max(), policy.agent_conf.network.critic_obs_ind.max()) + 1
-    for _ in range(500):  # Reduced warmup steps from 1000 to 500
+    for _ in range(500):
         dummy_obs = jnp.zeros((1, total_obs), dtype=np.float32)
         _ = policy.predict_action(dummy_obs)
     print("Warmup complete.")
@@ -136,133 +160,121 @@ def main(config: DictConfig):
     spec = mujoco.MjSpec.from_file(xml_path)
     wb = spec.worldbody
 
-    # ==================================================OBSTACLEs==================================================
-    # this part is only needed for initialization, then the boxes will be added when doing the reset
     wb.add_site(
-        name=f"foot_0",
+        name="foot_1",
         type=mujoco.mjtGeom.mjGEOM_BOX,
-        size=(0.1, 0.04, 0.001),  # *
-        pos=(0.1, 0.0, 0.0),  # **
+        size=(0.1, 0.04, 0.001),
+        pos=(0.1, 0.0, 0.0),
         quat=(0, 0, 0, 1),
         group=1,
-        rgba=(1.0, 0.5, 0.0, 0.0),
+        rgba=(0.39, 0.56, 1.0, 0.7),
     )
 
     wb.add_site(
-        name=f"foot_1",
+        name="foot_0",
         type=mujoco.mjtGeom.mjGEOM_BOX,
-        size=(0.1, 0.04, 0.001),  # *
-        pos=(0.1, 0.0, 0.0),  # **
+        size=(0.1, 0.04, 0.001),
+        pos=(0.1, 0.0, 0.0),
         quat=(0, 0, 0, 1),
         group=1,
-        rgba=(1.0, 1.0, 0.0, 0.0),
+        rgba=(1.0, 0.69, 0.0, 0.7),
     )
 
-    # step_h = 0.02
-    # wb = add_stair(
-    #     world_body=wb, 
-    #     name="stair", 
-    #     first_step_coordinates=[goal_coordinates[0]/2, goal_coordinates[1], step_h/2], 
-    #     orientation_yaw_deg=0.0, 
-    #     num_steps=15, 
-    #     step_width=1, 
-    #     step_length=0.2, 
-    #     step_height=step_h
-    # )
+    wb.add_site(
+        name="goal_site",
+        type=mujoco.mjtGeom.mjGEOM_SPHERE,
+        size=(0.035, 0.035, 0.035),
+        # pos=(float(INIT_GOAL_POS[0]), float(INIT_GOAL_POS[1]), float(INIT_GOAL_POS[2])),
+        pos=(GOALs[0][0], GOALs[0][1], GOALs[0][2]),
+        quat=(0, 0, 0, 1),
+        group=2,
+        rgba=(0.1, 1.0, 0.1, 0.9),
+    )
 
-    # wb = add_slope(
-    #     world_body=wb, 
-    #     name="slope", 
-    #     coordinates=[goal_coordinates[0]/2, goal_coordinates[1], step_h/2], 
-    #     orientation_yaw_deg=0.0, 
-    #     width=1, 
-    #     run=0.2 * 20, 
-    #     rise=step_h * 20,
-    #     thickness=0.02,
-    #     down=False
-    # )
-    # wb = add_ramp_platform_ramp(
-    #     world_body=wb, 
-    #     name="trap", 
-    #     coordinates=[obs_coo[0]/2, obs_coo[1], step_h/2], 
-    #     orientation_yaw_deg=0.0, 
-    #     width=1, 
-    #     run=0.2 * 20, 
-    #     rise=step_h * 20,
-    #     thickness=0.02,
-    #     platform_length=1.0,
-    #     platform_width=0.2
-    # )
+    wb = add_stair(
+        world_body=wb,
+        name="stair_1",
+        first_step_coordinates=[GOALs[1][0], GOALs[1][1], STEP_HEIGHT / 2],
+        num_steps=N_STEPS,
+        step_height=STEP_HEIGHT,
+        step_length=STEP_LENGTH,
+        step_width=STEP_WIDTH,
+        down=False,
+        orientation_yaw_deg=0.0,
+        backend=np
+    )
+    step_idx = 0
 
-    # get model spec
-    # delete all geoms whose names end in "_col" from spec
+    # delete all *_col
     for geom in spec.geoms:
         if geom.name.endswith("_col"):
             geom.delete()
 
     m = spec.compile()
     d = mujoco.MjData(m)
+
     left_foot_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "left_foot")
     right_foot_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "right_foot")
 
-    # # --- Initialize Simulation ---
     m.opt.timestep = simulation_dt
 
-    cam_width = 320
-    cam_height = 200
-    rgb_renderer = mujoco.Renderer(m, width=cam_width, height=cam_height)
-    depth_renderer = mujoco.Renderer(m, width=cam_width, height=cam_height)
-    depth_renderer.enable_depth_rendering()
-    rgb_renderer._scene_option.sitegroup[1] = 0
-    depth_renderer._scene_option.sitegroup[1] = 0
-
-    rgb_viewport = mujoco.MjrRect(920, 0, cam_width, cam_height)
-    depth_viewport = mujoco.MjrRect(1240, 0, cam_width, cam_height)
-    # Set initial robot state from policy's environment config
+    # init state from policy config
     try:
         initial_qpos = np.array(lmj_hydra_config.experiment.env_params.init_state_params.qpos_init, dtype=np.float32)
         initial_qvel = np.array(lmj_hydra_config.experiment.env_params.init_state_params.qvel_init, dtype=np.float32)
         if len(initial_qpos) == m.nq and len(initial_qvel) == m.nv:
             d.qpos[:] = initial_qpos
             d.qvel[:] = initial_qvel
-            print(initial_qpos)
-            print("Initial state (qpos, qvel) loaded from policy's environment config.")
+            print("Initial state loaded from policy config.")
         else:
-            print(
-                f"Warning: Initial qpos/qvel length mismatch with model. "
-                f"Config qpos: {len(initial_qpos)} (expected {m.nq}), "
-                f"qvel: {len(initial_qvel)} (expected {m.nv}). Using default MuJoCo init."
-            )
-    except (AttributeError, KeyError) as e:
-        print(f"Warning: Could not load initial state from policy config ({e}). Using default MuJoCo initialization.")
+            print("Warning: init state length mismatch. Using default init.")
+    except Exception as e:
+        print(f"Warning: Could not load initial state ({e}). Using default init.")
 
-    # Update physics state after setting qpos/qvel (important for correct sensor readings etc.)
     mujoco.mj_forward(m, d)
 
-    # Initialize context variables
+    # runtime goal + RNG
+    rng = np.random.default_rng(1)  # change seed
+    # goal_pos = INIT_GOAL_POS.copy()
+    goal_pos = sample_next_goal(cur_pos_xy=d.qpos[:2], rng=rng, stairs=True, step_idx=0)
+
+    # sync goal site position
+    m.site("goal_site").pos = np.array([float(goal_pos[0]), float(goal_pos[1]), float(goal_pos[2])], dtype=np.float32)
+    mujoco.mj_fwdPosition(m, d)
+
+    # controller state
     action = np.zeros(num_actions, dtype=np.float32)
     target_dof_pos = default_angles.copy()
     target_dof_kps = kps.copy()
     target_dof_kds = kds.copy()
 
-    # command parameters
     cmd = np.zeros(16, dtype=np.float32)
     counter = 1
-    gait_frequency = cmd_params["gait_frequency"]
+    gait_frequency = float(cmd_params["gait_frequency"])
 
-    # init the gait generator
-    GG = GaitGenerator(feet_distance=cmd_params["feet_distance"], stop_steps=cmd_params["stop_steps"])
+    # init goal-reaching gait generator
+    GG = GoalReachingGaitGenerator(
+        model=m,
+        data=d,
+        max_angle=np.deg2rad(30.0),
+        feet_distance=float(cmd_params["feet_distance"]),
+        stop_steps=int(cmd_params["stop_steps"]),
+        z_off=goal_pos[2],
+    )
     GG.print_instruction()
 
-    # ===========================================TELEOPERATION via KEYBOARD===========================================
-    # --- Start Simulation and Viewer ---
+    reached_hold = 0
+    sim_start_time = time.time()
+
     with mujoco.viewer.launch_passive(m, d, key_callback=GG.key_callback) as viewer:
         while viewer.is_running():
             step_start = time.time()
+            if (time.time() - sim_start_time) > float(simulation_duration):
+                print("[done] timeout reached, exiting.")
+                break
 
             for i in range(control_decimation):
                 counter += 1
-                # Step the simulation forward. The PD controller runs at the physics rate.
                 tau = pd_control(
                     target_dof_pos, d.qpos[7:], target_dof_kps, np.zeros_like(kds), d.qvel[6:], target_dof_kds
                 )
@@ -273,51 +285,50 @@ def main(config: DictConfig):
             # --- Prepare Observations ---
             qj = d.qpos[7:]
             dqj = d.qvel[6:]
-            quat = d.qpos[3:7]  # Pelvis orientation [w, x, y, z] from free joint
-            # base_ang_vel = d.sensor("angular-velocity").data.astype(np.float32) # Assuming sensor name "angular-velocity"
+            quat = d.qpos[3:7]            # base quat (wxyz)
             base_ang_vel = d.qvel[3:6]
             projected_gravity = quat_rotate_inverse(quat, np.array([0.0, 0.0, -1.0]))
 
-            # --- Create Command Vector `cmd` ---
-            gait_process = (counter * simulation_dt * gait_frequency) % 1.0
+            # --- gait phase ---
+            gp = (counter * simulation_dt * gait_frequency) % 1.0
 
-            foot_offset, gait_info = GG.query_cmd(gp=gait_process)
+            foot_offset, gait_info = GG.query_cmd(
+                goal_pos=goal_pos,
+                q_pos=d.qpos[:].copy(),
+                gp=gp,
+            )
             l_offset, l_orn_offset, r_offset, r_orn_offset = foot_offset
 
             if GG.sample_goal:
                 if GG.swing_foot_idx == 0:
-                    # left foot swing
-                    # get stance foot rotation
                     rot_stance = np_R.from_matrix(d.site("right_foot").xmat.reshape(3, 3))
                     stance_yaw = rot_stance.as_euler("xyz")[2]
                     rot_stance_flat = np_R.from_euler("z", stance_yaw)
-                    # compute the quat
+
                     cmd_quat = np.array([l_orn_offset[1], l_orn_offset[2], l_orn_offset[3], l_orn_offset[0]])
                     rot_cmd = np_R.from_quat(cmd_quat)
-                    # compute target rot
                     target_rot = rot_stance_flat * rot_cmd
-                    # update site
+
                     m.site("foot_1").pos = d.site_xpos[right_foot_id] + rot_stance_flat.apply(l_offset)
-                    m.site("foot_1").pos[2] = 0
+                    m.site("foot_1").pos[2] = 0.0
                     m.site("foot_1").quat = target_rot.as_quat(scalar_first=True)
+
                 else:
-                    # right foot swing
-                    # get stance foot rotation
                     rot_stance = np_R.from_matrix(d.site("left_foot").xmat.reshape(3, 3))
                     stance_yaw = rot_stance.as_euler("xyz")[2]
                     rot_stance_flat = np_R.from_euler("z", stance_yaw)
-                    # compute the quat
+
                     cmd_quat = np.array([r_orn_offset[1], r_orn_offset[2], r_orn_offset[3], r_orn_offset[0]])
                     rot_cmd = np_R.from_quat(cmd_quat)
-                    # compute the quat
                     target_rot = rot_stance_flat * rot_cmd
-                    # update site
+
                     m.site("foot_0").pos = d.site_xpos[left_foot_id] + rot_stance_flat.apply(r_offset)
-                    m.site("foot_0").pos[2] = 0
+                    m.site("foot_0").pos[2] = 0.0
                     m.site("foot_0").quat = target_rot.as_quat(scalar_first=True)
 
                 mujoco.mj_fwdPosition(m, d)
 
+            # --- cmd vector ---
             cmd = np.concatenate([l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32)
 
             # --- Construct Observation Vector ---
@@ -326,11 +337,10 @@ def main(config: DictConfig):
             obs_list += qj.flatten().tolist()
             obs_list += (base_ang_vel * 1.0).flatten().tolist()
             obs_list += (dqj * 0.1).flatten().tolist()
-            obs_list += action.flatten().tolist()  # 'action' here is the previous action
+            obs_list += action.flatten().tolist()
             obs_list += cmd.flatten().tolist()
 
-            obs = [0.0] * (78) + obs_list
-
+            obs = [0.0] * 78 + obs_list
             obs = np.array(obs, dtype=np.float32).reshape(1, -1)
 
             # Override Head Pitch Angle in Observation
@@ -339,35 +349,56 @@ def main(config: DictConfig):
 
             # --- Policy Inference ---
             emitted_action = np.asarray(policy.predict_action(obs)).flatten()
-
             emitted_action = np.clip(emitted_action, -1.0, 1.0)
+            action = emitted_action
 
-            # Apply smoothing/filtering to the action
-            action = action * 0.0 + emitted_action * 1.0
+            # target dof pos
+            target_dof_pos = action[:num_qj] + default_angles[:num_qj]
 
-            # Deconstruct action vector into control commands
-            target_dof_pos = (
-                action[:num_qj] + default_angles[:num_qj]
-            )  # Use num_qj here as it's the base action for positions
-
-            # Override head joint for control
+            # head override
             target_dof_pos[0] = 0.0
             target_dof_pos[1] = 0.0 # 1.0
 
-            # Clip target_dof_pos to joint limits
             target_dof_pos = np.clip(target_dof_pos, min_angles, max_angles)
-
             target_dof_kps = kps.copy()
             target_dof_kds = kds.copy()
 
-            # Sync viewer and maintain real-time simulation speed
+
+            dist_to_goal = float(np.linalg.norm((goal_pos - d.qpos[:3])[:2]))
+            if dist_to_goal < REACH_THRESH:
+                reached_hold += 1
+            else:
+                reached_hold = 0
+
+            if reached_hold == 1:
+                print(f"[goal] close enough: dist={dist_to_goal:.3f} < {REACH_THRESH}, holding...")
+
+            if reached_hold >= REACH_HOLD_STEPS:
+                if GOAL_MODE == MODE_STOP:
+                    print(f"[done] reached goal. dist={dist_to_goal:.3f}.")
+
+                elif GOAL_MODE == MODE_RANDOM_NEXT:
+                    print(f"[goal] reached. dist={dist_to_goal:.3f}. sampling next goal...")
+
+
+                    if GG.gaits_to_still == 0:
+                        step_idx = np.clip(step_idx + 1, 0, len(GOALs)-1)
+                        goal_pos = sample_next_goal(cur_pos_xy=d.qpos[:2], rng=rng, stairs=True, step_idx=step_idx)
+
+
+                    m.site("goal_site").pos = np.array([float(goal_pos[0]), float(goal_pos[1]), float(goal_pos[2])], dtype=np.float32)
+
+                    reached_hold = 0
+
+                    mujoco.mj_fwdPosition(m, d)
+
+                    print(f"[goal] new goal = ({goal_pos[0]:.2f}, {goal_pos[1]:.2f}, {goal_pos[2]:.2f})")
+
             viewer.sync()
 
             time_until_next_step = m.opt.timestep * control_decimation - (time.time() - step_start)
-            # time.sleep(0.1)
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
-
 
 if __name__ == "__main__":
     main()

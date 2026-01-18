@@ -569,9 +569,13 @@ class BoosterT1(BaseRobotHumanoid):
 
     mjx_enabled = False
 
-    def __init__(self, spec: Union[str, MjSpec] = None,
-                 observation_spec: List[Observation] = None,
-                 actuation_spec: List[str] = None, **kwargs):
+    def __init__(
+            self, spec: Union[str, MjSpec] = None,
+            observation_spec: List[Observation] = None,
+            actuation_spec: List[str] = [], 
+            virtual_actions_names: List[str] = None,
+            **kwargs
+        ):
         """
         Constructor.
 
@@ -587,6 +591,9 @@ class BoosterT1(BaseRobotHumanoid):
         if spec is None:
             spec = self.get_default_xml_file_path()
 
+        # set the virtual actions
+        self.virtual_actions_names = virtual_actions_names if virtual_actions_names is not None else []
+
         # load the model specification
         spec = mujoco.MjSpec.from_file(spec) if not isinstance(spec, MjSpec) else spec
 
@@ -599,6 +606,11 @@ class BoosterT1(BaseRobotHumanoid):
             observation_spec = self.parse_observation_spec(observation_spec)
         if actuation_spec is None:
             actuation_spec = self._get_action_specification(spec)
+
+        # FIXME: start
+        if self.virtual_actions_names:
+            actuation_spec = actuation_spec + self.virtual_actions_names
+        # FIXME: end
 
         # uses PD control by default
         if "control_type" not in kwargs.keys():
@@ -615,7 +627,6 @@ class BoosterT1(BaseRobotHumanoid):
                     g.contype = 0
                     g.conaffinity = 0
                     # g.delete()
- 
 
         super().__init__(spec=spec, actuation_spec=actuation_spec, observation_spec=observation_spec, **kwargs)
 
@@ -699,11 +710,13 @@ class BoosterT1(BaseRobotHumanoid):
             A list of actuator names.
 
         """
-        action_spec = ["AAHead_yaw", "Head_pitch", "Left_Shoulder_Pitch", "Left_Shoulder_Roll", "Left_Elbow_Pitch",
-                       "Left_Elbow_Yaw", "Right_Shoulder_Pitch", "Right_Shoulder_Roll", "Right_Elbow_Pitch",
-                       "Right_Elbow_Yaw", "Waist", "Left_Hip_Pitch", "Left_Hip_Roll", "Left_Hip_Yaw",
-                       "Left_Knee_Pitch", "Left_Ankle_Pitch", "Left_Ankle_Roll", "Right_Hip_Pitch", "Right_Hip_Roll",
-                       "Right_Hip_Yaw", "Right_Knee_Pitch", "Right_Ankle_Pitch", "Right_Ankle_Roll"]
+        action_spec = [
+            "AAHead_yaw", "Head_pitch", "Left_Shoulder_Pitch", "Left_Shoulder_Roll", "Left_Elbow_Pitch",
+            "Left_Elbow_Yaw", "Right_Shoulder_Pitch", "Right_Shoulder_Roll", "Right_Elbow_Pitch",
+            "Right_Elbow_Yaw", "Waist", "Left_Hip_Pitch", "Left_Hip_Roll", "Left_Hip_Yaw",
+            "Left_Knee_Pitch", "Left_Ankle_Pitch", "Left_Ankle_Roll", "Right_Hip_Pitch", "Right_Hip_Roll",
+            "Right_Hip_Yaw", "Right_Knee_Pitch", "Right_Ankle_Pitch", "Right_Ankle_Roll"
+        ]
         return action_spec
 
         # return [actuator.name for actuator in spec.actuators]

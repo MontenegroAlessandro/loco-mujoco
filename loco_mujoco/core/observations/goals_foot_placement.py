@@ -51,6 +51,8 @@ class GoalDoubleFootPlacementState:
     foot_pillar_ids: jax.Array
     free_pillar_id: jax.Array
     pending_free_pillar_id: jax.Array
+    # term for tracking whether the gp is decided by the policy
+    is_gp_adaptive: bool
     # goal based absorbing management
     absorbing: bool
 
@@ -102,6 +104,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # absorbing when tracking fails
             tracking_fail_is_absorbing: bool = False,
             stance_absorbing_threshold: float = 0.5,
+            # flag indicating whether the policy is able to learn the gp offset
+            is_gp_adaptive: bool = False,
             **kwargs
         ):
         # store parameters
@@ -129,6 +133,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.start_still = start_still
         self.goal_based_absorbing = tracking_fail_is_absorbing
         self.stance_absorbing_threshold = stance_absorbing_threshold
+        self.is_gp_adaptive = is_gp_adaptive
         
         # curriculum parmeters
         self.curriculum = curriculum
@@ -249,7 +254,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             foot_pillar_ids=foot_pillar_ids,
             free_pillar_id=free_pillar_id,
             pending_free_pillar_id=pending_free_pillar_id,
-            absorbing=False
+            absorbing=False,
+            is_gp_adaptive=self.is_gp_adaptive
         )
         
     def reset_state(self, env, model, data, carry, backend):
@@ -291,7 +297,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             foot_pillar_ids=foot_pillar_ids,
             free_pillar_id=free_pillar_id,
             pending_free_pillar_id=pending_free_pillar_id,
-            absorbing=False
+            absorbing=False,
+            is_gp_adaptive=self.is_gp_adaptive
         )
 
         # update observation with the new goal state in the carry
@@ -1532,7 +1539,14 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             absorbing = backend.linalg.norm(stance_pos - stance_pos_target) > self.stance_absorbing_threshold
 
         # make the gait process progress
-        gp = backend.fmod(gp + env.dt * state.gait_frequency, 1.0)
+        gp_ada_offset = getattr(carry.control_func_state, "gait_phase_offset", 0.0)
+        gp_offset = jax.lax.cond(
+            self.is_gp_adaptive,
+            lambda: gp_ada_offset,
+            lambda: env.dt * state.gait_frequency
+        )
+        # gp = backend.fmod(gp + env.dt * state.gait_frequency, 1.0)
+        gp = backend.fmod(gp + gp_offset, 1.0)
         state = state.replace(gait_process=gp, steps=(state.steps + 1), absorbing=absorbing) # update the steps too
         observation_states = carry.observation_states.replace(**{self.name: state})
         carry = carry.replace(observation_states=observation_states)

@@ -143,7 +143,15 @@ class Mujoco:
         observation_space = Box(*self._get_obs_limits())
 
         # read the actuation spec and build the mapping between actions and ids
-        self._action_indices = self.get_action_indices(self._model, self._data, actuation_spec)
+        # FIXME start new
+        self._full_actuation_spec = actuation_spec.copy() if isinstance(actuation_spec, list) else actuation_spec
+        if hasattr(self, 'virtual_actions_names') and self.virtual_actions_names:
+            physical_actuation_spec = [act for act in actuation_spec if act not in self.virtual_actions_names]
+        else:
+            physical_actuation_spec = actuation_spec
+        self._action_indices = self.get_action_indices(self._model, self._data, physical_actuation_spec)
+        # FIXME end new
+        # self._action_indices = self.get_action_indices(self._model, self._data, actuation_spec)
 
         # setup control function
         if control_params is None:

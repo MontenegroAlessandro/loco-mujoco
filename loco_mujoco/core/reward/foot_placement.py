@@ -162,6 +162,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         self._feet_swing_coeff = kwargs.get("feet_swing_coeff", 0.0)
         self._feet_swing_period = kwargs.get("feet_swing_period", 0.2)
         self.epsilon_standing = 0.03 # FIXME
+        self._gen_gp_coeff = kwargs.get("gen_gp_coeff", 0.0)
 
         # Air time and impact coefficients
         self._air_time_max = kwargs.get("air_time_max", 0.0)
@@ -209,6 +210,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             "tracking/tracking_swing_orientation": 0.,
             "tracking/tracking_stance_position": 0.,
             "tracking/tracking_stance_orientation": 0.,
+            "tracking/gp_generation": 0.,
             "tracking/tracking_swing_z": 0.,
             "tracking/tracking_stance_z": 0.,
             "tracking/joint_qpos_reward": 0.,
@@ -367,6 +369,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         hold_still = goal_state.still_phase & (goal_state.num_gaits >= 2)
         swing_foot_idx = goal_state.swing_foot_idx
         goal_resampled = (reward_state.swing_foot_idx ^ swing_foot_idx)
+        is_gp_adaptive = getattr(goal_state, "is_gp_adaptive", False)
         # update reward when needed        
         reward_state = jax.lax.cond(
             goal_resampled,
@@ -755,7 +758,19 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
                 (right_swing & ~feet_on_ground[1]).astype(backend.float32)
             ) 
             gait_height_reward = 0.0 # for compatibility
-        # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        
+        # =================================================ADAPTIVE GP=================================================
+        if self._goal_name not in ["GoalDoubleFootPlacement"]:
+            gp_off = jax.lax.cond(
+                is_gp_adaptive,
+                lambda: getattr(carry.control_func_state, "gp_offset", 0.0),
+                lambda: env.dt * gait_frequency
+            )
+            sim_next_gp = backend.fmod(gait_process + gp_off, 1.0)
+            gen_gp_reward = (left_swing & feet_on_ground[0] & (sim_next_gp >= 0.5)).astype(backend.float32) + \
+                            (right_swing & feet_on_ground[1] & (sim_next_gp < 0.5)).astype(backend.float32)
+        else:
+            gen_gp_reward = 0.0
 
         # Nominal joint position rewards
         joint_qpos_reward = backend.exp(
@@ -824,6 +839,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         swing_z_reward *= env.dt
         stance_z_reward *= env.dt
         gait_height_reward *= env.dt
+        gen_gp_reward *= (self._gen_gp_coeff * env.dt)
         joint_qpos_reward *= (self._nominal_joint_pos_coeff * env.dt)
         joint_deviation_l1_penalty *= (self._joint_deviation_l1_coeff * env.dt)
         base_height_reward *= (self._base_height_coeff * env.dt)
@@ -854,7 +870,9 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         tracking_reward = (
             swing_pos_reward + swing_orn_reward +
             stance_pos_reward + stance_orn_reward +
-            joint_qpos_reward + feet_swing_reward
+            joint_qpos_reward + feet_swing_reward +
+            swing_z_reward + stance_z_reward +
+            gait_height_reward + gen_gp_reward
         )
         
         penalty_rewards = (
@@ -889,6 +907,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             "tracking/tracking_swing_orientation": swing_orn_reward,
             "tracking/tracking_stance_position": stance_pos_reward,
             "tracking/tracking_stance_orientation": stance_orn_reward,
+            "tracking/gp_generation": gen_gp_reward,
             "tracking/tracking_swing_z": swing_z_reward,
             "tracking/tracking_stance_z": stance_z_reward,
             "tracking/gait_height_reward": gait_height_reward,
