@@ -314,6 +314,7 @@ class PPOJax(JaxRLAlgorithmBase):
                 pi, value = y
                 train_state = train_state.replace(run_stats=updates['run_stats'])   # update stats
                 action = pi.sample(seed=_rng)
+                action = jnp.atleast_2d(action)
                 log_prob = pi.log_prob(action)
 
                 # select the final action (for compatibility with the hierarchical agent)
