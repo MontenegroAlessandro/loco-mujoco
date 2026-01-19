@@ -760,15 +760,19 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             gait_height_reward = 0.0 # for compatibility
         
         # =================================================ADAPTIVE GP=================================================
-        if self._goal_name not in ["GoalDoubleFootPlacement"]:
+        if self._goal_name in ["GoalDoubleFootPlacement"]:
             gp_off = jax.lax.cond(
                 is_gp_adaptive,
-                lambda: getattr(carry.control_func_state, "gp_offset", 0.0),
+                lambda: getattr(carry.control_func_state, "gait_phase_offset", 0.0),
                 lambda: env.dt * gait_frequency
             )
             sim_next_gp = backend.fmod(gait_process + gp_off, 1.0)
-            gen_gp_reward = (left_swing & feet_on_ground[0] & (sim_next_gp >= 0.5)).astype(backend.float32) + \
-                            (right_swing & feet_on_ground[1] & (sim_next_gp < 0.5)).astype(backend.float32)
+
+            is_left_swing = swing_foot_idx == 0
+            gen_gp_reward = (is_left_swing & ~left_swing & feet_on_ground[0] & (sim_next_gp >= 0.5)).astype(backend.float32) + \
+                            (is_left_swing & left_swing & ~feet_on_ground[0] & (sim_next_gp < 0.5)).astype(backend.float32) + \
+                            (~is_left_swing & ~right_swing & feet_on_ground[1] & (sim_next_gp < 0.5)).astype(backend.float32) + \
+                            (~is_left_swing & right_swing & ~feet_on_ground[1] & (sim_next_gp >= 0.5)).astype(backend.float32)
         else:
             gen_gp_reward = 0.0
 

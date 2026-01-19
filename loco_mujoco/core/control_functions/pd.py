@@ -238,12 +238,10 @@ class PDControlGait(PDControl):
         if hasattr(env, '_full_actuation_spec'):
             try:
                 self._gait_action_idx = env._full_actuation_spec.index(gait_action_name)
-                print(f"Gait action '{gait_action_name}' found at index {self._gait_action_idx}")
             except ValueError:
                 raise ValueError(f"Gait action '{gait_action_name}' not found in actuation_spec!")
         else:
             self._gait_action_idx = self._num_physical_actions
-            print(f"Warning: _full_actuation_spec not found. Assuming gait action is at index {self._gait_action_idx}")
         
         # Verify the index is correct
         total_actions = self._num_physical_actions + 1 

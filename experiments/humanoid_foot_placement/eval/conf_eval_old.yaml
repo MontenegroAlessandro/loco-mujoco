@@ -8,12 +8,11 @@ wandb:
   log: false
 
 # GLOBAL VARs
-n_envs: &n_envs 2
-num_total_timesteps: &num_total_timesteps 1e3
+n_envs: &n_envs 4096
+num_total_timesteps: &num_total_timesteps 800e6
 curriculum_starts_from: &curriculum_starts_from 0
-curriculum_ends_at: &curriculum_ends_at 2
+curriculum_ends_at: &curriculum_ends_at 800e6
 curriculum: &curriculum false
-update_z_every: &update_z_every 1.0
 
 # Experiment Vars
 experiment:
@@ -22,34 +21,79 @@ experiment:
   task_factory:
     name: RLFactory
     params: {}
-
   env_params:
     env_name: MjxBoosterT1
     horizon: 1000
-    virtual_action_names: []
 
-    terrain_type: StaticTerrain
+    terrain_type: AdaPillarsTerrain
     terrain_params:
-      num_pillars: null
-      diameter: null
-      feet_collision: null
+      num_pillars: 2
+      diameter: 0.25
+      feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
 
-    # terminal_state_type: HeightAndStanceBasedTerminalStateHandler # HeightBasedTerminalStateHandler
-    terminal_state_type: HeightBasedTerminalStateHandler
+    terminal_state_type: HeightAndStanceBasedTerminalStateHandler
+    # terminal_state_type: HeightBasedTerminalStateHandler
 
-    goal_type: GoalDoubleFootPlacement
+    goal_type: GoalDoubleFootPlacement 
     goal_params:
+      ############################# RAND ############################
+      # visualize_goal: true
+      # # Names of the foot sites from the booster_t1_dfki.xml file
+      # left_foot_site_name: left_foot
+      # right_foot_site_name: right_foot
+      # feet_distance: 0.15
+      # # Range for the random step length [min, max] in meters
+      # xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
+      # # Range for omnidirectional step angle [-180, 180] for a full circle
+      # angle_range_deg: [-30, 30] # [-20, 20] # [20, 90] 
+      # # Range for randomizing the target foot yaw relative to the body
+      # yaw_range_deg: [-10, 60] # [-20, 20] # [-30, 30]
+      # # gait frequency target
+      # gait_frequency_range: [1.0, 1.0] 
+      # # gait height
+      # gait_height: 0.05
+      # # desired height to maintain
+      # goal_height: 0.68
+      # # direction range in deg
+      # direction_range_deg: [-180,180] # [-180, 180]
+      # change_direction_range_deg: [0, 0]
+      # # feet direction range in deg
+      # track_movement_only: false
+      # feet_direction_range_deg: [0,0] # [-180, 180]
+      # # still proportion
+      # still_proportion: 0.0
+      # still_feet_distance: 0.25
+      # max_num_gaits: 10
+      # # adaptive terrains 
+      # adaptive_terrain: true
+      # z_distance_range: [-0.1, 0.1]
+      # max_z_distance_up: 0.0
+      # max_z_distance_low: 0.0
+      # # start still flag
+      # start_still: false
+      # # curriculum parameters
+      # n_envs: ${n_envs}
+      # num_total_timesteps: ${num_total_timesteps}
+      # curriculum_starts_from: ${curriculum_starts_from}
+      # curriculum_ends_at: ${curriculum_ends_at}
+      # curriculum: ${curriculum}
+      # # absorbing stuff
+      # tracking_fail_is_absorbing: true
+      # stance_absorbing_threshold: 0.25
+      # # observation group
+      # group: [prioritized, policy]
+      ############################# FORWARD ############################
       visualize_goal: true
       # Names of the foot sites from the booster_t1_dfki.xml file
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       feet_distance: 0.15
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
+      xy_distance_range: [0.4, 0.4] # [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [-30, 30] # [-20, 20] # [20, 90] 
+      angle_range_deg: [30, 30] # [-20, 20] # [20, 90] 
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-10, 60] # [-20, 20] # [-30, 30]
+      yaw_range_deg: [0, 0] # [-20, 20] # [-30, 30]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
@@ -57,18 +101,18 @@ experiment:
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
-      direction_range_deg: [-180, 180] # [-180, 180]
+      direction_range_deg: [0, 0] # [-180, 180]
       change_direction_range_deg: [0, 0]
       # feet direction range in deg
       track_movement_only: false
       feet_direction_range_deg: [0,0] # [-180, 180]
       # still proportion
-      still_proportion: 0.1
+      still_proportion: 0.0
       still_feet_distance: 0.25
-      max_num_gaits: 10
+      max_num_gaits: 5
       # adaptive terrains 
-      adaptive_terrain: false
-      z_distance_range: [0.0, 0.0]
+      adaptive_terrain: true
+      z_distance_range: [0.15, 0.15]
       max_z_distance_up: 0.0
       max_z_distance_low: 0.0
       # start still flag
@@ -79,28 +123,24 @@ experiment:
       curriculum_starts_from: ${curriculum_starts_from}
       curriculum_ends_at: ${curriculum_ends_at}
       curriculum: ${curriculum}
-      update_z_every: ${update_z_every}
       # absorbing stuff
-      tracking_fail_is_absorbing: false
-      stance_absorbing_threshold: 0.0
-      # adaptive gp generation
-      is_gp_adaptive: false
+      tracking_fail_is_absorbing: true
+      stance_absorbing_threshold: 0.25
       # observation group
       group: [prioritized, policy]
-    
     headless: true
 
     reward_type: CrispBoosterLocomotionFootPlacementReward
     reward_params:
-      goal_name: GoalDoubleFootPlacement 
+      goal_name: GoalDoubleFootPlacement # GoalRandomChangingFootPlacement 
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       survival: 0.25
       # feet tracking rewards
-      swing_pos_w: 5.0 # 4.0 # 1.0
+      swing_pos_w: 4.0 # 4.0 # 1.0
       swing_orn_w: 4.0 # 2.0 # 3.0 # 1.0
-      stance_pos_w: 5.0 # 6.0 # 1.0
-      stance_orn_w: 4.0 # 4.0 # 1.0
+      stance_pos_w: 4.0 # 1.0
+      stance_orn_w: 4.0 # 1.0
       sharp_pos: 100.0 # 50 # 10
       sharp_orn: 100.0 # 10
       stance_sharp_pos: 100.0
@@ -110,11 +150,9 @@ experiment:
       gait_height_coeff: 4.0
       tracking_swing_z_coeff: 4.0
       tracking_swing_z_sharp: 100.0
-      # gp
-      gen_gp_coeff: 0.0
       # other tracking rewards
       tracking_nominal_joint_pos_exp: 4.0
-      tracking_nominal_joint_pos_coeff: 4.0 # 0.0
+      tracking_nominal_joint_pos_coeff: 4 # 0.0
       tracking_nominal_joint_pos_names: 
         - AAHead_yaw
         - Head_pitch
@@ -129,11 +167,11 @@ experiment:
         - Waist
         # - Right_Ankle_Roll
         # - Left_Ankle_Roll
-      # # penalties
-      joint_deviation_l1_coeff: 0.0 # -0.3 # penalization of L1 wrt nominal joint pos
+      # penalties
+      joint_deviation_l1_coeff: -0.3
       base_height_target: 0.68
       base_height_coeff: -2 # -10.
-      orientation_coeff: -5. # penalize if the robot deviates form the vertical
+      orientation_coeff: -5.
       joint_torque_coeff: -2.e-4
       torque_tiredness_coeff: 0.0
       energy_coeff: -2.e-3
@@ -145,9 +183,9 @@ experiment:
       action_rate_coeff: -3 # -1.
       joint_position_limit_scale: 0.98
       joint_position_limit_coeff: -1.
-      feet_slip_coeff: -3.0 # -0.1
-      feet_yaw_diff_coeff: 0.0 # -2.0 # -0.5
-      feet_yaw_mean_coeff: 0.0 # -2.0 # -0.5
+      feet_slip_coeff: -1.0 # -0.1
+      feet_yaw_diff_coeff: -1.0 # -0.5
+      feet_yaw_mean_coeff: -1.0 # -0.5
       feet_roll_coeff: -4.0 # -0.1
       feet_distance_target: 0.2
       feet_swing_coeff: 6 # 3.
@@ -160,37 +198,6 @@ experiment:
       no_fly_coeff: 0
       impact_threshold: 150
       impact_coeff: 0
-      # NO PENALTIES
-      # joint_deviation_l1_coeff: 0.0
-      # base_height_target: 0.68
-      # base_height_coeff: 0.0
-      # orientation_coeff: 0.0
-      # joint_torque_coeff: 0.0
-      # torque_tiredness_coeff: 0.0
-      # energy_coeff: 0.0
-      # z_vel_coeff: 0.0
-      # roll_pitch_vel_coeff: 0.0
-      # joint_vel_coeff: 0.0
-      # joint_acc_coeff: 0.0
-      # root_acc_coeff: 0.0
-      # action_rate_coeff: 0.0
-      # joint_position_limit_scale: 0.98
-      # joint_position_limit_coeff: 0.0
-      # feet_slip_coeff: 0.0
-      # feet_yaw_diff_coeff: 0.0
-      # feet_yaw_mean_coeff: 0.0
-      # feet_roll_coeff: 0.0
-      # feet_distance_target: 0.0
-      # feet_swing_coeff: 6 # 3.
-      # feet_swing_period: 0.2
-      # feet_distance_coeff: 0.0
-      # # extra regularization / penalties
-      # low_gains_coeff: 0.0
-      # air_time_max: 0.0
-      # air_time_coeff: 0
-      # no_fly_coeff: 0
-      # impact_threshold: 150
-      # impact_coeff: 0
 
     actuation_spec:
       - AAHead_yaw
@@ -291,8 +298,6 @@ experiment:
       scale_action_to_jnt_limits: False
       action_scale: 1.0
       clip_actions: 1.0
-      gait_phase_delta_max: null
-      gait_action_name: null
       
       p_gain: 
         - 20 # 40 # AAHead_yaw
@@ -392,10 +397,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: ${num_total_timesteps}
+      total_timesteps: *num_total_timesteps
       num_curriculum_steps: 1
-      num_environments: ${n_envs}
-      num_total_timesteps: ${num_total_timesteps}
+      num_environments: *n_envs
+      num_total_timesteps: *num_total_timesteps
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -495,7 +500,7 @@ experiment:
       filter_action_alpha: 0.0
 
       # Kicking
-      kick_robots: true # true
+      kick_robots: false # true
       kick_min_vel: 0.1
       kick_max_vel: 0.4 # m/s
       kick_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 kick per second
@@ -513,9 +518,9 @@ experiment:
   kl_margin: 1.5          # Margin for scaling (e.g., if KL > 0.02*1.5, decrease LR)
   kl_lr_scale: 1.5        # How much to scale LR by (multiply or divide)
   len_obs_history: 1
-  num_envs: ${n_envs}
+  num_envs: *n_envs
   num_steps: 50
-  total_timesteps: ${num_total_timesteps}
+  total_timesteps: *num_total_timesteps
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995
@@ -527,7 +532,7 @@ experiment:
   vf_coef: 0.5
   max_grad_norm: 1.0
   activation: elu
-  actor_output_activation: null
+  actor_output_activation: none
   use_observationnorm: true
   anneal_lr: false
   weight_decay: 0.0
@@ -541,7 +546,7 @@ experiment:
     num_envs: 100
     num: 10 # set to 0 to disable validation
   # parameter initialization
-  resume_from_path: null
+  # resume_from_path: /home/alessandro/code/scripts/policies/T1/n_complete/mov_1.pkl 
   resume_just_params: false
 
 robot_joints_to_consider:
