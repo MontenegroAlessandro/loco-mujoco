@@ -310,7 +310,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         
         # synchronize the swing foot index
         goal_state = getattr(carry.observation_states, self._goal_name)
-        reward_state = reward_state.replace(swing_foot_idx=goal_state.swing_foot_idx)
+        reward_state = reward_state.replace(swing_foot_idx=goal_state.swing_foot_idx,gait_process=goal_state.gait_process)
         
         # carry update
         carry = carry.replace(reward_state=reward_state)
@@ -365,7 +365,8 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         right_foot_pos = data.site_xpos[self._right_foot_site_id]
         
         # Common terms
-        gait_process = goal_state.gait_process
+        next_gait_process = goal_state.gait_process
+        gait_process = reward_state.gait_process
         hold_still = goal_state.still_phase & (goal_state.num_gaits >= 2)
         swing_foot_idx = goal_state.swing_foot_idx
         goal_resampled = (reward_state.swing_foot_idx ^ swing_foot_idx)
@@ -705,9 +706,9 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         # discriminate whether the gait porcess has to be computed or taken form the goal state
         if self._goal_name in ["GoalRandomChangingFootPlacement", "GoalDoubleFootPlacement", "GoalFootPlacementFromVelocity"]:
             # if we use the changing target, we have to sync to the goal gait phase
-            gait_process = goal_state.gait_process
+            next_gait_process = goal_state.gait_process
         else:
-            gait_process = backend.fmod(reward_state.gait_process + env.dt * gait_frequency, 1.0)
+            next_gait_process = backend.fmod(reward_state.gait_process + env.dt * gait_frequency, 1.0)
             
         # swinging conditions
         left_swing = (
@@ -723,13 +724,13 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             # compute the exponential sharpness of the gait height tracking
             # get feet positions
             stance_foot_pos = jax.lax.select(
-                gait_process < 0.5, # left swinging
+                swing_foot_idx == 0, # gait_process < 0.5, # left swinging
                 right_foot_pos,
                 left_foot_pos
             )
             # get offset wrt world
             swing_target_pos = jax.lax.select(
-                gait_process < 0.5, # left swinging
+                swing_foot_idx == 0, # gait_process < 0.5, # left swinging
                 goal_state.left_foot_target_pos,
                 goal_state.right_foot_target_pos
             )
@@ -761,18 +762,14 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         
         # =================================================ADAPTIVE GP=================================================
         if self._goal_name in ["GoalDoubleFootPlacement"]:
-            gp_off = jax.lax.cond(
-                is_gp_adaptive,
-                lambda: getattr(carry.control_func_state, "gait_phase_offset", 0.0),
-                lambda: env.dt * gait_frequency
-            )
-            sim_next_gp = backend.fmod(gait_process + gp_off, 1.0)
-
-            is_left_swing = swing_foot_idx == 0
-            gen_gp_reward = (is_left_swing & ~left_swing & feet_on_ground[0] & (sim_next_gp >= 0.5)).astype(backend.float32) + \
-                            (is_left_swing & left_swing & ~feet_on_ground[0] & (sim_next_gp < 0.5)).astype(backend.float32) + \
-                            (~is_left_swing & ~right_swing & feet_on_ground[1] & (sim_next_gp < 0.5)).astype(backend.float32) + \
-                            (~is_left_swing & right_swing & ~feet_on_ground[1] & (sim_next_gp >= 0.5)).astype(backend.float32)
+            # the gait process is already updated by the goal state
+            is_left_swing = (swing_foot_idx == 0)
+            is_left_about_to_stance = (gait_process < 0.5) & (gait_process > (0.25 + self._feet_swing_period * 0.5))
+            is_right_about_to_stance = (gait_process >= 0.5) & (gait_process > (0.75 + self._feet_swing_period * 0.5))
+            gen_gp_reward = (is_left_swing & is_left_about_to_stance & feet_on_ground[0] & (next_gait_process >= 0.5)).astype(backend.float32) + \
+                            (~is_left_swing & is_right_about_to_stance & feet_on_ground[1] & (next_gait_process < 0.5)).astype(backend.float32) + \
+                            (is_left_swing & ~is_left_about_to_stance & (next_gait_process < 0.5)).astype(backend.float32) + \
+                            (~is_left_swing & ~is_right_about_to_stance & (next_gait_process >= 0.5)).astype(backend.float32)
         else:
             gen_gp_reward = 0.0
 
@@ -898,7 +895,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         
         # Update reward state with new values
         reward_state = reward_state.replace(
-            gait_process=gait_process,
+            gait_process=next_gait_process,
             last_qvel=data.qvel, 
             last_action=action, 
             time_since_last_touchdown=tslt

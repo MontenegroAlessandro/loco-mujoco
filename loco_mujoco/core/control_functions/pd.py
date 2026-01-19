@@ -293,8 +293,8 @@ class PDControlGait(PDControl):
             mask = mask.at[self._gait_action_idx].set(False)
             pd_action = action[mask]
             gait_raw = action[self._gait_action_idx]
-        
-        gait_offset = (gait_raw + 1.0) / 2.0 * self.gait_phase_delta_max
+
+        gait_offset = self.gait_phase_delta_max / (1 + backend.exp(-gait_raw)) 
         
         updated_control_state = carry.control_func_state.replace(gait_phase_offset=gait_offset)
         carry = carry.replace(control_func_state=updated_control_state)
