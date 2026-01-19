@@ -23,8 +23,7 @@ experiment:
   env_params:
     env_name: MjxBoosterT1
     horizon: 1000
-    virtual_actions_names:
-      - gait_phase_offset
+    virtual_action_names: []
 
     terrain_type: StaticTerrain
     terrain_params:
@@ -109,7 +108,7 @@ experiment:
       tracking_swing_z_coeff: 4.0
       tracking_swing_z_sharp: 100.0
       # gp
-      gen_gp_coeff: 6.0
+      gen_gp_coeff: 0.0
       # other tracking rewards
       tracking_nominal_joint_pos_exp: 4.0
       tracking_nominal_joint_pos_coeff: 4.0 # 0.0
@@ -284,13 +283,13 @@ experiment:
         group: policy
         allow_randomization: false
 
-    control_type: PDControlGait # PDControl
+    control_type: PDControl
     control_params:
       scale_action_to_jnt_limits: False
       action_scale: 1.0
       clip_actions: 1.0
-      gait_phase_delta_max: 0.04
-      gait_action_name: gait_phase_offset
+      gait_phase_delta_max: null
+      gait_action_name: null
       
       p_gain: 
         - 20 # 40 # AAHead_yaw

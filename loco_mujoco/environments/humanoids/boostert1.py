@@ -573,7 +573,7 @@ class BoosterT1(BaseRobotHumanoid):
             self, spec: Union[str, MjSpec] = None,
             observation_spec: List[Observation] = None,
             actuation_spec: List[str] = [], 
-            virtual_actions_names: List[str] = None,
+            virtual_action_names: List[str] = None,
             **kwargs
         ):
         """
@@ -592,7 +592,7 @@ class BoosterT1(BaseRobotHumanoid):
             spec = self.get_default_xml_file_path()
 
         # set the virtual actions
-        self.virtual_actions_names = virtual_actions_names if virtual_actions_names is not None else []
+        self.virtual_action_names = virtual_action_names if virtual_action_names is not None else []
 
         # load the model specification
         spec = mujoco.MjSpec.from_file(spec) if not isinstance(spec, MjSpec) else spec
@@ -608,8 +608,8 @@ class BoosterT1(BaseRobotHumanoid):
             actuation_spec = self._get_action_specification(spec)
 
         # FIXME: start
-        if self.virtual_actions_names:
-            actuation_spec = actuation_spec + self.virtual_actions_names
+        if self.virtual_action_names:
+            actuation_spec = actuation_spec + self.virtual_action_names
         # FIXME: end
 
         # uses PD control by default

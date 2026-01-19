@@ -224,7 +224,7 @@ class PDControlGait(PDControl):
             self,
             env: Any,
             gait_phase_delta_max: float = 0.1,
-            gait_action_name: str = "gait_phase_offset",  # ← NEW: Explicit name
+            gait_action_name: str = "gait_phase_offset", 
             **kwargs: Any
         ):
         
@@ -275,7 +275,7 @@ class PDControlGait(PDControl):
             d_gain_noise=backend.zeros_like(self._nominal_joint_positions),
             pos_offset=backend.zeros_like(self._nominal_joint_positions),
             ctrl_mult=backend.ones_like(self._nominal_joint_positions),
-            gait_phase_offset=backend.array(0.0)  # Initialize gait phase offset to zero
+            gait_phase_offset=backend.array(0.0) 
         )
 
     def generate_action(self, env: Any,

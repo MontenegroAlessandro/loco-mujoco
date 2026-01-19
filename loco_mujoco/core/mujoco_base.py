@@ -145,8 +145,8 @@ class Mujoco:
         # read the actuation spec and build the mapping between actions and ids
         # FIXME start new
         self._full_actuation_spec = actuation_spec.copy() if isinstance(actuation_spec, list) else actuation_spec
-        if hasattr(self, 'virtual_actions_names') and self.virtual_actions_names:
-            physical_actuation_spec = [act for act in actuation_spec if act not in self.virtual_actions_names]
+        if hasattr(self, 'virtual_action_names') and self.virtual_action_names:
+            physical_actuation_spec = [act for act in actuation_spec if act not in self.virtual_action_names]
         else:
             physical_actuation_spec = actuation_spec
         self._action_indices = self.get_action_indices(self._model, self._data, physical_actuation_spec)
