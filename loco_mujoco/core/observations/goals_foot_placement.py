@@ -1547,7 +1547,6 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         )
         # gp = backend.fmod(gp + env.dt * state.gait_frequency, 1.0)
         gp = backend.fmod(gp + gp_offset, 1.0)
-        jax.debug.print("GP OFF {}", gp_offset)
         state = state.replace(gait_process=gp, steps=(state.steps + 1), absorbing=absorbing) # update the steps too
         observation_states = carry.observation_states.replace(**{self.name: state})
         carry = carry.replace(observation_states=observation_states)
