@@ -292,6 +292,7 @@ experiment:
       action_scale: 1.0
       clip_actions: 1.0
       gait_phase_delta_max: null
+      gait_phase_delta_min: null
       gait_action_name: null
       
       p_gain: 

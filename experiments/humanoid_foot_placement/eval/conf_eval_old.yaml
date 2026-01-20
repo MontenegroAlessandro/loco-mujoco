@@ -16,7 +16,7 @@ curriculum: &curriculum false
 
 # Experiment Vars
 experiment:
-  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/long_steps/nocv_d20_gh5_term.pkl 
+  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/step_after_fix/nocv_term25_d20_gh5_scratch.pkl 
 
   task_factory:
     name: RLFactory
@@ -89,7 +89,7 @@ experiment:
       right_foot_site_name: right_foot
       feet_distance: 0.15
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.4, 0.4] # [0.2, 0.5]
+      xy_distance_range: [0.3, 0.3] # [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
       angle_range_deg: [30, 30] # [-20, 20] # [20, 90] 
       # Range for randomizing the target foot yaw relative to the body

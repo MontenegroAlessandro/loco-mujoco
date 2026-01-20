@@ -224,11 +224,13 @@ class PDControlGait(PDControl):
             self,
             env: Any,
             gait_phase_delta_max: float = 0.1,
+            gait_phase_delta_min: float = 0.01,
             gait_action_name: str = "gait_phase_offset", 
             **kwargs: Any
         ):
         
         self.gait_phase_delta_max = gait_phase_delta_max
+        self.gait_phase_delta_min = gait_phase_delta_min
         self.gait_action_name = gait_action_name
         
         super().__init__(env, expand_action_space_by=1, **kwargs)
@@ -294,7 +296,7 @@ class PDControlGait(PDControl):
             pd_action = action[mask]
             gait_raw = action[self._gait_action_idx]
 
-        gait_offset = self.gait_phase_delta_max / (1 + backend.exp(-gait_raw)) 
+        gait_offset = self.gait_phase_delta_max / (1 + backend.exp(-gait_raw)) + self.gait_phase_delta_min
         
         updated_control_state = carry.control_func_state.replace(gait_phase_offset=gait_offset)
         carry = carry.replace(control_func_state=updated_control_state)
