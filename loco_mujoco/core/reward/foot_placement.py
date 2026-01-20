@@ -555,7 +555,24 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         action_rate_coeff = self._action_rate_coeff
         if self._goal_name in ["GoalDoubleFootPlacement"]:
             action_rate_coeff = jax.lax.cond(hold_still, lambda: 2 * self._action_rate_coeff, lambda: self._action_rate_coeff)
-        action_rate_reward = (backend.square(action - reward_state.last_action)).sum()
+        # mask the last action (if the last one is the generation of the gp)
+        if backend == jnp:
+            action_to_consider, last_action_to_consider = jax.lax.cond(
+                is_gp_adaptive,
+                lambda: (action.at[-1].set(0.0), reward_state.last_action.at[-1].set(0.0)),
+                lambda: (action, reward_state.last_action)
+            )
+        else:
+            if is_gp_adaptive:
+                action_to_consider = action.copy()
+                action_to_consider[-1] = 0.0
+                last_action_to_consider = reward_state.last_action.copy()
+                last_action_to_consider[-1] = 0.0
+            else:
+                action_to_consider = action
+                last_action_to_consider = reward_state.last_action
+        # action_rate_reward = (backend.square(action - reward_state.last_action)).sum()
+        action_rate_reward = (backend.square(action_to_consider - last_action_to_consider)).sum()
 
         # Low gains reward (incentivize gains to be close to -1)
         low_gains_reward = 0.0
