@@ -1536,7 +1536,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # verify the goal-based absorbing condition
         absorbing = False
         if self.goal_based_absorbing:
-            absorbing = backend.linalg.norm(stance_pos - stance_pos_target) > self.stance_absorbing_threshold
+            # xy tracking only
+            absorbing = backend.linalg.norm(stance_pos[:2] - stance_pos_target[:2]) > self.stance_absorbing_threshold
 
         # make the gait process progress
         gp_ada_offset = getattr(carry.control_func_state, "gait_phase_offset", 0.0)

@@ -49,7 +49,7 @@ experiment:
       # Range for omnidirectional step angle [-180, 180] for a full circle
       angle_range_deg: [-30, 30] # [-20, 20] # [20, 90] 
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-10, 60] # [-20, 20] # [-30, 30]
+      yaw_range_deg: [-60,60] # [-10, 60] # [-20, 20] # [-30, 30]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height

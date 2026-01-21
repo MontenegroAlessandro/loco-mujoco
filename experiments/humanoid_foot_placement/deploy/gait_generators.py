@@ -13,6 +13,7 @@ class GaitGenerator:
         stop_steps: int = 2,
         gait_frequency: float = 1.0,
         policy_dt: float = 0.02,
+        is_gp_adaptive: bool = False,
     ):
         # map the parameters
         self.feet_distance = feet_distance
@@ -27,6 +28,8 @@ class GaitGenerator:
         self.gait_process = 0.0
         self.policy_dt = policy_dt
         self.gait_frequency = gait_frequency
+        self.is_gp_adaptive = is_gp_adaptive
+        self.gp_off = 0.0
 
         self.swing_foot_idx = 0  # 0 for left, 1 for right
         self.sample_goal = False
@@ -56,7 +59,10 @@ class GaitGenerator:
         )
 
     def preprocess_gp_info(self):
-        self.gait_process = (self.gait_process + self.policy_dt * self.gait_frequency) % 1.0
+        if not self.is_gp_adaptive:
+            self.gait_process = (self.gait_process + self.policy_dt * self.gait_frequency) % 1.0
+        else:
+            self.gait_process = (self.gait_process + self.gp_off) % 1.0
         swing_foot_idx = 0 if (self.gait_process < 0.5) else 1
 
         if self.swing_foot_idx != swing_foot_idx:

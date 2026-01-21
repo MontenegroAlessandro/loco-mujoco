@@ -87,6 +87,8 @@ def pd_control(target_q, q, kp, target_dq, dq, kd):
     """Calculates PD control torques."""
     return (target_q - q) * kp + (target_dq - dq) * kd
 
+def map_adaptive_gp(raw_gp_off, max_delta = 0.0,  min_delta = 0.0):
+    return np.clip(max_delta / (1 + np.exp(-raw_gp_off)), min_delta, max_delta)
 
 @hydra.main(config_name="config_sim2sim.yaml")
 def main(config: DictConfig):
@@ -108,7 +110,14 @@ def main(config: DictConfig):
     base_num_actions = config["num_actions"]  # This is also 23
 
     cmd_params = config["command"]
-    obs_coo = config["obs"]["obs_coordinates"]
+    is_gp_adaptive = cmd_params["is_gp_adaptive"]
+    if is_gp_adaptive:
+        max_delta_gp = cmd_params["max_delta_gp"]
+        min_delta_gp = cmd_params["min_delta_gp"]
+    else:
+        max_delta_gp = 0.0
+        min_delta_gp = 0.0
+    base_num_actions += 1 if is_gp_adaptive else 0
 
     # --- Load Policy ---
     # Initialize Hydra to access environment config used during training
@@ -145,7 +154,7 @@ def main(config: DictConfig):
         pos=(0.1, 0.0, 0.0),  # **
         quat=(0, 0, 0, 1),
         group=1,
-        rgba=(1.0, 0.5, 0.0, 0.0),
+        rgba=(1.0, 0.5, 0.0, 0.5),
     )
 
     wb.add_site(
@@ -155,44 +164,8 @@ def main(config: DictConfig):
         pos=(0.1, 0.0, 0.0),  # **
         quat=(0, 0, 0, 1),
         group=1,
-        rgba=(1.0, 1.0, 0.0, 0.0),
+        rgba=(1.0, 1.0, 0.0, 0.5),
     )
-
-    # step_h = 0.02
-    # wb = add_stair(
-    #     world_body=wb, 
-    #     name="stair", 
-    #     first_step_coordinates=[goal_coordinates[0]/2, goal_coordinates[1], step_h/2], 
-    #     orientation_yaw_deg=0.0, 
-    #     num_steps=15, 
-    #     step_width=1, 
-    #     step_length=0.2, 
-    #     step_height=step_h
-    # )
-
-    # wb = add_slope(
-    #     world_body=wb, 
-    #     name="slope", 
-    #     coordinates=[goal_coordinates[0]/2, goal_coordinates[1], step_h/2], 
-    #     orientation_yaw_deg=0.0, 
-    #     width=1, 
-    #     run=0.2 * 20, 
-    #     rise=step_h * 20,
-    #     thickness=0.02,
-    #     down=False
-    # )
-    # wb = add_ramp_platform_ramp(
-    #     world_body=wb, 
-    #     name="trap", 
-    #     coordinates=[obs_coo[0]/2, obs_coo[1], step_h/2], 
-    #     orientation_yaw_deg=0.0, 
-    #     width=1, 
-    #     run=0.2 * 20, 
-    #     rise=step_h * 20,
-    #     thickness=0.02,
-    #     platform_length=1.0,
-    #     platform_width=0.2
-    # )
 
     # get model spec
     # delete all geoms whose names end in "_col" from spec
@@ -251,7 +224,13 @@ def main(config: DictConfig):
     policy_dt = simulation_dt * control_decimation
 
     # init the gait generator
-    GG = GaitGenerator(feet_distance=cmd_params["feet_distance"], stop_steps=cmd_params["stop_steps"], gait_frequency=gait_frequency, policy_dt=policy_dt)
+    GG = GaitGenerator(
+        feet_distance=cmd_params["feet_distance"], 
+        stop_steps=cmd_params["stop_steps"], 
+        gait_frequency=gait_frequency, 
+        policy_dt=policy_dt, 
+        is_gp_adaptive=is_gp_adaptive
+    )
     GG.print_instruction()
 
     # ===========================================TELEOPERATION via KEYBOARD===========================================
@@ -325,18 +304,28 @@ def main(config: DictConfig):
             obs_list += action.flatten().tolist()  # 'action' here is the previous action
             obs_list += cmd.flatten().tolist()
 
-            obs = [0.0] * (78) + obs_list
+            critic_n_obs = 78 if not is_gp_adaptive else 79
+            # obs = [0.0] * (78) + obs_list
+            obs = [0.0] * critic_n_obs + obs_list
 
             obs = np.array(obs, dtype=np.float32).reshape(1, -1)
 
             # Override Head Pitch Angle in Observation
-            obs[0, 81] = 0.0  # Head Yaw Angle
-            obs[0, 82] = 0.0  # Head Pitch joint position
+            # obs[0, 81] = 0.0  # Head Yaw Angle
+            # obs[0, 82] = 0.0  # Head Pitch joint position
+            obs[0, critic_n_obs + 3] = 0.0  # Head Yaw Angle
+            obs[0, critic_n_obs + 4] = 0.0  # Head Pitch joint position
 
             # --- Policy Inference ---
             emitted_action = np.asarray(policy.predict_action(obs)).flatten()
+            gp_off = 0.0 if not is_gp_adaptive else emitted_action[-1]
+            gp_offset_mapped = map_adaptive_gp(gp_off, max_delta=max_delta_gp, min_delta=min_delta_gp)
+            if is_gp_adaptive:
+                GG.gp_off = gp_offset_mapped
 
             emitted_action = np.clip(emitted_action, -1.0, 1.0)
+            if is_gp_adaptive:
+                emitted_action[-1] = gp_offset_mapped
 
             # Apply smoothing/filtering to the action
             action = action * 0.0 + emitted_action * 1.0
