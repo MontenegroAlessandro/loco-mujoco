@@ -193,8 +193,9 @@ def main(config: DictConfig):
     depth_viewport = mujoco.MjrRect(1240, 0, cam_width, cam_height)
     # Set initial robot state from policy's environment config
     try:
-        initial_qpos = np.array(lmj_hydra_config.experiment.env_params.init_state_params.qpos_init, dtype=np.float32)
-        initial_qvel = np.array(lmj_hydra_config.experiment.env_params.init_state_params.qvel_init, dtype=np.float32)
+        # initial_qpos = np.array(lmj_hydra_config.experiment.env_params.init_state_params.qpos_init, dtype=np.float32)
+        initial_qpos = np.array(config["init_state_params"]["qpos_init"], dtype=np.float32)
+        initial_qvel = np.array(config["init_state_params"]["qvel_init"], dtype=np.float32)
         if len(initial_qpos) == m.nq and len(initial_qvel) == m.nv:
             d.qpos[:] = initial_qpos
             d.qvel[:] = initial_qvel

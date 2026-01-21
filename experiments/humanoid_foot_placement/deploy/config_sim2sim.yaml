@@ -5,7 +5,7 @@
 
 # policy parameters
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/kick.pkl # mov_local_no_still_coeff 
-agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/gpgen7.pkl # mov_local_no_still_coeff 
+agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/gpgen8.pkl # mov_local_no_still_coeff 
 # agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl # mov_local_no_still_coeff 
 # agent_path: /Users/ale/code/PyProjects/scripts/experiments/humanoid_foot_placement/policies/T1/still_fp_6.pkl 
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
@@ -151,14 +151,22 @@ max_angles:
   - 0.44  # Right_Ankle_Roll
 
 init_state_params:
-  qpos_init: [0, 0, 0.72, 
-              1, 0, 0, 0, 
-              0, 0,
-              0.2,-1.2, 0, -0.5,
-              0.2, 1.2, 0, 0.5,
-              0,
-              -0.2, 0, 0, 0.4, -0.25, 0,
-              -0.2, 0, 0, 0.4, -0.25, 0]
+  # qpos_init: [0, 0, 0.72, 
+  #             1, 0, 0, 0, 
+  #             0, 0,
+  #             0.2,-1.2, 0, -0.5,
+  #             0.2, 1.2, 0, 0.5,
+  #             0,
+  #             -0.2, 0, 0, 0.4, -0.25, 0,
+  #             -0.2, 0, 0, 0.4, -0.25, 0]
+  qpos_init: [0, 0, 0.663, 
+            1, 0, 0, 0, 
+            0, 0,
+            0.2,-1.2, 0, -0.5,
+            0.2, 1.2, 0, 0.5,
+            0,
+            -0.2, 0, 0, 0.5, -0.25, 0,
+            -0.2, 0, 0, 0.5, -0.25, 0]
   qvel_init: [0, 0, 0, 
               0, 0, 0, 
               0, 0, 

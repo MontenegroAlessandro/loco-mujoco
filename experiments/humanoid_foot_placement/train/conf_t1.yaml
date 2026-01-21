@@ -52,7 +52,7 @@ experiment:
       # gait height
       gait_height: 0.05
       # desired height to maintain
-      goal_height: 0.68
+      goal_height: 0.65 # 0.68
       # direction range in deg
       direction_range_deg: [-180, 180] # [-180, 180]
       change_direction_range_deg: [0, 0]
@@ -124,11 +124,11 @@ experiment:
         - Right_Elbow_Pitch
         - Right_Elbow_Yaw
         - Waist
-        - Right_Ankle_Roll
-        - Left_Ankle_Roll
+        # - Right_Ankle_Roll
+        # - Left_Ankle_Roll
       # # penalties
       joint_deviation_l1_coeff: 0.0 # -0.3 # penalization of L1 wrt nominal joint pos
-      base_height_target: 0.68
+      base_height_target: 0.65 # 0.68
       base_height_coeff: -2 # -10.
       orientation_coeff: -5. # penalize if the robot deviates form the vertical
       joint_torque_coeff: -2.e-4
@@ -369,14 +369,22 @@ experiment:
 
     init_state_type: DefaultInitialStateHandler
     init_state_params:
-      qpos_init: [0, 0, 0.68, 
+      # qpos_init: [0, 0, 0.68, 
+      #             1, 0, 0, 0, 
+      #             0, 0,
+      #             0.2,-1.2, 0, -0.5,
+      #             0.2, 1.2, 0, 0.5,
+      #             0,
+      #             -0.2, 0, 0, 0.4, -0.25, 0,
+      #             -0.2, 0, 0, 0.4, -0.25, 0]
+      qpos_init: [0, 0, 0.663, 
                   1, 0, 0, 0, 
                   0, 0,
                   0.2,-1.2, 0, -0.5,
                   0.2, 1.2, 0, 0.5,
                   0,
-                  -0.2, 0, 0, 0.4, -0.25, 0,
-                  -0.2, 0, 0, 0.4, -0.25, 0]
+                  -0.2, 0, 0, 0.5, -0.25, 0,
+                  -0.2, 0, 0, 0.5, -0.25, 0]
 
       qvel_init: [0, 0, 0, 
                   0, 0, 0, 
