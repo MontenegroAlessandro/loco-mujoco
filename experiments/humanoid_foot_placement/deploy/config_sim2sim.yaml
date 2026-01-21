@@ -176,7 +176,7 @@ num_actions: 23 # Base number of actions (one per joint). Script will handle var
 command:
   feet_distance: 0.2
   gait_frequency: 1.0
-  stop_steps: 2
+  stop_steps: 4
   is_gp_adaptive: true
   max_delta_gp: 0.04
   min_delta_gp: 0.01
