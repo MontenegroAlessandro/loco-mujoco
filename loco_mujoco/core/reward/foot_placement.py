@@ -178,6 +178,9 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         self._joint_ranges = model.jnt_range[self._limited_joints]
         self._nominal_joint_qpos = env._init_state_handler.qpos_init
         
+        # Store all actuated joints for full body tracking (when hold_still is True)
+        self._all_joints_qpos_id = self._limited_joints_qpos_id
+        
         if self._nominal_joint_pos_names is None:
             # Take all limited joints
             self._nominal_joint_qpos_id = self._limited_joints_qpos_id
@@ -791,18 +794,59 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             gen_gp_reward = 0.0
 
         # Nominal joint position rewards
-        joint_qpos_reward = backend.exp(
-            -1 * self._nominal_joint_pos_exp *
-            backend.square(
+        joint_qpos_coeff = jax.lax.cond(hold_still, lambda: 2 * self._nominal_joint_pos_coeff, lambda: self._nominal_joint_pos_coeff)
+        if backend == jnp:
+            # Compute both rewards (all joints and nominal joints)
+            joint_qpos_reward_all = backend.exp(
+                -1 * self._nominal_joint_pos_exp *
+                backend.square(
+                    data.qpos[self._all_joints_qpos_id] - 
+                    self._nominal_joint_qpos[self._all_joints_qpos_id]
+                ).sum()
+            )
+            joint_qpos_reward_nominal = backend.exp(
+                -1 * self._nominal_joint_pos_exp *
+                backend.square(
+                    data.qpos[self._nominal_joint_qpos_id] - 
+                    self._nominal_joint_qpos[self._nominal_joint_qpos_id]
+                ).sum()
+            )
+            # Select the appropriate reward based on hold_still
+            joint_qpos_reward = jax.lax.cond(
+                hold_still,
+                lambda: joint_qpos_reward_all,
+                lambda: joint_qpos_reward_nominal
+            )
+            
+            # Compute both L1 penalties
+            joint_deviation_l1_all = backend.sum(backend.abs(
+                data.qpos[self._all_joints_qpos_id] - 
+                self._nominal_joint_qpos[self._all_joints_qpos_id]
+            ))
+            joint_deviation_l1_nominal = backend.sum(backend.abs(
                 data.qpos[self._nominal_joint_qpos_id] - 
                 self._nominal_joint_qpos[self._nominal_joint_qpos_id]
-            ).sum()
-        )
-
-        joint_deviation_l1_penalty = backend.sum(backend.abs(
-            data.qpos[self._nominal_joint_qpos_id] - 
-            self._nominal_joint_qpos[self._nominal_joint_qpos_id]
-        ))
+            ))
+            # Select the appropriate penalty based on hold_still
+            joint_deviation_l1_penalty = jax.lax.cond(
+                hold_still,
+                lambda: joint_deviation_l1_all,
+                lambda: joint_deviation_l1_nominal
+            )
+        else:
+            # NumPy backend
+            joints_to_track = self._all_joints_qpos_id if hold_still else self._nominal_joint_qpos_id
+            joint_qpos_reward = backend.exp(
+                -1 * self._nominal_joint_pos_exp *
+                backend.square(
+                    data.qpos[joints_to_track] - 
+                    self._nominal_joint_qpos[joints_to_track]
+                ).sum()
+            )
+            joint_deviation_l1_penalty = backend.sum(backend.abs(
+                data.qpos[joints_to_track] - 
+                self._nominal_joint_qpos[joints_to_track]
+            ))
 
         # ==================== AIR TIME AND IMPACT REWARDS ====================
         
@@ -858,7 +902,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         stance_z_reward *= env.dt
         gait_height_reward *= env.dt
         gen_gp_reward *= (self._gen_gp_coeff * env.dt)
-        joint_qpos_reward *= (self._nominal_joint_pos_coeff * env.dt)
+        joint_qpos_reward *= (joint_qpos_coeff * env.dt)
         joint_deviation_l1_penalty *= (self._joint_deviation_l1_coeff * env.dt)
         base_height_reward *= (self._base_height_coeff * env.dt)
         orientation_reward *= (self.orientation_coeff * env.dt)

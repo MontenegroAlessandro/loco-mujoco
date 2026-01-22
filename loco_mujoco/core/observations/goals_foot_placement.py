@@ -542,14 +542,19 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             d_swing = backend.linalg.norm(vec_swing)
             
             # Determine the actual closest obstacle 
-            # the first thing is to compare the stance foot with the pillar
-            is_stance_closer = (d_stance < closest_pillar_d)
-            temp_closest_xy = backend.where(is_stance_closer, stance_foot_pos[:2], closest_pillar_xy)
-            temp_closest_d = backend.where(is_stance_closer, d_stance, closest_pillar_d)
-            # do the same for the swing foot
-            is_swing_closer = (d_swing < closest_pillar_d)
-            closest_xy = backend.where(is_swing_closer, swing_foot_pos[:2], temp_closest_xy)
-            closest_d = backend.where(is_swing_closer, d_swing, temp_closest_d)
+            # Compare all three: stance foot, swing foot, and closest pillar
+            is_stance_closer = (d_stance < closest_pillar_d) & (d_stance < d_swing)
+            is_swing_closer = (d_swing < closest_pillar_d) & (d_swing < d_stance)
+            
+            # Select the closest obstacle
+            closest_xy = backend.where(
+                is_stance_closer, stance_foot_pos[:2],
+                backend.where(is_swing_closer, swing_foot_pos[:2], closest_pillar_xy)
+            )
+            closest_d = backend.where(
+                is_stance_closer, d_stance,
+                backend.where(is_swing_closer, d_swing, closest_pillar_d)
+            )
 
             # If too close push to boundary
             vec = xy - closest_xy
@@ -768,13 +773,16 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             valid_swing = dist_swing > self._pillar_min_center_dist
 
             # pillars condition
-            valid_pillars = True
+            valid_pillars = backend.array(True)
             if self.adaptive_terrain:
                 pil_coo = carry.terrain_state.positions
                 pillars_d = backend.linalg.norm(pil_coo[:, :2] - pos_xy[None, :2], axis=1)
-                valid_pillars = pillars_d > (env._terrain.diameter + self._overlap_margin)
-                valid_pillars = valid_pillars.at[pillar_id_for_goal].set(True)
-                valid_pillars = valid_pillars.all()
+                is_too_close = pillars_d < self._pillar_min_center_dist
+                if backend == jnp:
+                    is_too_close = is_too_close.at[pillar_id_for_goal].set(False)
+                else:
+                    is_too_close[pillar_id_for_goal] = False
+                valid_pillars = ~backend.any(is_too_close)
 
             return valid_stance & valid_swing & valid_pillars
 
@@ -805,7 +813,18 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 lambda x: jax.lax.while_loop(cond_fun, body_fun, x),
                 init_val
             )
-            _, _, _, target_pos_pre_z = final_val
+            _, _, found, target_pos_pre_z = final_val
+            
+            # If rejection sampling failed and we're using pillars, push target away from obstacles
+            target_pos_pre_z = jax.lax.cond(
+                (~found) & use_three_pillars,
+                lambda pos: self._push_target_out_of_other_pillars(
+                    pos, carry.terrain_state, pillar_id_for_goal, 
+                    stance_foot_pos, swing_foot_pos, backend
+                ),
+                lambda pos: pos,
+                target_pos_pre_z
+            )
 
         else:
             # NUMPY: Standard loop
@@ -821,6 +840,13 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                         target_pos_pre_z = cand
                         found = True
                     count += 1
+                
+                # If rejection sampling failed and we're using pillars, push target away
+                if not found and self.adaptive_terrain and num_pillars >= 3:
+                    target_pos_pre_z = self._push_target_out_of_other_pillars(
+                        target_pos_pre_z, carry.terrain_state, pillar_id_for_goal,
+                        stance_foot_pos, swing_foot_pos, backend
+                    )
             else:
                 target_pos_pre_z = _get_candidate_target(key)
         
