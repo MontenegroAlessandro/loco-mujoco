@@ -232,11 +232,11 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             right_foot_target_pos=backend.zeros(3), 
             right_foot_target_orn=backend.array([1.0, 0.0, 0.0, 0.0]), 
             swing_foot_idx=0,
-            goal_height=0.68,
+            goal_height=self.goal_height,
             # gait info
             gait_frequency=1.0,
             gait_process=0.0,
-            gait_height=0.1,
+            gait_height=self.gait_height,
             # ranges
             angle_range_rad=backend.array(self.angle_range_rad),
             distance_range=backend.array(self.xy_distance_range),
