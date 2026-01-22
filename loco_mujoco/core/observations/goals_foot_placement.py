@@ -816,15 +816,16 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             _, _, found, target_pos_pre_z = final_val
             
             # If rejection sampling failed and we're using pillars, push target away from obstacles
-            target_pos_pre_z = jax.lax.cond(
-                (~found) & use_three_pillars,
-                lambda pos: self._push_target_out_of_other_pillars(
-                    pos, carry.terrain_state, pillar_id_for_goal, 
-                    stance_foot_pos, swing_foot_pos, backend
-                ),
-                lambda pos: pos,
-                target_pos_pre_z
-            )
+            if self.adaptive_terrain:
+                target_pos_pre_z = jax.lax.cond(
+                    (~found) & use_three_pillars,
+                    lambda pos: self._push_target_out_of_other_pillars(
+                        pos, carry.terrain_state, pillar_id_for_goal, 
+                        stance_foot_pos, swing_foot_pos, backend
+                    ),
+                    lambda pos: pos,
+                    target_pos_pre_z
+                )
 
         else:
             # NUMPY: Standard loop
