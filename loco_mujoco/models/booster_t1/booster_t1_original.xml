@@ -19,7 +19,7 @@
     <material name="gray" rgba="0.4 0.4 0.4 1"/>
     <material name="transparent" rgba="0.5 0.5 0.5 1"/>
     <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="512"/>
-    <texture name="texplane" type="2d" builtin="checker" rgb1=".2 .3 .4" rgb2=".1 0.15 0.2" width="512" height="512" mark="cross" markrgb=".8 .8 .8"/>
+    <texture name="texplane" type="2d" builtin="checker" rgb1=".3 .3 .3" rgb2=".1 0.2 0.2" width="512" height="512" mark="cross" markrgb=".8 .8 .8"/>
     <material name="matplane" reflectance="0.3" texture="texplane" texrepeat="1 1" texuniform="true"/>
     <mesh name="Trunk" file="Trunk.STL"/>
     <mesh name="H1" file="H1.STL"/>
@@ -65,10 +65,10 @@
         <joint name="Head_pitch" pos="0 0 0" axis="0 1 0" range="-0.35 1.0" actuatorfrcrange="-7 7"/>
         <geom class="visual" material="gray" mesh="H2"/>
         <geom size="0.08" pos="0.01 0 0.11" class="collision" name="head"/>
-        <!-- <camera name="head_camera" pos="0.07266 0 0.10956" euler="0 -1.6 -1.5708" mode="fixed" fovy="57" /> -->
-        <camera name="head_camera" pos="0.08381 0.0475 0.12406" euler="0 -1.6 -1.5708" mode="fixed" fovy="57" />
-          <site name="head_cam" pos="0.07266 0 0.10956" euler="0 -1.5708 -1.5708"
-            size="0.05 0.02 0.001" type="box" rgba="1.0 0 0 1.0" />
+        <camera name="head_camera" pos="0.07266 0.0 0.10956" euler="0 -1.5708 -1.5708" mode="fixed" fovy="57" />
+        <!-- <camera name="head_camera" pos="0.08381 0.0475 0.12406" euler="0 -1.6 -1.5708" mode="fixed" fovy="57" /> -->
+        <site name="head_cam" pos="0.07266 0 0.10956" euler="0 -1.5708 -1.5708" size="0.05 0.02 0.001" 
+        type="box" rgba="1.0 0 0 1.0" />
       </body>
     </body>
     <body name="AL1" pos="0.0575 0.1063 0.219" quat="1 0 0.000440565 0">
