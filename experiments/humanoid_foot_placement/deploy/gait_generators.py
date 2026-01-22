@@ -324,11 +324,12 @@ class VisualGaitGenerator(GaitGenerator):
         policy_dt: float = 0.02,
         feet_distance: float = 0.2,
         stop_steps: int = 2,
+        is_gp_adaptive: bool = False,
         max_gp_pause_steps: int = 5,
         img_delay_steps: int = 0,
         debug_vis: bool = False,
     ):
-        super().__init__(feet_distance=feet_distance, stop_steps=stop_steps, gait_frequency=gait_frequency, policy_dt=policy_dt)
+        super().__init__(feet_distance=feet_distance, stop_steps=stop_steps, gait_frequency=gait_frequency, policy_dt=policy_dt, is_gp_adaptive=is_gp_adaptive)
 
         self.model = copy.deepcopy(robot_model)
         self.data = copy.deepcopy(robot_data)
