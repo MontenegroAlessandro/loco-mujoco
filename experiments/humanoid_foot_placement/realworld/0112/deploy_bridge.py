@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -10,6 +11,7 @@ import mujoco
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile
 from sensor_msgs.msg import Image, CameraInfo
 from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import TransformStamped
@@ -85,9 +87,18 @@ class RobotController:
         self.depth_image: Image = None
         self.cam_info: CameraInfo = None
 
-        self.depth_sub = Subscriber(self.node, Image, '/camera/camera/aligned_depth_to_color/image_raw')
-        self.color_sub = Subscriber(self.node, Image, '/camera/camera/color/image_raw')
-        self.info_sub = Subscriber(self.node, CameraInfo, "/camera/camera/aligned_depth_to_color/camera_info")
+        qos_profile = QoSProfile(reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT,
+                                durability=rclpy.qos.DurabilityPolicy.VOLATILE,
+                                depth=1)
+
+        self.depth_sub = Subscriber(self.node, Image, '/camera/camera/aligned_depth_to_color/image_raw', qos_profile=qos_profile)
+        self.color_sub = Subscriber(self.node, Image, '/camera/camera/color/image_raw', qos_profile=qos_profile)
+        self.info_sub = Subscriber(self.node, CameraInfo, "/camera/camera/aligned_depth_to_color/camera_info", qos_profile=qos_profile)
+
+        self.color_local_pub = self.node.create_publisher(Image, "/deploy_bridge/color/image_new", 1)
+        self.depth_local_pub = self.node.create_publisher(Image, "/deploy_bridge/depth/image_new", 1)
+        self.depth_caminfo_local_pub = self.node.create_publisher(CameraInfo, "/deploy_bridge/depth/camera_info", 1)
+        self.pub_img_flag = False
 
         # Publish TF from base_link to camera frame
         self.base_to_cam_tf_pub = self.node.create_publisher(TFMessage, "/tf", 10)
@@ -151,9 +162,13 @@ class RobotController:
     # ---------------- Camera Callbacks ----------------
     def synchronized_callback(self, color_msg, depth_msg, info_msg):
         self.depth_image = self.cv_bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
-        self.depth_image = self.depth_image.astype(np.float32) / 1000.0  # Convert from mm to meters
+        self.depth_image = self.depth_image.astype(np.float32) / 1000.0 # Convert from mm to meters
+        # TODO
+        self.depth_image = np.maximum(self.depth_image - 0.05, 0.0)
+
         self.color_image = self.cv_bridge.imgmsg_to_cv2(color_msg, desired_encoding='rgb8')
         self.cam_info = info_msg
+        self.pub_img_flag = True
 
     # ---------------- Teleop actions (controller -> gait params) ----------------
     def _teleop_toggle_move(self):
@@ -244,6 +259,15 @@ class RobotController:
         # print(f"Detected targets in left foot frame: {target_in_l_foot}")
         # cv2.waitKey(0)
 
+        # TODO
+        # dof_pos = self.robot.q_pos.copy()
+        # foot_offset, gait_info, rgb_image, depth_image, targets = self.GG.query_cmd(
+        #     self.color_image.copy(), self.depth_image.copy(), dof_pos, image_updated=True
+        # )
+        # if len(targets) > 0:
+        #     print(np.linalg.norm(targets, axis=-1, keepdims=True))
+        #     self.publish_cam_target_tf(targets)
+
         if self.robot.control_started and self.agent_started:
             self.policy_step()
 
@@ -329,6 +353,7 @@ class RobotController:
         self.robot.update_robot_state()
 
         self._publish_base_to_camera_tf()
+        self.publish_images()
 
         self.GG.update_camera_info(cam_info=self.cam_info)
 
@@ -398,6 +423,12 @@ class RobotController:
                     self.steering_angle = self.GG.steering_angle
                     self.lat_dist = self.GG.lateral_dist
                     print("RESET")
+
+                elif self.robot.joy_key.lt and self.robot.joy_key.rt and self.robot.joy_key.x and self.robot.key_count == 3:
+                    self.agent_started = False
+                    self.robot.init_control()
+                    self.GG.gait_process = 0.0
+                    print("STOPPED")
 
             # Reset inputs after processing
             self.robot.joy_key = None
@@ -479,12 +510,12 @@ class RobotController:
         transform = TransformStamped()
         transform.header.stamp = stamp
         transform.header.frame_id = "head_camera"
-        transform.child_frame_id = "camera_link"
+        transform.child_frame_id = "camera_color_optical_frame"
 
-        transform.transform.translation.x = 0.0
+        transform.transform.translation.x = 0.0115
         transform.transform.translation.y = 0.0
-        transform.transform.translation.z = 0.05
-        rot = np_R.from_euler("xyz", [0.0, np.pi / 2.0, np.pi / 2.0])
+        transform.transform.translation.z = 0.0
+        rot = np_R.from_euler("yzx", [np.pi, np.pi, 0.06])
         quat = rot.as_quat()  # x, y, z, w
         transform.transform.rotation.x = quat[0]
         transform.transform.rotation.y = quat[1]
@@ -544,6 +575,16 @@ class RobotController:
         tf.transforms.append(transform)
         self.base_to_cam_tf_pub.publish(tf)
 
+    def publish_images(self):
+        if self.pub_img_flag:
+            color_msg = self.cv_bridge.cv2_to_imgmsg(self.color_image, encoding='rgb8')
+            depth_msg = self.cv_bridge.cv2_to_imgmsg((self.depth_image * 1000.0).astype(np.uint16), encoding='16UC1')  # Convert back to mm
+            color_msg.header = self.cam_info.header
+            depth_msg.header = self.cam_info.header
+            self.color_local_pub.publish(color_msg)
+            self.depth_local_pub.publish(depth_msg)
+            self.depth_caminfo_local_pub.publish(self.cam_info)
+            self.pub_img_flag = False
 
 if __name__ == "__main__":
     rclpy.init()

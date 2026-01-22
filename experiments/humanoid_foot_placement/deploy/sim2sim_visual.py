@@ -22,6 +22,7 @@ from scipy.spatial.transform import Rotation as np_R
 from loco_mujoco.core.utils.math import quat_scalarfirst2scalarlast
 import copy
 import cv2
+from collections import deque
 
 from loco_mujoco.algorithms import PPOJax
 
@@ -159,6 +160,9 @@ def main(config: DictConfig):
     # Add visual sites as foot targets
     target_dist = 0.25
     target_angle_range = 45  # degrees
+    action_delay_steps = 0
+    image_delay_steps = 0
+
     target_site_pos = np.zeros(3)
     angle = 0
     site_idx = 0
@@ -193,16 +197,16 @@ def main(config: DictConfig):
     # # --- Initialize Simulation ---
     m.opt.timestep = simulation_dt
 
-    cam_width = 320
-    cam_height = 200
+    cam_width = 640
+    cam_height = 480
     rgb_renderer = mujoco.Renderer(m, width=cam_width, height=cam_height)
     depth_renderer = mujoco.Renderer(m, width=cam_width, height=cam_height)
     depth_renderer.enable_depth_rendering()
     rgb_renderer._scene_option.sitegroup[1] = 0
     depth_renderer._scene_option.sitegroup[1] = 0
 
-    rgb_viewport = mujoco.MjrRect(920, 0, cam_width, cam_height)
-    depth_viewport = mujoco.MjrRect(1240, 0, cam_width, cam_height)
+    rgb_viewport = mujoco.MjrRect(800, 0, cam_width, cam_height)
+    depth_viewport = mujoco.MjrRect(800+cam_width, 0, cam_width, cam_height)
     # Set initial robot state from policy's environment config
     try:
         initial_qpos = np.array(lmj_hydra_config.experiment.env_params.init_state_params.qpos_init, dtype=np.float32)
@@ -220,15 +224,25 @@ def main(config: DictConfig):
             )
     except (AttributeError, KeyError) as e:
         print(f"Warning: Could not load initial state from policy config ({e}). Using default MuJoCo initialization.")
-
+    
     # Update physics state after setting qpos/qvel (important for correct sensor readings etc.)
     mujoco.mj_forward(m, d)
+
+    # Create Initial Delayed Images Buffer
+    rgb_renderer.update_scene(d, camera="head_camera")
+    depth_renderer.update_scene(d, camera="head_camera")
+    rgb_array = rgb_renderer.render()
+    depth_array = depth_renderer.render()
+
+    rgb_deque = deque([rgb_array.copy() for _ in range(image_delay_steps + 1)], maxlen=image_delay_steps + 1)
+    depth_deque = deque([depth_array.copy() for _ in range(image_delay_steps + 1)], maxlen=image_delay_steps + 1)
 
     # Initialize context variables
     action = np.zeros(num_actions, dtype=np.float32)
     target_dof_pos = default_angles.copy()
     target_dof_kps = kps.copy()
     target_dof_kds = kds.copy()
+    delayed_target_dof_pos = target_dof_pos.copy()
 
     # command parameters
     cmd = np.zeros(16, dtype=np.float32)
@@ -242,7 +256,8 @@ def main(config: DictConfig):
         cam_width=cam_width, cam_height=cam_height,
         feet_distance=cmd_params["feet_distance"], stop_steps=cmd_params["stop_steps"], 
         img_delay_steps=cmd_params["img_delay_steps"],
-        debug_vis=True)
+        max_gp_pause_steps=cmd_params["max_pause_steps"],
+        debug_vis=False)
     GG.print_instruction()
 
     # ===========================================TELEOPERATION via KEYBOARD===========================================
@@ -252,9 +267,11 @@ def main(config: DictConfig):
             step_start = time.time()
 
             for i in range(control_decimation):
+                if i >= action_delay_steps:
+                    delayed_target_dof_pos = target_dof_pos.copy()
                 # Step the simulation forward. The PD controller runs at the physics rate.
                 tau = pd_control(
-                    target_dof_pos, d.qpos[7:], target_dof_kps, np.zeros_like(kds), d.qvel[6:], target_dof_kds
+                    delayed_target_dof_pos, d.qpos[7:], target_dof_kps, np.zeros_like(kds), d.qvel[6:], target_dof_kds
                 )
                 d.ctrl[:] = tau
 
@@ -265,8 +282,8 @@ def main(config: DictConfig):
             depth_renderer.update_scene(d, camera="head_camera")
             rgb_array = rgb_renderer.render()
             depth_array = depth_renderer.render()
-            depth_rgb = np.clip((depth_array - 0.2) / 1.8 * 255.0, 0, 255)
-            depth_rgb = depth_rgb[:, :, None].repeat(3, axis=2).astype(np.uint8)
+            rgb_deque.append(rgb_array.copy())
+            depth_deque.append(depth_array.copy())
 
             # --- Prepare Observations ---
             qj = d.qpos[7:]
@@ -277,10 +294,8 @@ def main(config: DictConfig):
             projected_gravity = quat_rotate_inverse(quat, np.array([0.0, 0.0, -1.0]))
 
             # --- Create Command Vector `cmd` ---
-
-            # foot_offset, gait_info = GG.query_cmd(gp=gait_process)
-            foot_offset, gait_info, rgb_array, _ = GG.query_cmd(
-                rgb_image=rgb_array, depth_image=depth_array, joint_pos=qj, image_updated=True)
+            foot_offset, gait_info, rgb_image, depth_image, _ = GG.query_cmd(
+                rgb_image=rgb_deque[0], depth_image=depth_deque[0], joint_pos=qj, image_updated=True)
             l_offset, l_orn_offset, r_offset, r_orn_offset = foot_offset
 
             if GG.sample_goal:
@@ -378,12 +393,11 @@ def main(config: DictConfig):
             # Clip target_dof_pos to joint limits
             target_dof_pos = np.clip(target_dof_pos, min_angles, max_angles)
 
-            target_dof_kps = kps.copy()
-            target_dof_kds = kds.copy()
-
             # Sync viewer and maintain real-time simulation speed
             viewer.sync()
-            viewer.set_images([(rgb_viewport, rgb_array), (depth_viewport, depth_rgb)])
+            depth_image = np.clip((depth_image - 0.2) / 1.8 * 255.0, 0, 255)
+            depth_image = depth_image[:, :, None].repeat(3, axis=2).astype(np.uint8)
+            viewer.set_images([(rgb_viewport, rgb_image), (depth_viewport, depth_image)])
 
             time_until_next_step = m.opt.timestep * control_decimation - (time.time() - step_start)
             # time.sleep(0.1)

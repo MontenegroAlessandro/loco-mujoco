@@ -5,7 +5,7 @@
 
 # policy parameters
 
-agent_path: /home/puze/Projects/accu_loco/experiments/humanoid_foot_placement/policies/kick.pkl
+agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
 # train_config_name: conf.yaml
 # --- Simulation Parameters ---
@@ -88,13 +88,13 @@ default_angles:
   - -0.2  # Left_Hip_Pitch
   - 0.0   # Left_Hip_Roll
   - 0.0   # Left_Hip_Yaw
-  - 0.4   # Left_Knee_Pitch
+  - 0.5   # Left_Knee_Pitch
   - -0.25 # Left_Ankle_Pitch
   - 0.0   # Left_Ankle_Roll
   - -0.2  # Right_Hip_Pitch
   - 0.0   # Right_Hip_Roll
   - 0.0   # Right_Hip_Yaw
-  - 0.4   # Right_Knee_Pitch
+  - 0.5   # Right_Knee_Pitch
   - -0.25 # Right_Ankle_Pitch
   - 0.0   # Right_Ankle_Roll
 
@@ -157,4 +157,5 @@ command:
   feet_distance: 0.2
   gait_frequency: 1.0
   stop_steps: 2
-  img_delay_steps: 2
+  img_delay_steps: 0
+  max_pause_steps: 5
