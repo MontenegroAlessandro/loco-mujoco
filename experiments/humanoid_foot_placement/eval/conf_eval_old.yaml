@@ -16,7 +16,7 @@ curriculum: &curriculum false
 
 # Experiment Vars
 experiment:
-  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/step_after_fix/nocv_xyterm25_d40_gh5_diam30.pkl 
+  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/step_after_fix/cv_xyterm25_d40_gh5_diam30.pkl 
 
   task_factory:
     name: RLFactory
@@ -95,7 +95,7 @@ experiment:
       # Range for randomizing the target foot yaw relative to the body
       yaw_range_deg: [0, 0] # [-20, 20] # [-30, 30]
       # gait frequency target
-      gait_frequency_range: [1.0, 1.0] 
+      gait_frequency_range: [0.5, 0.5] 
       # gait height
       gait_height: 0.05
       # desired height to maintain

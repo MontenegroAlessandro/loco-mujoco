@@ -43,13 +43,13 @@ experiment:
       # Names of the foot sites from the booster_t1_dfki.xml file
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
-      feet_distance: 0.15
+      feet_distance: 0.1 # 0.15
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
+      xy_distance_range: [0.2, 0.6] # [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
       angle_range_deg: [-30, 30] # [-20, 20] # [20, 90] 
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-60,60] # [-10, 60] # [-20, 20] # [-30, 30]
+      yaw_range_deg: [-60, 60] # [-20, 20] # [-30, 30]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
