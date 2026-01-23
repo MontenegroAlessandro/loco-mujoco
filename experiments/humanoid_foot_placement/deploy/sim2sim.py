@@ -26,7 +26,8 @@ import cv2
 
 from loco_mujoco.algorithms import PPOJax
 
-from gait_generators import GaitGenerator
+# from gait_generators import GaitGenerator
+from gait_generators_novis import GaitGenerator
 
 
 class LMJPolicy:

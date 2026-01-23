@@ -16,7 +16,7 @@ curriculum: &curriculum false
 
 # Experiment Vars
 experiment:
-  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/step_after_fix/nocv_xyterm30_d30_gh5_diam30.pkl 
+  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/step_after_fix/nocv_xyterm25_d40_gh5_diam30.pkl 
 
   task_factory:
     name: RLFactory
@@ -112,7 +112,7 @@ experiment:
       max_num_gaits: 5
       # adaptive terrains 
       adaptive_terrain: true
-      z_distance_range: [0.1, 0.1]
+      z_distance_range: [0.15, 0.15]
       max_z_distance_up: 0.0
       max_z_distance_low: 0.0
       # start still flag

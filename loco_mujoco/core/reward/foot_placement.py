@@ -518,7 +518,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
                 lambda: floor_offset
             )
         base_height_target = goal_state.goal_height + floor_offset
-        base_height = global_pos_root[2] - floor_offset
+        base_height = global_pos_root[2] # - floor_offset
         base_height_reward = backend.square(base_height - base_height_target)
 
         # Orientation reward
