@@ -794,7 +794,8 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             gen_gp_reward = 0.0
 
         # Nominal joint position rewards
-        joint_qpos_coeff = jax.lax.cond(hold_still, lambda: 2 * self._nominal_joint_pos_coeff, lambda: self._nominal_joint_pos_coeff)
+        # joint_qpos_coeff = jax.lax.cond(hold_still, lambda: 2 * self._nominal_joint_pos_coeff, lambda: self._nominal_joint_pos_coeff)
+        joint_qpos_coeff = self._nominal_joint_pos_coeff
         if backend == jnp:
             # Compute both rewards (all joints and nominal joints)
             joint_qpos_reward_all = backend.exp(

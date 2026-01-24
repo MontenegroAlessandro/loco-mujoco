@@ -324,6 +324,7 @@ def main(config: DictConfig):
             gp_offset_mapped = map_adaptive_gp(gp_off, max_delta=max_delta_gp, min_delta=min_delta_gp)
             if is_gp_adaptive:
                 GG.gp_off = gp_offset_mapped
+                print(f"Adaptive GP offset: {gp_offset_mapped:.4f}")
 
             emitted_action = np.clip(emitted_action, -1.0, 1.0)
             if is_gp_adaptive:

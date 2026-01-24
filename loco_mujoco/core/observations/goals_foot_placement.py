@@ -298,7 +298,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             free_pillar_id=free_pillar_id,
             pending_free_pillar_id=pending_free_pillar_id,
             absorbing=False,
-            is_gp_adaptive=self.is_gp_adaptive
+            is_gp_adaptive=self.is_gp_adaptive,
+            gait_frequency=gait_frequency
         )
 
         # update observation with the new goal state in the carry

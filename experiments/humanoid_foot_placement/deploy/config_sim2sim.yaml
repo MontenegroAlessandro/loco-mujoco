@@ -5,7 +5,7 @@
 
 # policy parameters
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/kick.pkl # mov_local_no_still_coeff 
-agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/gpgen_adaqpos.pkl # mov_local_no_still_coeff 
+agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/gpgen_adaqpos3.pkl # mov_local_no_still_coeff 
 # agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl # mov_local_no_still_coeff 
 # agent_path: /Users/ale/code/PyProjects/scripts/experiments/humanoid_foot_placement/policies/T1/still_fp_6.pkl 
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/

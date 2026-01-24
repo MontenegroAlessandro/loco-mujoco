@@ -40,7 +40,7 @@ experiment:
       # Names of the foot sites from the booster_t1_dfki.xml file
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
-      feet_distance: 0.1 # 0.15
+      feet_distance: 0.15 # 0.15
       # Range for the random step length [min, max] in meters
       xy_distance_range: [0.2, 0.6] # [0.2, 0.5]
       # Range for omnidirectional step angle [-180, 180] for a full circle
