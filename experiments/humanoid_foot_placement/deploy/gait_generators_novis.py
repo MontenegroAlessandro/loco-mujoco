@@ -178,7 +178,8 @@ class GaitGenerator:
         lat_dist = self.feet_distance * direction + self.lateral_dist
 
         # clip the movement for the "evil foot"
-        max_evil_movement = -self.feet_distance * direction / 2.0
+        # max_evil_movement = -self.feet_distance * direction / 2.0
+        max_evil_movement = -self.feet_distance * direction 
 
         if direction == 1:  # left movement
             l_pos_offset = np.array([0.0, lat_dist, 0.0]) if self.swing_foot_idx == 0 else zero_pos_offset
