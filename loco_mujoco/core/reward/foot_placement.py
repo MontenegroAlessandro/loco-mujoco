@@ -786,10 +786,12 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             is_left_swing = (swing_foot_idx == 0)
             is_left_about_to_stance = (gait_process < 0.5) & (gait_process > (0.25 + self._feet_swing_period * 0.5))
             is_right_about_to_stance = (gait_process >= 0.5) & (gait_process > (0.75 + self._feet_swing_period * 0.5))
-            gen_gp_reward = (is_left_swing & is_left_about_to_stance & feet_on_ground[0] & (next_gait_process >= 0.5)).astype(backend.float32) + \
-                            (~is_left_swing & is_right_about_to_stance & feet_on_ground[1] & (next_gait_process < 0.5)).astype(backend.float32) + \
-                            (is_left_swing & ~is_left_about_to_stance & (next_gait_process < 0.5)).astype(backend.float32) + \
-                            (~is_left_swing & ~is_right_about_to_stance & (next_gait_process >= 0.5)).astype(backend.float32)
+            # gen_gp_reward = (is_left_swing & is_left_about_to_stance & feet_on_ground[0] & (next_gait_process >= 0.5)).astype(backend.float32) + \
+            #                 (~is_left_swing & is_right_about_to_stance & feet_on_ground[1] & (next_gait_process < 0.5)).astype(backend.float32) + \
+            #                 (is_left_swing & ~is_left_about_to_stance & (next_gait_process < 0.5)).astype(backend.float32) + \
+            #                 (~is_left_swing & ~is_right_about_to_stance & (next_gait_process >= 0.5)).astype(backend.float32)
+            gen_gp_reward = (is_left_swing & feet_on_ground[0] & (next_gait_process >= 0.5)).astype(backend.float32) + \
+                            (~is_left_swing & feet_on_ground[1] & (next_gait_process < 0.5)).astype(backend.float32)
         else:
             gen_gp_reward = 0.0
 
