@@ -869,28 +869,30 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         carry = carry.replace(terrain_state=terrain_state)
 
         # ===========================================FOOT ORIENTATION TARGET===========================================
-        # feet_dir_rot = R.from_euler('z', feet_direction)
+        feet_dir_rot = R.from_euler('z', feet_direction)
         key, subkey4 = jax.random.split(key)
         
         # sample the yaw relative to the current stance foot yaw
-        feet_direction=current_stance_yaw # FIXME
+        # feet_direction=current_stance_yaw # FIXME
         rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1])
         # angle_yaw = (R.from_euler('z', rand_yaw) * feet_dir_rot).as_euler('xyz')[2]
+        angle_yaw = feet_direction + rand_yaw
         
         # keep the angle in the safe range
-        # yaw_displacement = self.wrap_to_pi(angle_yaw - current_stance_yaw, backend)
-        # clipped_abs_displacement = backend.clip(backend.abs(yaw_displacement), 0, backend.pi / 2)
-        # clipped_yaw_displacement = backend.sign(yaw_displacement) * clipped_abs_displacement
+        yaw_displacement = self.wrap_to_pi(angle_yaw - current_stance_yaw, backend)
+        clipped_abs_displacement = backend.clip(backend.abs(yaw_displacement), 0, backend.pi / 2)
+        clipped_yaw_displacement = backend.sign(yaw_displacement) * clipped_abs_displacement
         
         # compute final yaw
-        # final_yaw = self.wrap_to_pi(current_stance_yaw + clipped_yaw_displacement, backend)
+        final_yaw = self.wrap_to_pi(current_stance_yaw + clipped_yaw_displacement, backend)
         # final_yaw = (R.from_euler('z', rand_yaw) * R.from_euler('z', current_stance_yaw)).as_euler('xyz')[2]
-        # target_orn_rot = R.from_euler('z', final_yaw)
+        target_orn_rot = R.from_euler('z', final_yaw)
         
         target_orn = jax.lax.select(
             hold_still,
             stance_foot_orn,
-            R.from_euler('z', rand_yaw + current_stance_yaw).as_quat(scalar_first=True) # target_orn_rot.as_quat(scalar_first=True)
+            target_orn_rot.as_quat(scalar_first=True)
+            # R.from_euler('z', rand_yaw + current_stance_yaw).as_quat(scalar_first=True) 
         )
 
         # ===============================================ASSIGN TARGETS===============================================
