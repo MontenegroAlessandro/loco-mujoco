@@ -21,6 +21,8 @@ from loco_mujoco.core.utils.mujoco import (
 
 from loco_mujoco.core.observations.goals import Goal
 
+NUM_SAMPLES = 2048
+
 @struct.dataclass
 class GoalDoubleFootPlacementState:
     """State for the goal of a random foot placement position."""
@@ -106,6 +108,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             stance_absorbing_threshold: float = 0.5,
             # flag indicating whether the policy is able to learn the gp offset
             is_gp_adaptive: bool = False,
+            # needed for saving robot
+            feet_swing_period: float = 0.2,
             **kwargs
         ):
         # store parameters
@@ -134,6 +138,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.goal_based_absorbing = tracking_fail_is_absorbing
         self.stance_absorbing_threshold = stance_absorbing_threshold
         self.is_gp_adaptive = is_gp_adaptive
+        self._feet_swing_period = feet_swing_period
         
         # curriculum parmeters
         self.curriculum = curriculum
@@ -789,32 +794,62 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
 
         # Perform Sampling
         if backend == jnp:
-            def cond_fun(val):
-                _, count, found, _ = val
-                return (~found) & (count < 1000)
-
-            def body_fun(val):
-                rng, count, _, current_best = val
-                rng, step_key = jax.random.split(rng)
-                
-                candidate = _get_candidate_target(step_key)
-                is_valid = _check_valid(candidate)
-
-                return (rng, count + 1, is_valid, candidate)
-
-            # Initial sample 
-            key, init_key = jax.random.split(key_sampling)
-            initial_target = _get_candidate_target(init_key)
-            init_val = (key, 0, False, initial_target)
+            # batched rejection sampling
+            # take vecotorized keys
+            key, sampling_key = jax.random.split(key)
+            batch_keys = jax.random.split(sampling_key, NUM_SAMPLES)
             
-            # If hold_still is True, we don't need to loop 
-            final_val = jax.lax.cond(
+            # vmap the candidates
+            candidates = jax.vmap(_get_candidate_target)(batch_keys)
+            validity_mask = jax.vmap(_check_valid)(candidates)
+
+            # select the first valid candidate
+            best_idx = jnp.argmax(validity_mask)
+            found = validity_mask[best_idx]
+            target_pos_pre_z = candidates[best_idx]
+
+            # actual sampling and fallbacks
+            def _sampling_proc(k):
+                return found, target_pos_pre_z
+            
+            def _hold_still_proc(k):
+                key, dummy_key = jax.random.split(k)
+                tgt = _get_candidate_target(dummy_key)
+                return True, tgt
+            
+            found, target_pos_pre_z = jax.lax.cond(
                 hold_still,
-                lambda x: (x[0], x[1], True, x[3]), 
-                lambda x: jax.lax.while_loop(cond_fun, body_fun, x),
-                init_val
+                _hold_still_proc,
+                _sampling_proc,
+                operand=key_sampling
             )
-            _, _, found, target_pos_pre_z = final_val
+
+            # def cond_fun(val):
+            #     _, count, found, _ = val
+            #     return (~found) & (count < 1000)
+
+            # def body_fun(val):
+            #     rng, count, _, current_best = val
+            #     rng, step_key = jax.random.split(rng)
+                
+            #     candidate = _get_candidate_target(step_key)
+            #     is_valid = _check_valid(candidate)
+
+            #     return (rng, count + 1, is_valid, candidate)
+
+            # # Initial sample 
+            # key, init_key = jax.random.split(key_sampling)
+            # initial_target = _get_candidate_target(init_key)
+            # init_val = (key, 0, False, initial_target)
+            
+            # # If hold_still is True, we don't need to loop 
+            # final_val = jax.lax.cond(
+            #     hold_still,
+            #     lambda x: (x[0], x[1], True, x[3]), 
+            #     lambda x: jax.lax.while_loop(cond_fun, body_fun, x),
+            #     init_val
+            # )
+            # _, _, found, target_pos_pre_z = final_val
             
             # If rejection sampling failed and we're using pillars, push target away from obstacles
             if self.adaptive_terrain:
@@ -827,7 +862,6 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                     lambda pos: pos,
                     target_pos_pre_z
                 )
-
         else:
             # NUMPY: Standard loop
             found = False
@@ -1510,10 +1544,10 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 right_local_target_offset_orn = -right_local_target_offset_orn
         
         # get the stance foot positions and orientations
-        stance_pos, stance_orn, swing_pos_target, swing_orn_target, stance_pos_target, stance_orn_target = jax.lax.cond(
+        stance_pos, stance_orn, swing_pos, _, swing_pos_target, swing_orn_target, stance_pos_target, stance_orn_target = jax.lax.cond(
             (swing_foot_idx == 0),
-            lambda _: (right_pos_w, R.from_matrix(right_mat_w), state.left_foot_target_pos, state.left_foot_target_orn, state.right_foot_target_pos, state.right_foot_target_orn),
-            lambda _: (left_pos_w, R.from_matrix(left_mat_w), state.right_foot_target_pos, state.right_foot_target_orn, state.left_foot_target_pos, state.left_foot_target_orn),
+            lambda _: (right_pos_w, R.from_matrix(right_mat_w), left_pos_w, R.from_matrix(left_mat_w), state.left_foot_target_pos, state.left_foot_target_orn, state.right_foot_target_pos, state.right_foot_target_orn),
+            lambda _: (left_pos_w, R.from_matrix(left_mat_w), right_pos_w, R.from_matrix(right_mat_w), state.right_foot_target_pos, state.right_foot_target_orn, state.left_foot_target_pos, state.left_foot_target_orn),
             operand=0
         )
         # offset wrt the stance foot of the swing foot
@@ -1564,6 +1598,25 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 gp_info
             ]
         )
+
+        # avoid early termination for the pillars
+        is_left_about_to_stance = (swing_foot_idx == 0) & (gp > (0.25 + self._feet_swing_period * 0.5))
+        is_right_about_to_stance = (swing_foot_idx == 1) & (gp > (0.75 + self._feet_swing_period * 0.5))
+        save_robot = (is_left_about_to_stance | is_right_about_to_stance) & (~resample_goal) & (self.adaptive_terrain)
+
+        terrain_state = carry.terrain_state
+        terrain_state = jax.lax.cond(
+            save_robot,
+            lambda: env._terrain.set_height_at_xy(
+                carry.terrain_state, 
+                swing_pos[:2], 
+                swing_pos_target[2],
+                state.foot_pillar_ids[swing_foot_idx], 
+                backend
+            ),
+            lambda: terrain_state
+        )
+        carry = carry.replace(terrain_state=terrain_state)
 
         # verify the goal-based absorbing condition
         absorbing = False
