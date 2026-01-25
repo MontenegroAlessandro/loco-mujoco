@@ -163,6 +163,8 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         self._feet_swing_period = kwargs.get("feet_swing_period", 0.2)
         self.epsilon_standing = 0.03 # FIXME
         self._gen_gp_coeff = kwargs.get("gen_gp_coeff", 0.0)
+        self._gen_gp_coeff_sharp = kwargs.get("gen_gp_coeff_sharp", 0.0)
+        self._gen_gp_track = kwargs.get("gen_gp_track", 0.02)
 
         # Air time and impact coefficients
         self._air_time_max = kwargs.get("air_time_max", 0.0)
@@ -790,8 +792,10 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             #                 (~is_left_swing & is_right_about_to_stance & feet_on_ground[1] & (next_gait_process < 0.5)).astype(backend.float32) + \
             #                 (is_left_swing & ~is_left_about_to_stance & (next_gait_process < 0.5)).astype(backend.float32) + \
             #                 (~is_left_swing & ~is_right_about_to_stance & (next_gait_process >= 0.5)).astype(backend.float32)
-            gen_gp_reward = (is_left_swing & feet_on_ground[0] & (next_gait_process >= 0.5)).astype(backend.float32) + \
-                            (~is_left_swing & feet_on_ground[1] & (next_gait_process < 0.5)).astype(backend.float32)
+            # gen_gp_reward = (is_left_swing & feet_on_ground[0] & (next_gait_process >= 0.5)).astype(backend.float32) + \
+            #                 (~is_left_swing & feet_on_ground[1] & (next_gait_process < 0.5)).astype(backend.float32)
+            gp_off = getattr(carry.control_func_state, "gait_phase_offset", 0.0)
+            gen_gp_reward = self._gen_gp_coeff * backend.exp(-self._gen_gp_coeff_sharp * backend.square(self._gen_gp_track - gp_off))
         else:
             gen_gp_reward = 0.0
 
