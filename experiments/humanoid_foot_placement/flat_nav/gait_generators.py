@@ -4,12 +4,15 @@ import copy
 import mujoco
 import cv2
 
-
 class GaitGenerator:
     def __init__(
         self,
         feet_distance: float = 0.2,
         stop_steps: int = 2,
+        gait_frequency: float = 1.0,
+        policy_dt: float = 0.02,
+        is_gp_adaptive: bool = False,
+        enable_settle: bool = True,
     ):
         # map the parameters
         self.feet_distance = feet_distance
@@ -20,6 +23,14 @@ class GaitGenerator:
         # additional controlling parameters
         self.gaits_to_still = 0
         self.move_dir = "STILL"
+
+        self.gait_process = 0.0
+        self.policy_dt = policy_dt
+        self.gait_frequency = gait_frequency
+        self.is_gp_adaptive = is_gp_adaptive
+        self.gp_off = 0.0
+
+        self.enable_settle = enable_settle
 
         self.swing_foot_idx = 0  # 0 for left, 1 for right
         self.sample_goal = False
@@ -48,8 +59,29 @@ class GaitGenerator:
             lat_max=0.3,
         )
 
-    def preprocess_gp_info(self, gp: float):
-        swing_foot_idx = 0 if (gp < 0.5) else 1
+    def reset(self):
+        self.vertical_dist = 0.0
+        self.lateral_dist = 0.0
+        self.steering_angle =  0.0
+
+        self.gait_process = 0.0
+        self.swing_foot_idx = 0  # 0 for left, 1 for right
+        self.sample_goal = False
+        self.foot_offset = [
+            np.array([0, self.feet_distance, 0.0]),
+            np.array([1, 0, 0, 0]),
+            np.array([0, -self.feet_distance, 0.0]),
+            np.array([1, 0, 0, 0]),
+        ]
+        self.gaits_to_still = 0
+        self.move_dir = "STILL"
+
+    def preprocess_gp_info(self):
+        if not self.is_gp_adaptive:
+            self.gait_process = (self.gait_process + self.policy_dt * self.gait_frequency) % 1.0
+        else:
+            self.gait_process = (self.gait_process + self.gp_off) % 1.0
+        swing_foot_idx = 0 if (self.gait_process < 0.5) else 1
 
         if self.swing_foot_idx != swing_foot_idx:
             self.sample_goal = True
@@ -66,13 +98,13 @@ class GaitGenerator:
             self.move_dir = mov_dir
 
         if self.gaits_to_still > 0:
-            gait_info = np.array([np.cos(2 * np.pi * gp), np.sin(2 * np.pi * gp)])
+            gait_info = np.array([np.cos(2 * np.pi * self.gait_process), np.sin(2 * np.pi * self.gait_process)])
         else:
             gait_info = np.array([0.0, 0.0])
         return gait_info
 
-    def query_cmd(self, gp: float = 0.0):
-        gait_info = self.preprocess_gp_info(gp=gp)
+    def query_cmd(self):
+        gait_info = self.preprocess_gp_info()
 
         if self.sample_goal:
             err_msg = f"[GaitGenerator: query_cmd] Mode {self.move_dir} is not valid."
@@ -502,8 +534,8 @@ class VisualGaitGenerator(GaitGenerator):
 
 
 class GoalReachingGaitGenerator(GaitGenerator):
-    def __init__(self, model, data, max_angle, feet_distance: float = 0.2, stop_steps: int = 2, z_off: float = 0.0):
-        super().__init__(feet_distance=feet_distance, stop_steps=stop_steps)
+    def __init__(self, model, data, max_angle, gait_frequency, policy_dt, feet_distance: float = 0.2, stop_steps: int = 2, enable_settle: bool = True):
+        super().__init__(feet_distance=feet_distance, stop_steps=stop_steps, gait_frequency=gait_frequency, policy_dt=policy_dt, enable_settle=enable_settle)
         self.model = copy.deepcopy(model)
         self.data = copy.deepcopy(data)
 
@@ -516,9 +548,7 @@ class GoalReachingGaitGenerator(GaitGenerator):
         self.max_angle = max_angle
         self.turning_threshold = self.max_angle * 2
 
-        self.z_off = z_off
-
-    def query_cmd(self, goal_pos, q_pos, gp: float):
+    def query_cmd(self, goal_pos, q_pos):
         self.data.qpos[:] = q_pos
         mujoco.mj_fwdPosition(self.model, self.data)
 
@@ -533,10 +563,10 @@ class GoalReachingGaitGenerator(GaitGenerator):
             swing_foot_idx = 0 if target_dir[1] >= 0.0 else 1
             self.swing_foot_idx = 1 - swing_foot_idx
             desired_gp = 0.25 if swing_foot_idx == 0 else 0.75
-            self.gp_shift = (desired_gp - (gp % 1.0)) % 1.0
+            # self.gp_shift = (desired_gp - (gp % 1.0)) % 1.0
 
-        gp = (gp + self.gp_shift) % 1.0
-        gait_info = self.preprocess_gp_info(gp=gp)
+        # gp = (gp + self.gp_shift) % 1.0
+        gait_info = self.preprocess_gp_info()
 
         stance_foot = self.left_foot_id if self.swing_foot_idx == 1 else self.right_foot_id
 
@@ -548,6 +578,7 @@ class GoalReachingGaitGenerator(GaitGenerator):
 
         goal_st = stance_foot_xmat.T @ target_to_stance
         base_st = stance_foot_xmat.T @ base_st_to_stance
+        desired_yaw = np.clip(self._compute_desired_foot_yaw(goal_st, base_st), -self.max_angle, self.max_angle)
 
         if self.sample_goal:
             if self.move_dir == "STILL":
@@ -556,27 +587,32 @@ class GoalReachingGaitGenerator(GaitGenerator):
             elif self.move_dir in ["FWD", "BWD"]:
                 if target_dist < 0.2:
                     self.foot_offset = self._gen_still_cmd()
-                    self.gaits_to_still = max(0, self.gaits_to_still - 1)
+                    if self.enable_settle:
+                        self.gaits_to_still = max(0, self.gaits_to_still - 1)
+                    else:
+                        self.gaits_to_still = 0  # Immediately set to 0 when settle is disabled
                     if self.gaits_to_still == 0:
                         self.first_step = True
                 else:
-                    self.z_off = goal_pos[2]
-                    self.gaits_to_still = self.stop_steps
+                    if self.enable_settle:
+                        self.gaits_to_still = self.stop_steps
                     self.foot_offset = self._gen_goal_reaching_cmd(
-                        base_st = base_st[:2],
                         target_st=goal_st[:2],
+                        desired_yaw=desired_yaw,
                     )
 
         return self.foot_offset, gait_info
 
-    def _gen_goal_reaching_cmd(self, base_st: np.ndarray, target_st: np.ndarray):
+    def _compute_desired_foot_yaw(self, end_point, start_point):
+        end_to_start = end_point - start_point
+        end_to_start_dir = end_to_start / np.linalg.norm(end_to_start) + 1e-6
+        yaw = np.arctan2(end_to_start_dir[1], end_to_start_dir[0]) + np.pi * (np.sign(self.vertical_dist) < 0)
+        return yaw
+
+    def _gen_goal_reaching_cmd(self, target_st: np.ndarray, desired_yaw: float):
         zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
         zero_pos_offset = np.zeros(3, dtype=np.float32)
 
-        base_to_target_st = target_st - base_st
-        head_dir = base_to_target_st / np.linalg.norm(base_to_target_st) + 1e-6
-        head_yaw = np.arctan2(head_dir[1], head_dir[0]) + np.pi * (np.sign(self.vertical_dist) < 0)
-        desired_yaw = np.clip(self._wrap_to_pi(head_yaw), -self.max_angle, self.max_angle)
         swing_orn_offset = np_R.from_euler("z", float(desired_yaw)).as_quat(scalar_first=True).astype(np.float32)
 
         y_min, y_max = self.feet_distance, 1.5 * self.feet_distance
@@ -595,8 +631,7 @@ class GoalReachingGaitGenerator(GaitGenerator):
         x_max = np.sqrt(max(rad, 0.0))
         x = np.clip(x, -x_max, x_max)
 
-        swing_pos = np.array([x, y, self.z_off], dtype=np.float32)
-
+        swing_pos = np.array([x, y, 0.0], dtype=np.float32)
 
         l_pos_offset = swing_pos if self.swing_foot_idx == 0 else zero_pos_offset
         r_pos_offset = swing_pos if self.swing_foot_idx == 1 else zero_pos_offset
@@ -608,3 +643,31 @@ class GoalReachingGaitGenerator(GaitGenerator):
     @staticmethod
     def _wrap_to_pi(a: float) -> float:
         return (a + np.pi) % (2 * np.pi) - np.pi
+    
+
+class HeightGoalReachingGaitGenerator(GoalReachingGaitGenerator):
+    def __init__(
+            self, 
+            model, 
+            data, 
+            max_angle, 
+            gait_frequency, 
+            policy_dt, 
+            feet_distance: float = 0.2, 
+            stop_steps: int = 2,
+            z_off: float = 0.0,
+            max_height: float = 0.5,
+            enable_settle: bool = False,
+        ):
+        super().__init__(model, data, max_angle, gait_frequency, policy_dt, feet_distance, stop_steps, enable_settle=enable_settle)
+        self.z_off = z_off
+        self.max_height = max_height
+    
+    def update_z_offset(self, new_z_off: float):
+        self.z_off = min(new_z_off, self.max_height)
+    
+    def _gen_goal_reaching_cmd(self, target_st: np.ndarray, desired_yaw: float):
+        l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset = super()._gen_goal_reaching_cmd(target_st, desired_yaw)
+        l_pos_offset[2] += self.z_off if self.swing_foot_idx == 0 else 0.0
+        r_pos_offset[2] += self.z_off if self.swing_foot_idx == 1 else 0.0
+        return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset

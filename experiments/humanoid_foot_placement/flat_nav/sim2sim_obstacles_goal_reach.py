@@ -4,7 +4,7 @@ import os
 import sys
 
 # from experiments.humanoid_foot_placement.deploy.gait_generators import GoalReachingGaitGenerator, GaitGenerator
-from gait_generators import GoalReachingGaitGenerator, GaitGenerator
+from gait_generators import HeightGoalReachingGaitGenerator
 from loco_mujoco.environments.utils import *
 
 # Add parent directory to import path to find lmj and other modules
@@ -34,7 +34,7 @@ GOAL_MODE = MODE_RANDOM_NEXT
 # Obstacle parameters
 STEP_HEIGHT = 0.08
 STEP_WIDTH = 1.0
-STEP_LENGTH = 0.3
+STEP_LENGTH = 0.4
 INIT_STAIRS = 2.5
 N_STEPS = 5 
 
@@ -45,13 +45,48 @@ GOAL_z_off = 0.035
 INIT_GOAL_POS = np.array([2.0, 0.0, STEP_HEIGHT + GOAL_z_off], dtype=np.float32)
 REACH_THRESH = 0.25
 REACH_HOLD_STEPS = 15
+LOOKAHEAD_DIST = 0.4  # Start transitioning to next goal when this close
 
 # ---- random goal sampling box (edit to your scene) ----
 GOAL_X_RANGE = (-3.0, 3.0)
 GOAL_Y_RANGE = (-4.0, -0.5)
 GOAL_Z = 0.0
+MAX_HEIGHT = 1.0   
 
 MIN_GOAL_DIST = 0.8
+
+def compute_terrain_height(x: float, stairs_config: dict) -> float:
+    """Compute the terrain height at a given x position."""
+    stairs_start = stairs_config["start_x"]
+    step_length = stairs_config["step_length"]
+    step_height = stairs_config["step_height"]
+    n_steps = stairs_config["n_steps"]
+    
+    if x < stairs_start:
+        # Before stairs
+        return 0.0
+    elif x >= stairs_start + n_steps * step_length:
+        # After stairs (top platform)
+        return n_steps * step_height
+    else:
+        # On stairs
+        step_idx = int((x - stairs_start) / step_length)
+        return step_idx * step_height
+
+def compute_z_offset_from_terrain(current_terrain_z: float, goal_z: float) -> float:
+    """Compute z_offset relative to current terrain height."""
+    # Remove the GOAL_z_off sphere offset from both
+    current_surface = current_terrain_z - GOAL_z_off if current_terrain_z > 0.01 else 0.0
+    goal_surface = goal_z - GOAL_z_off if goal_z > 0.01 else 0.0
+    return max(0.0, goal_surface - current_surface)
+
+# Stairs configuration
+STAIRS_CONFIG = {
+    "start_x": INIT_STAIRS,
+    "step_length": STEP_LENGTH,
+    "step_height": STEP_HEIGHT,
+    "n_steps": N_STEPS
+}
 
 # goal array
 GOALs = [np.array([INIT_STAIRS - STEP_LENGTH, 0.0, GOAL_z_off], dtype=np.float32)]
@@ -237,6 +272,10 @@ def main(config: DictConfig):
     rng = np.random.default_rng(1)  # change seed
     # goal_pos = INIT_GOAL_POS.copy()
     goal_pos = sample_next_goal(cur_pos_xy=d.qpos[:2], rng=rng, stairs=True, step_idx=0)
+    
+    # Track current terrain height for relative z_off computation
+    current_terrain_z = compute_terrain_height(d.qpos[0], STAIRS_CONFIG)
+    initial_z_off = compute_z_offset_from_terrain(current_terrain_z, goal_pos[2])
 
     # sync goal site position
     m.site("goal_site").pos = np.array([float(goal_pos[0]), float(goal_pos[1]), float(goal_pos[2])], dtype=np.float32)
@@ -253,24 +292,30 @@ def main(config: DictConfig):
     gait_frequency = float(cmd_params["gait_frequency"])
 
     # init goal-reaching gait generator
-    GG = GoalReachingGaitGenerator(
+    GG = HeightGoalReachingGaitGenerator(
         model=m,
         data=d,
         max_angle=np.deg2rad(30.0),
         feet_distance=float(cmd_params["feet_distance"]),
         stop_steps=int(cmd_params["stop_steps"]),
-        z_off=goal_pos[2],
+        z_off=initial_z_off,
+        gait_frequency=gait_frequency,
+        policy_dt=simulation_dt * control_decimation,
+        max_height=MAX_HEIGHT
     )
     GG.print_instruction()
 
     reached_hold = 0
     sim_start_time = time.time()
+    
+    # Track previous position for reset detection
+    prev_base_pos = d.qpos[:3].copy()
+    reset_threshold = 1.0  # If robot moves more than 1m backward, consider it a reset
 
     with mujoco.viewer.launch_passive(m, d, key_callback=GG.key_callback) as viewer:
         while viewer.is_running():
             step_start = time.time()
             if (time.time() - sim_start_time) > float(simulation_duration):
-                print("[done] timeout reached, exiting.")
                 break
 
             for i in range(control_decimation):
@@ -281,6 +326,24 @@ def main(config: DictConfig):
                 d.ctrl[:] = tau
 
                 mujoco.mj_step(m, d)
+            
+            # Detect environment reset (backspace in MuJoCo viewer)
+            current_base_pos = d.qpos[:3].copy()
+            pos_change = np.linalg.norm(current_base_pos[:2] - prev_base_pos[:2])
+            
+            if pos_change > reset_threshold or current_base_pos[2] < 0.5:  # Large jump or fell
+                step_idx = 0
+                goal_pos = sample_next_goal(cur_pos_xy=d.qpos[:2], rng=rng, stairs=True, step_idx=0)
+                current_terrain_z = compute_terrain_height(d.qpos[0], STAIRS_CONFIG)
+                new_z_off = compute_z_offset_from_terrain(current_terrain_z, goal_pos[2])
+                GG.update_z_offset(new_z_off)
+                GG.reset()  # Reset gait generator state
+                m.site("goal_site").pos = np.array([float(goal_pos[0]), float(goal_pos[1]), float(goal_pos[2])], dtype=np.float32)
+                mujoco.mj_fwdPosition(m, d)
+                reached_hold = 0
+                counter = 1
+            
+            prev_base_pos = current_base_pos.copy()
 
             # --- Prepare Observations ---
             qj = d.qpos[7:]
@@ -295,7 +358,6 @@ def main(config: DictConfig):
             foot_offset, gait_info = GG.query_cmd(
                 goal_pos=goal_pos,
                 q_pos=d.qpos[:].copy(),
-                gp=gp,
             )
             l_offset, l_orn_offset, r_offset, r_orn_offset = foot_offset
 
@@ -365,34 +427,36 @@ def main(config: DictConfig):
 
 
             dist_to_goal = float(np.linalg.norm((goal_pos - d.qpos[:3])[:2]))
+            
+            # Predictive goal sampling: switch to next goal when close enough
+            if dist_to_goal < LOOKAHEAD_DIST and step_idx < len(GOALs) - 1:
+                if GOAL_MODE == MODE_RANDOM_NEXT:
+                    # Check if we're ready to transition (no settling required or settling disabled)
+                    if not GG.enable_settle or GG.gaits_to_still == 0:
+                        step_idx = np.clip(step_idx + 1, 0, len(GOALs)-1)
+                        goal_pos = sample_next_goal(cur_pos_xy=d.qpos[:2], rng=rng, stairs=True, step_idx=step_idx)
+                        
+                        # Compute current terrain height and update z_offset relative to current position
+                        current_terrain_z = compute_terrain_height(d.qpos[0], STAIRS_CONFIG)
+                        new_z_off = compute_z_offset_from_terrain(current_terrain_z, goal_pos[2])
+                        GG.update_z_offset(new_z_off)
+                        print(f"[goal] Lookahead transition at dist={dist_to_goal:.3f}. terrain_z={current_terrain_z:.3f}, goal_z={goal_pos[2]:.3f}, z_offset={new_z_off:.3f}")
+
+                        m.site("goal_site").pos = np.array([float(goal_pos[0]), float(goal_pos[1]), float(goal_pos[2])], dtype=np.float32)
+                        mujoco.mj_fwdPosition(m, d)
+                        print(f"[goal] new goal = ({goal_pos[0]:.2f}, {goal_pos[1]:.2f}, {goal_pos[2]:.2f})")
+            
+            # Track if we're very close to goal for stopping condition
             if dist_to_goal < REACH_THRESH:
                 reached_hold += 1
             else:
                 reached_hold = 0
 
-            if reached_hold == 1:
-                print(f"[goal] close enough: dist={dist_to_goal:.3f} < {REACH_THRESH}, holding...")
-
-            if reached_hold >= REACH_HOLD_STEPS:
+            # Only stop if we've reached the final goal
+            if reached_hold >= REACH_HOLD_STEPS and step_idx >= len(GOALs) - 1:
                 if GOAL_MODE == MODE_STOP:
-                    print(f"[done] reached goal. dist={dist_to_goal:.3f}.")
-
-                elif GOAL_MODE == MODE_RANDOM_NEXT:
-                    print(f"[goal] reached. dist={dist_to_goal:.3f}. sampling next goal...")
-
-
-                    if GG.gaits_to_still == 0:
-                        step_idx = np.clip(step_idx + 1, 0, len(GOALs)-1)
-                        goal_pos = sample_next_goal(cur_pos_xy=d.qpos[:2], rng=rng, stairs=True, step_idx=step_idx)
-
-
-                    m.site("goal_site").pos = np.array([float(goal_pos[0]), float(goal_pos[1]), float(goal_pos[2])], dtype=np.float32)
-
-                    reached_hold = 0
-
-                    mujoco.mj_fwdPosition(m, d)
-
-                    print(f"[goal] new goal = ({goal_pos[0]:.2f}, {goal_pos[1]:.2f}, {goal_pos[2]:.2f})")
+                    print(f"[done] reached final goal. dist={dist_to_goal:.3f}.")
+                    break
 
             viewer.sync()
 

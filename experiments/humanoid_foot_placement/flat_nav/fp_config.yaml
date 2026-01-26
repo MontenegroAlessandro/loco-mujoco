@@ -6,7 +6,7 @@
 # policy parameters
 # agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/kick.pkl 
-agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/long_steps/gh5_delta40_slip_cv.pkl 
+agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/steps_after_fix_2/cv_d30_gh0_term25.pkl 
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
 # train_config_name: conf.yaml
 # --- Simulation Parameters ---
@@ -148,6 +148,32 @@ max_angles:
   - 2.34  # Right_Knee_Pitch
   - 0.35  # Right_Ankle_Pitch
   - 0.44  # Right_Ankle_Roll
+
+init_state_params:
+  # qpos_init: [0, 0, 0.72, 
+  #             1, 0, 0, 0, 
+  #             0, 0,
+  #             0.2,-1.2, 0, -0.5,
+  #             0.2, 1.2, 0, 0.5,
+  #             0,
+  #             -0.2, 0, 0, 0.4, -0.25, 0,
+  #             -0.2, 0, 0, 0.4, -0.25, 0]
+  qpos_init: [0, 0, 0.663, 
+            1, 0, 0, 0, 
+            0, 0,
+            0.2,-1.2, 0, -0.5,
+            0.2, 1.2, 0, 0.5,
+            0,
+            -0.2, 0, 0, 0.5, -0.25, 0,
+            -0.2, 0, 0, 0.5, -0.25, 0]
+  qvel_init: [0, 0, 0, 
+              0, 0, 0, 
+              0, 0, 
+              0, 0, 0, 0, 
+              0, 0, 0, 0, 
+              0, 
+              0, 0, 0, 0, 0, 0,
+              0, 0, 0, 0, 0, 0]
 
 # --- Policy Parameters ---
 num_actions: 23 # Base number of actions (one per joint). Script will handle varstiff extension.

@@ -88,6 +88,199 @@ def add_stair(
         
     return world_body
 
+def add_stair_and_flat(
+        world_body: Any, 
+        name: str,
+        first_step_coordinates: Union[jnp.array, np.array, List, Tuple] = [0,0,0], 
+        num_steps: int = 1,
+        step_height: float = 1,
+        step_length: float = 1,
+        step_width: float = 1,
+        platform_length: float = 2.0,
+        platform_width: float = None,
+        down: bool = False,
+        color: Union[jnp.array, np.array, List, Tuple] = [0,0,0,1],
+        orientation_yaw_deg: float = 0.0,
+        friction: Union[jnp.array, np.array, List, Tuple] = [1.0, 0.005, 0.0001],
+        priority: int = 0,
+        backend: Any = np
+        ):
+    """
+    Add stairs followed by a flat platform at the top.
+    
+    Args:
+        platform_length: Length of the flat platform after the stairs
+        platform_width: Width of the flat platform (defaults to step_width if None)
+    """
+    if platform_width is None:
+        platform_width = step_width
+    
+    # Add the stairs
+    add_stair(
+        world_body=world_body,
+        name=f"{name}_stairs",
+        first_step_coordinates=first_step_coordinates,
+        num_steps=num_steps,
+        step_height=step_height,
+        step_length=step_length,
+        step_width=step_width,
+        down=down,
+        color=color,
+        orientation_yaw_deg=orientation_yaw_deg,
+        friction=friction,
+        priority=priority,
+        backend=backend
+    )
+    
+    # Calculate where the platform should start
+    R = np_R if backend == np else jnp_R
+    yaw_rad = backend.deg2rad(orientation_yaw_deg)
+    
+    # Direction vectors based on orientation
+    dx_per_step = step_length * backend.cos(yaw_rad)
+    dy_per_step = step_length * backend.sin(yaw_rad)
+    dz_per_step = -step_height if down else step_height
+    
+    # Center of the last step
+    last_step_center_x = first_step_coordinates[0] + (num_steps - 1) * dx_per_step
+    last_step_center_y = first_step_coordinates[1] + (num_steps - 1) * dy_per_step
+    last_step_center_z = first_step_coordinates[2] + (num_steps - 1) * dz_per_step
+    
+    # Front edge of last step (where platform starts)
+    platform_start_x = last_step_center_x + (step_length / 2.0) * backend.cos(yaw_rad)
+    platform_start_y = last_step_center_y + (step_length / 2.0) * backend.sin(yaw_rad)
+    
+    # Platform center (half of platform_length forward from platform start)
+    platform_center_x = platform_start_x + (platform_length / 2.0) * backend.cos(yaw_rad)
+    platform_center_y = platform_start_y + (platform_length / 2.0) * backend.sin(yaw_rad)
+    platform_center_z = last_step_center_z  # Same center height as last step
+    
+    # Add the flat platform
+    add_box(
+        world_body=world_body,
+        name=f"{name}_platform",
+        coordinates=[platform_center_x, platform_center_y, platform_center_z],
+        length=platform_length,
+        width=platform_width,
+        height=step_height,  # Same height as a step
+        color=color,
+        orientation_yaw_deg=orientation_yaw_deg,
+        friction=friction,
+        priority=priority,
+        backend=backend
+    )
+    
+    return world_body
+
+def add_stairs_platform_stairs(
+        world_body: Any, 
+        name: str,
+        first_step_coordinates: Union[jnp.array, np.array, List, Tuple] = [0,0,0], 
+        num_steps: int = 1,
+        step_height: float = 1,
+        step_length: float = 1,
+        step_width: float = 1,
+        platform_length: float = 2.0,
+        platform_width: float = None,
+        color: Union[jnp.array, np.array, List, Tuple] = [0,0,0,1],
+        orientation_yaw_deg: float = 0.0,
+        friction: Union[jnp.array, np.array, List, Tuple] = [1.0, 0.005, 0.0001],
+        priority: int = 0,
+        backend: Any = np
+        ):
+    """
+    Add stairs going up, followed by a flat platform, followed by stairs going down.
+    Creates a symmetric structure: stairs up -> platform -> stairs down.
+    
+    Args:
+        platform_length: Length of the flat platform between the stairs
+        platform_width: Width of the flat platform (defaults to step_width if None)
+    """
+    if platform_width is None:
+        platform_width = step_width
+    
+    # Add the up stairs
+    add_stair(
+        world_body=world_body,
+        name=f"{name}_up",
+        first_step_coordinates=first_step_coordinates,
+        num_steps=num_steps,
+        step_height=step_height,
+        step_length=step_length,
+        step_width=step_width,
+        down=False,
+        color=color,
+        orientation_yaw_deg=orientation_yaw_deg,
+        friction=friction,
+        priority=priority,
+        backend=backend
+    )
+    
+    # Calculate where the platform should start
+    R = np_R if backend == np else jnp_R
+    yaw_rad = backend.deg2rad(orientation_yaw_deg)
+    
+    # Direction vectors based on orientation
+    dx_per_step = step_length * backend.cos(yaw_rad)
+    dy_per_step = step_length * backend.sin(yaw_rad)
+    dz_per_step = step_height  # Always going up for first stairs
+    
+    # Center of the last step (up)
+    last_step_center_x = first_step_coordinates[0] + (num_steps - 1) * dx_per_step
+    last_step_center_y = first_step_coordinates[1] + (num_steps - 1) * dy_per_step
+    last_step_center_z = first_step_coordinates[2] + (num_steps - 1) * dz_per_step
+    
+    # Front edge of last step (where platform starts)
+    platform_start_x = last_step_center_x + (step_length / 2.0) * backend.cos(yaw_rad)
+    platform_start_y = last_step_center_y + (step_length / 2.0) * backend.sin(yaw_rad)
+    
+    # Platform center
+    platform_center_x = platform_start_x + (platform_length / 2.0) * backend.cos(yaw_rad)
+    platform_center_y = platform_start_y + (platform_length / 2.0) * backend.sin(yaw_rad)
+    platform_center_z = last_step_center_z  # Same center height as last step
+    
+    # Add the flat platform
+    add_box(
+        world_body=world_body,
+        name=f"{name}_platform",
+        coordinates=[platform_center_x, platform_center_y, platform_center_z],
+        length=platform_length,
+        width=platform_width,
+        height=step_height,  # Same height as a step
+        color=color,
+        orientation_yaw_deg=orientation_yaw_deg,
+        friction=friction,
+        priority=priority,
+        backend=backend
+    )
+    
+    # Calculate where down stairs should start (at the end of platform)
+    platform_end_x = platform_start_x + platform_length * backend.cos(yaw_rad)
+    platform_end_y = platform_start_y + platform_length * backend.sin(yaw_rad)
+    platform_end_z = platform_center_z  # Same height as platform
+    
+    # Down stairs start at the front edge of the platform
+    down_stairs_start = [platform_end_x, platform_end_y, platform_end_z]
+    
+    # Add the down stairs
+    add_stair(
+        world_body=world_body,
+        name=f"{name}_down",
+        first_step_coordinates=down_stairs_start,
+        num_steps=num_steps,
+        step_height=step_height,
+        step_length=step_length,
+        step_width=step_width,
+        down=True,
+        color=color,
+        orientation_yaw_deg=orientation_yaw_deg,
+        friction=friction,
+        priority=priority,
+        backend=backend
+    )
+    
+    return world_body
+
 def add_slope(
         world_body: Any, 
         name: str,
