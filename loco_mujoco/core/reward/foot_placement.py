@@ -797,7 +797,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             gp_off = getattr(carry.control_func_state, "gait_phase_offset", 0.0)
             gp_error = jax.lax.cond(
                 is_gp_adaptive,
-                lambda: backend.square(self._gen_gp_track - action[-1]), # backend.abs(self._gen_gp_track - gp_off)
+                lambda: backend.square(self._gen_gp_track - gp_off), # backend.square(self._gen_gp_track - action[-1]), # backend.abs(self._gen_gp_track - gp_off)
                 lambda: 0.0
             )
             gen_gp_reward = self._gen_gp_coeff * backend.exp(-self._gen_gp_coeff_sharp * gp_error)

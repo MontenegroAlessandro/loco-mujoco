@@ -298,7 +298,10 @@ class PDControlGait(PDControl):
 
         # gait_offset = self.gait_phase_delta_max / (1 + backend.exp(-gait_raw))
         # gait_offset = backend.clip(gait_offset, self.gait_phase_delta_min, self.gait_phase_delta_max)
-        gait_offset = backend.clip(gait_raw, self.gait_phase_delta_min, self.gait_phase_delta_max)
+        gait_offset = backend.clip(gait_raw, -1, 1)
+        gait_offset = gait_offset * (self.gait_phase_delta_max - self.gait_phase_delta_min) / 2.0 + (self.gait_phase_delta_max + self.gait_phase_delta_min) / 2.0
+        # gait_offset = backend.clip(gait_offset, self.gait_phase_delta_min, self.gait_phase_delta_max)
+        # we can clip to -1 1
         
         updated_control_state = carry.control_func_state.replace(gait_phase_offset=gait_offset)
         carry = carry.replace(control_func_state=updated_control_state)
