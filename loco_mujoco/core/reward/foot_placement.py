@@ -908,7 +908,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         swing_z_reward *= env.dt
         stance_z_reward *= env.dt
         gait_height_reward *= env.dt
-        gen_gp_reward *= (self._gen_gp_coeff * env.dt)
+        gen_gp_reward *= env.dt
         joint_qpos_reward *= (joint_qpos_coeff * env.dt)
         joint_deviation_l1_penalty *= (self._joint_deviation_l1_coeff * env.dt)
         base_height_reward *= (self._base_height_coeff * env.dt)

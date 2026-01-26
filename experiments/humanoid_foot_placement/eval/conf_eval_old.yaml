@@ -16,7 +16,7 @@ curriculum: &curriculum false
 
 # Experiment Vars
 experiment:
-  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/steps_after_fix_2/cv_d30_gh0_term25_highar.pkl 
+  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/steps_after_fix_2/cv_saving.pkl 
 
   task_factory:
     name: RLFactory

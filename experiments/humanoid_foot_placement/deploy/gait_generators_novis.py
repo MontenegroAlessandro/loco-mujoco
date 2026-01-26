@@ -28,7 +28,7 @@ class GaitGenerator:
         self.policy_dt = policy_dt
         self.gait_frequency = gait_frequency
         self.is_gp_adaptive = is_gp_adaptive
-        self.gp_off = 0.0
+        self.gp_off = gait_frequency * policy_dt # 0.0
 
         self.swing_foot_idx = 0  # 0 for left, 1 for right
         self.sample_goal = False

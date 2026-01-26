@@ -329,7 +329,7 @@ def main(config: DictConfig):
 
             emitted_action = np.clip(emitted_action, -1.0, 1.0)
             if is_gp_adaptive:
-                emitted_action[-1] = gp_offset_mapped
+                emitted_action[-1] = gp_off # gp_offset_mapped
 
             # Apply smoothing/filtering to the action
             action = action * 0.0 + emitted_action * 1.0

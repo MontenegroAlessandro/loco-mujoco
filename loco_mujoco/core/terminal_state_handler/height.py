@@ -171,14 +171,15 @@ class HeightAndStanceBasedTerminalStateHandler(HeightBasedTerminalStateHandler):
         terrain_is_adaptive = isinstance(env._terrain, AdaPillarsTerrain)
         # get normally the height
         height = root_pose[2] - env._terrain.get_height_at_xy(carry.terrain_state, root_pose[:2], backend)
+        desired_z = getattr(carry.terrain_state, "desired_z", 0.0)
         # consider dynamic height for adaptive terrains
         if backend == np:
             if terrain_is_adaptive:
-                height = root_pose[2] - carry.terrain_state.desired_z
+                height = root_pose[2] - desired_z
         else:
             height = jax.lax.cond(
                 terrain_is_adaptive,
-                lambda: root_pose[2] - carry.terrain_state.desired_z,
+                lambda: root_pose[2] - desired_z,
                 lambda: height
             )
         # check conditions on the height
