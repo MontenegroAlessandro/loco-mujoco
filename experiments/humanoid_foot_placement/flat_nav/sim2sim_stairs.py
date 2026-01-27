@@ -107,25 +107,62 @@ class PlanFollowingGaitGenerator:
         self.left_foot_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "left_foot")
         self.right_foot_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "right_foot")
 
+        # storing variables for giving the commands during the phase
+        self.l_off_phase_cmd = np.zeros(3)
+        self.r_off_phase_cmd = np.zeros(3)
+        self.l_orn_phase_cmd = np.array([1,0,0,0])
+        self.r_orn_phase_cmd = np.array([1,0,0,0])
+
     def reset(self):
         """Reset the plan indices and gait phase."""
         self.l_idx = 0
         self.r_idx = 0
         self.gait_phase = 0.0
         self.prev_phase = 0.0
+
+        self.l_off_phase_cmd = np.zeros(3)
+        self.r_off_phase_cmd = np.zeros(3)
+        self.l_orn_phase_cmd = np.array([1,0,0,0])
+        self.r_orn_phase_cmd = np.array([1,0,0,0])
         print(f"Controller reset: l_idx={self.l_idx}, r_idx={self.r_idx}, phase={self.gait_phase}")
 
     def update(self):
         self.prev_phase = self.gait_phase
         self.gait_phase = (self.gait_phase + self.policy_dt * self.gait_freq) % 1.0
         
+        # switching phase from right swing foot to left
         if self.prev_phase > 0.5 and self.gait_phase < 0.5:
             # self.l_idx = min(self.l_idx + 1, len(self.left_plan) - 1)
             self.l_idx = min(self.r_idx + 1, len(self.left_plan) - 1)
-            
+
+            # right foot is stance
+            self.r_off_phase_cmd = np.zeros(3)
+            self.r_orn_phase_cmd = np.array([1,0,0,0])
+
+            # computing offsets for the left foot
+            self.l_off_phase_cmd, self.l_orn_phase_cmd = self.get_observation_cmd()[:2]
+
+            if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
+                (self.l_idx == 0 and self.r_idx == 0):
+                self.l_off_phase_cmd, self.l_orn_phase_cmd = self.left_plan[-1] - self.right_plan[-1], np.array([1,0,0,0])
+        
+        # switching phase from right swing foot to left
         if self.prev_phase <= 0.5 and self.gait_phase > 0.5:
             # self.r_idx = min(self.r_idx + 1, len(self.right_plan) - 1)
             self.r_idx = min(self.l_idx + 1, len(self.right_plan) - 1)
+
+            # left foot is stance
+            self.l_off_phase_cmd = np.zeros(3)
+            self.l_orn_phase_cmd = np.array([1,0,0,0])
+
+            # computing the offsets for the right foot
+            self.r_off_phase_cmd, self.r_orn_phase_cmd = self.get_observation_cmd()[2:4]
+
+            if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
+                (self.l_idx == 0 and self.r_idx == 0):
+                self.r_off_phase_cmd, self.r_orn_phase_cmd = self.right_plan[-1] - self.left_plan[-1], np.array([1,0,0,0])
+
+        print(f"[DEBUG] Gait Phase: {self.gait_phase:.3f}, l_idx: {self.l_idx}, r_idx: {self.r_idx}")
 
     def get_observation_cmd(self):
         """
@@ -152,10 +189,21 @@ class PlanFollowingGaitGenerator:
         
         l_rel_pos, l_rel_quat = self._to_stance_frame(target_pos_L, target_quat_L, stance_pos, stance_mat, stance_quat)
         r_rel_pos, r_rel_quat = self._to_stance_frame(target_pos_R, target_quat_R, stance_pos, stance_mat, stance_quat)
+
+        if is_left_swing:
+            r_rel_pos = np.zeros(3)
+            r_rel_quat = np.array([1, 0, 0, 0])
+        else:
+            l_rel_pos = np.zeros(3)
+            l_rel_quat = np.array([1, 0, 0, 0])
         
         gait_info = np.array([np.cos(2 * np.pi * self.gait_phase), np.sin(2 * np.pi * self.gait_phase)])
         
         return l_rel_pos, l_rel_quat, r_rel_pos, r_rel_quat, gait_info
+
+    def get_cmd(self):
+        gait_info = np.array([np.cos(2 * np.pi * self.gait_phase), np.sin(2 * np.pi * self.gait_phase)])
+        return self.l_off_phase_cmd, self.l_orn_phase_cmd, self.r_off_phase_cmd, self.r_orn_phase_cmd, gait_info
 
     def _to_stance_frame(self, t_pos, t_quat, s_pos, s_mat, s_quat_wxyz):
         rel_pos = s_mat.T @ (t_pos - s_pos)
@@ -213,7 +261,6 @@ def quat_rotate_inverse(q, v):
     c = q_vec * (np.dot(q_vec, v) * 2.0)
     return a - b + c
 
-
 def pd_control(target_q, q, kp, target_dq, dq, kd):
     return (target_q - q) * kp + (target_dq - dq) * kd
 
@@ -224,7 +271,7 @@ def main(config: DictConfig):
     STAIR_START_X = 2.0
     N_STEPS = 5
     STEP_LEN = 0.4
-    STEP_HEIGHT = 0.08
+    STEP_HEIGHT = config["command"]["step_height"]
     STEP_WIDTH = 2.0
     FEET_DIST = float(config["command"]["feet_distance"])
 
@@ -388,7 +435,9 @@ def main(config: DictConfig):
             
             planner_ctrl.update()
             
-            l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_observation_cmd()
+            # l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_observation_cmd()
+            l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_cmd()
+            print(f"[DEBUG] LEFT: {l_off} - {l_orn}\t RIGHT: {r_off} - {r_orn}")
             
             # Basic state
             qj = d.qpos[7:]

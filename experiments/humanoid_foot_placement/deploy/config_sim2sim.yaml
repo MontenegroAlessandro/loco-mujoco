@@ -5,7 +5,8 @@
 
 # policy parameters
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/kick.pkl # mov_local_no_still_coeff 
-agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete_2/gpgen_track_3.pkl # mov_local_no_still_coeff 
+# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete_2/gpgen_puze.pkl # mov_local_no_still_coeff 
+agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/steps_after_fix_2/nocv_d40_gh0_term25_w55.pkl 
 # agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl # mov_local_no_still_coeff 
 # agent_path: /Users/ale/code/PyProjects/scripts/experiments/humanoid_foot_placement/policies/T1/still_fp_6.pkl 
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
@@ -185,7 +186,7 @@ command:
   feet_distance: 0.2
   gait_frequency: 1.0
   stop_steps: 4
-  is_gp_adaptive: true
+  is_gp_adaptive: false
   max_delta_gp: 0.04
   min_delta_gp: 0.01
   

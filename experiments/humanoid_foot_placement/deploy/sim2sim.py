@@ -89,8 +89,9 @@ def pd_control(target_q, q, kp, target_dq, dq, kd):
     return (target_q - q) * kp + (target_dq - dq) * kd
 
 def map_adaptive_gp(raw_gp_off, max_delta = 0.0,  min_delta = 0.0):
-    return np.clip(raw_gp_off, min_delta, max_delta)
-    # return np.clip(max_delta / (1 + np.exp(-raw_gp_off)), min_delta, max_delta)
+    raw_gp_clip = np.clip(raw_gp_off, -1.0, 1.0)
+    scaled_gp = raw_gp_clip * (max_delta - min_delta) / 2.0 + (max_delta + min_delta) / 2.0
+    return scaled_gp
 
 @hydra.main(config_name="config_sim2sim.yaml")
 def main(config: DictConfig):
