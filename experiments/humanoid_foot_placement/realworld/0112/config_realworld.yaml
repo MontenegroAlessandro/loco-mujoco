@@ -4,7 +4,7 @@
 # Updated with parameters and correct joint limits for a 23 DoF robot model.
 
 # policy parameters
-agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl
+agent_path: /home/puze/Projects/accu_loco/policies/kick2.pkl
 # agent_path: /Users/ale/code/PyProjects/scripts/experiments/humanoid_foot_placement/policies/T1/still_fp_6.pkl 
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
 # train_config_name: conf.yaml
@@ -24,8 +24,8 @@ control_decimation: 10 # policy will run every N physics steps (policy freq = 1 
 # - Left_Hip_Pitch, Left_Hip_Roll, Left_Hip_Yaw, Left_Knee_Pitch, Left_Ankle_Pitch, Left_Ankle_Roll
 # - Right_Hip_Pitch, Right_Hip_Roll, Right_Hip_Yaw, Right_Knee_Pitch, Right_Ankle_Pitch, Right_Ankle_Roll
 lmj_kps:
-  - 20 # 40 # AAHead_yaw
-  - 30 # 40 # Head_pitch
+  - 40 # 40 # AAHead_yaw
+  - 40 # 40 # Head_pitch
   - 20 # 40 # Left_Shoulder_Pitch
   - 20 # 40 # Left_Shoulder_Roll
   - 20 # 40 # Left_Shoulder_Yaw
@@ -48,8 +48,8 @@ lmj_kps:
   - 30 # Right_Ankle_Pitch
   - 30 # Right_Ankle_Roll
 lmj_kds:
-  - 1.0 # 2.0 # AAHead_yaw
-  - 1.0 # 2.0 # Head_pitch
+  - 3.0 # 2.0 # AAHead_yaw
+  - 3.0 # 2.0 # Head_pitch
   - 0.5 # 2.0 # Left_Shoulder_Pitch
   - 0.5 # 2.0 # Left_Shoulder_Roll
   - 0.5 # 2.0 # Left_Elbow_Pitch
@@ -179,7 +179,10 @@ num_actions: 23 # Base number of actions (one per joint). Script will handle var
 # --- Command Parameters (for generating the `cmd` vector) ---
 # These are default command values. The valid ranges are in the comments.
 command:
-  feet_distance: 0.25
+  feet_distance: 0.2
   gait_frequency: 1.0   
   stop_steps: 2
   img_delay_steps: 0
+  is_gp_adaptive: true
+  max_delta_gp: 0.04
+  min_delta_gp: 0.01

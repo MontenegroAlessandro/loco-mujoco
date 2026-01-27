@@ -30,7 +30,6 @@ deploy_path = os.path.join(LMJ_PATH, "..", "experiments/humanoid_foot_placement/
 sys.path.insert(0, deploy_path)
 from gait_generators import GaitGenerator, VisualGaitGenerator
 
-
 class JAXPolicy:
     """A wrapper for loading and running a JAX-based PPO policy."""
 
@@ -161,12 +160,22 @@ class RobotController:
 
     # ---------------- Camera Callbacks ----------------
     def synchronized_callback(self, color_msg, depth_msg, info_msg):
-        self.depth_image = self.cv_bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
+        depth_array = np.frombuffer(depth_msg.data, dtype=np.uint16)
+        self.depth_image = depth_array.reshape((depth_msg.height, depth_msg.width))
         self.depth_image = self.depth_image.astype(np.float32) / 1000.0 # Convert from mm to meters
         # TODO
-        self.depth_image = np.maximum(self.depth_image - 0.05, 0.0)
+        # self.depth_image = np.maximum(self.depth_image - 0.05, 0.0)
 
-        self.color_image = self.cv_bridge.imgmsg_to_cv2(color_msg, desired_encoding='rgb8')
+        color_array = np.frombuffer(color_msg.data, dtype=np.uint8)
+        self.color_image = color_array.reshape((color_msg.height, color_msg.width, 3))
+        # Match the 'rgb8' requirement
+        # If the camera sends BGR (standard for ROS), swap it to RGB
+        if color_msg.encoding == 'bgr8':
+            self.color_image = cv2.cvtColor(self.color_image, cv2.COLOR_BGR2RGB)
+
+        self.img_q_pos = self.robot.q_pos.copy()
+
+        # self.color_image = self.cv_bridge.imgmsg_to_cv2(color_msg, desired_encoding='rgb8')
         self.cam_info = info_msg
         self.pub_img_flag = True
 
@@ -250,14 +259,14 @@ class RobotController:
         # targets, rgb_image, mask_image = self.GG.detect_foot_target(self.color_image, self.depth_image)
         # joint_pos = self.robot.q_pos
         # l_rel_pos, l_rel_xmat, r_rel_pos, r_rel_xmat = self.GG._get_foot_to_cam(joint_pos)
-        # print(l_rel_pos, r_rel_pos)
         # target_in_l_foot = (l_rel_xmat @ targets.T).T + l_rel_pos
+        # target_in_r_foot = (r_rel_xmat @ targets.T).T + r_rel_pos
 
         # cv2.imshow("rgb_image", cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR))
         # cv2.imshow("mask_image", cv2.cvtColor(mask_image, cv2.COLOR_RGB2BGR))
-        # print("Detected targets (camera frame):", targets)
         # print(f"Detected targets in left foot frame: {target_in_l_foot}")
-        # cv2.waitKey(0)
+        # print(f"Detected targets in right foot frame: {target_in_r_foot}")
+        # cv2.waitKey(1)
 
         # TODO
         # dof_pos = self.robot.q_pos.copy()
@@ -287,7 +296,7 @@ class RobotController:
             image_updated = False
 
         foot_offset, gait_info, rgb_image, depth_image, targets = self.GG.query_cmd(
-            self.color_image.copy(), self.depth_image.copy(), dof_pos, image_updated=image_updated
+            self.color_image.copy(), self.depth_image.copy(), self.img_q_pos, image_updated=image_updated
         )
 
         if self.GG.sample_goal and self.GG.remaining_delay_steps==0 and image_updated:
@@ -588,7 +597,7 @@ class RobotController:
 
 if __name__ == "__main__":
     rclpy.init()
-    cfg_file = "config_sim2sim.yaml"
+    cfg_file = "config_realworld.yaml"
 
     print("wrf")
     

@@ -13,12 +13,14 @@ class GaitGenerator:
         gait_frequency: float = 1.0,
         policy_dt: float = 0.02,
         is_gp_adaptive: bool = False,
+        min_gp_delta: float = 0.01,
+        max_gp_delta: float = 0.04,
     ):
         # map the parameters
         self.feet_distance = feet_distance
         self.vertical_dist = 0.0
         self.lateral_dist = 0.0
-        self.steering_angle =  0.0
+        self.steering_angle = 0.0
         self.stop_steps = stop_steps
         # additional controlling parameters
         self.gaits_to_still = 0
@@ -28,7 +30,9 @@ class GaitGenerator:
         self.policy_dt = policy_dt
         self.gait_frequency = gait_frequency
         self.is_gp_adaptive = is_gp_adaptive
-        self.gp_off = gait_frequency * policy_dt # 0.0
+        self.min_gp_delta = min_gp_delta
+        self.max_gp_delta = max_gp_delta
+        self.gp_off = self.policy_dt * self.gait_frequency
 
         self.swing_foot_idx = 0  # 0 for left, 1 for right
         self.sample_goal = False
@@ -60,7 +64,7 @@ class GaitGenerator:
     def reset(self):
         self.vertical_dist = 0.0
         self.lateral_dist = 0.0
-        self.steering_angle =  0.0
+        self.steering_angle = 0.0
 
         self.gait_process = 0.0
         self.swing_foot_idx = 0  # 0 for left, 1 for right
@@ -74,11 +78,17 @@ class GaitGenerator:
         self.gaits_to_still = 0
         self.move_dir = "STILL"
 
+    def set_gp_offset(self, gp_offset: float):
+        if self.is_gp_adaptive:
+            raw_gp_clip = np.clip(gp_offset, -1.0, 1.0)
+            self.gp_off = (
+                raw_gp_clip * (self.max_gp_delta - self.min_gp_delta) / 2.0
+                + (self.max_gp_delta + self.min_gp_delta) / 2.0
+            )
+        return self.gp_off
+
     def preprocess_gp_info(self):
-        if not self.is_gp_adaptive:
-            self.gait_process = (self.gait_process + self.policy_dt * self.gait_frequency) % 1.0
-        else:
-            self.gait_process = (self.gait_process + self.gp_off) % 1.0
+        self.gait_process = (self.gait_process + self.gp_off) % 1.0
         swing_foot_idx = 0 if (self.gait_process < 0.5) else 1
 
         if self.swing_foot_idx != swing_foot_idx:
@@ -178,7 +188,6 @@ class GaitGenerator:
         lat_dist = self.feet_distance * direction + self.lateral_dist
 
         # clip the movement for the "evil foot"
-        # max_evil_movement = -self.feet_distance * direction / 2.0
         max_evil_movement = -self.feet_distance * direction 
 
         if direction == 1:  # left movement
@@ -207,7 +216,7 @@ class GaitGenerator:
         zero_pos_offset = np.zeros(3, dtype=np.float32)
 
         # clip the movement for the "evil foot"
-        max_evil_movement = self.lateral_dist / 2.0
+        max_evil_movement = self.lateral_dist
 
         if direction == 1:  # left movement
             l_pos_offset = (
@@ -312,8 +321,28 @@ class GaitGenerator:
         print("=" * 60 + "\n")
 
 class GoalReachingGaitGenerator(GaitGenerator):
-    def __init__(self, model, data, max_angle, gait_frequency, policy_dt, feet_distance: float = 0.2, stop_steps: int = 2):
-        super().__init__(feet_distance=feet_distance, stop_steps=stop_steps, gait_frequency=gait_frequency, policy_dt=policy_dt)
+    def __init__(
+        self,
+        model,
+        data,
+        max_angle,
+        gait_frequency,
+        policy_dt,
+        feet_distance: float = 0.2,
+        stop_steps: int = 2,
+        is_gp_adaptive: bool = False,
+        min_gp_delta: float = 0.01,
+        max_gp_delta: float = 0.04,
+    ):
+        super().__init__(
+            feet_distance=feet_distance,
+            stop_steps=stop_steps,
+            gait_frequency=gait_frequency,
+            policy_dt=policy_dt,
+            is_gp_adaptive=is_gp_adaptive,
+            min_gp_delta=min_gp_delta,
+            max_gp_delta=max_gp_delta,
+        )
         self.model = copy.deepcopy(model)
         self.data = copy.deepcopy(data)
 
@@ -332,7 +361,6 @@ class GoalReachingGaitGenerator(GaitGenerator):
 
         target_dir = goal_pos - q_pos[:3]
         target_dist = np.linalg.norm(target_dir[:2])
-
 
         if self.move_dir == "STILL":
             self.first_step = True
@@ -401,7 +429,7 @@ class GoalReachingGaitGenerator(GaitGenerator):
         x = target_st[0]
 
         turn = abs(desired_yaw) / self.max_angle
-        rad = self.feet_distance ** 2 + ((1 - 0.2 * turn) * self.vertical_dist) ** 2 - y ** 2
+        rad = self.feet_distance**2 + ((1 - 0.2 * turn) * self.vertical_dist) ** 2 - y**2
         x_max = np.sqrt(max(rad, 0.0))
         x = np.clip(x, -x_max, x_max)
 
@@ -431,11 +459,24 @@ class NarrowPathGaitGenerator(GoalReachingGaitGenerator):
         policy_dt,
         feet_distance: float = 0.2,
         stop_steps: int = 2,
+        is_gp_adaptive: bool = False,
+        min_gp_delta: float = 0.01,
+        max_gp_delta: float = 0.04,
     ):
-        super().__init__(model=model, data=data, max_angle=max_angle, feet_distance=feet_distance, stop_steps=stop_steps, gait_frequency=gait_frequency, policy_dt=policy_dt)
+        super().__init__(
+            model=model,
+            data=data,
+            max_angle=max_angle,
+            feet_distance=feet_distance,
+            stop_steps=stop_steps,
+            gait_frequency=gait_frequency,
+            policy_dt=policy_dt,
+            is_gp_adaptive=is_gp_adaptive,
+            min_gp_delta=min_gp_delta,
+            max_gp_delta=max_gp_delta,
+        )
         assert path_pts is not None and len(path_pts) >= 3, "Need path_pts (>=3)."
         self.path_pts = [np.asarray(p, dtype=np.float32) for p in path_pts]
-
 
     def query_cmd(self, goal_pos, q_pos, goal_stage: int):
         self.data.qpos[:] = q_pos
@@ -462,15 +503,16 @@ class NarrowPathGaitGenerator(GoalReachingGaitGenerator):
 
         target_to_stance = goal_pos - stance_foot_pos
         base_st_to_stance = q_pos[:3] - stance_foot_pos
-        prev_waypoint_to_stance = np.array(
-            [self.path_pts[goal_stage - 1][0], self.path_pts[goal_stage - 1][1], 0.0]) - stance_foot_pos
+        prev_waypoint_to_stance = (
+            np.array([self.path_pts[goal_stage - 1][0], self.path_pts[goal_stage - 1][1], 0.0]) - stance_foot_pos
+        )
 
         goal_st = stance_foot_xmat.T @ target_to_stance
         base_st = stance_foot_xmat.T @ base_st_to_stance
         prev_waypoint_st = stance_foot_xmat.T @ prev_waypoint_to_stance
 
         if (goal_stage >= 1) and (goal_stage <= len(self.path_pts) - 2):
-            yaw =self._compute_desired_foot_yaw(goal_st, prev_waypoint_st)
+            yaw = self._compute_desired_foot_yaw(goal_st, prev_waypoint_st)
             desired_yaw = np.clip(self._choose_perpendicular_yaw(yaw), -self.max_angle, self.max_angle)
 
         else:
@@ -490,17 +532,10 @@ class NarrowPathGaitGenerator(GoalReachingGaitGenerator):
                 else:
                     self.gaits_to_still = self.stop_steps
                     if (goal_stage > 1) and (goal_stage <= len(self.path_pts) - 2):
-                        self.foot_offset = self._gen_side_step_cmd(
-                            desired_yaw=desired_yaw,
-                            target_st=goal_st[:2]
-                        )
+                        self.foot_offset = self._gen_side_step_cmd(desired_yaw=desired_yaw, target_st=goal_st[:2])
                     else:
-                        self.foot_offset = self._gen_goal_reaching_cmd(
-                            desired_yaw=desired_yaw,
-                            target_st=goal_st[:2]
-                        )
+                        self.foot_offset = self._gen_goal_reaching_cmd(desired_yaw=desired_yaw, target_st=goal_st[:2])
         return self.foot_offset, gait_info
-
 
     def _gen_side_step_cmd(self, desired_yaw, target_st: np.ndarray) -> np.ndarray:
         zero_orn_offset = np.array([1, 0, 0, 0], dtype=np.float32)
@@ -515,14 +550,13 @@ class NarrowPathGaitGenerator(GoalReachingGaitGenerator):
 
         x = target_st[0]
         turn = abs(desired_yaw) / self.max_angle
-        rad = self.feet_distance ** 2 + ((1 - 0.2 * turn) * self.vertical_dist) ** 2 - y ** 2
+        rad = self.feet_distance**2 + ((1 - 0.2 * turn) * self.vertical_dist) ** 2 - y**2
         x_max = np.sqrt(max(rad, 0.0))
         x = np.clip(x, -x_max, x_max)
 
         swing_pos = np.array([x, y, 0.0], dtype=np.float32)
 
-        swing_orn_offset = np_R.from_euler("z", float(desired_yaw)).as_quat(scalar_first=True).astype(
-            np.float32)
+        swing_orn_offset = np_R.from_euler("z", float(desired_yaw)).as_quat(scalar_first=True).astype(np.float32)
 
         l_pos_offset = swing_pos if self.swing_foot_idx == 0 else zero_pos_offset
         r_pos_offset = swing_pos if self.swing_foot_idx == 1 else zero_pos_offset

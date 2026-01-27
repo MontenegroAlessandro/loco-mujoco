@@ -159,7 +159,7 @@ def main(config: DictConfig):
 
     # Add visual sites as foot targets
     target_dist = 0.25
-    target_angle_range = 45  # degrees
+    target_angle_range = 30  # degrees
     action_delay_steps = 0
     image_delay_steps = 0
 
@@ -169,6 +169,7 @@ def main(config: DictConfig):
     for i in range(10):
         if i > 5:
             angle += np.random.uniform(-target_angle_range, target_angle_range)
+            # angle += np.random.uniform(15, 15)
         target_site_pos += target_dist * np.array([np.cos(np.deg2rad(angle)), np.sin(np.deg2rad(angle)), 0.0])
         feet_pos = target_site_pos + cmd_params["feet_distance"] / 2 * np.array(
             [np.cos(np.deg2rad(angle + (-1) ** i * 90)), np.sin(np.deg2rad(angle + (-1) ** i * 90)), 0.0]
@@ -176,7 +177,7 @@ def main(config: DictConfig):
         wb.add_site(
             name=f"target_{i}",
             type=mujoco.mjtGeom.mjGEOM_CYLINDER,
-            size=(0.08, 0.005, 0.0),  # *
+            size=(0.05, 0.005, 0.0),  # *
             pos=feet_pos,
             quat=(0, 0, 0, 1),
             group=0,
@@ -224,7 +225,7 @@ def main(config: DictConfig):
             )
     except (AttributeError, KeyError) as e:
         print(f"Warning: Could not load initial state from policy config ({e}). Using default MuJoCo initialization.")
-    
+
     # Update physics state after setting qpos/qvel (important for correct sensor readings etc.)
     mujoco.mj_forward(m, d)
 
@@ -338,7 +339,7 @@ def main(config: DictConfig):
                 target_pos_in_robot = robot_orn.T @ (target_pos - robot_pos)
                 if target_pos_in_robot[0] < -0.05:
                     target_has_passed = True
-
+                target_has_passed = False
                 if target_has_passed:
                     angle += np.random.uniform(-target_angle_range, target_angle_range)
                     target_site_pos += target_dist * np.array([np.cos(np.deg2rad(angle)), np.sin(np.deg2rad(angle)), 0.0])

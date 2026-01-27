@@ -6,14 +6,14 @@
 # policy parameters
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/kick.pkl # mov_local_no_still_coeff 
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete_2/gpgen_puze.pkl # mov_local_no_still_coeff 
-agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/steps_after_fix_2/nocv_d40_gh0_term25_w55.pkl 
 # agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl # mov_local_no_still_coeff 
-# agent_path: /Users/ale/code/PyProjects/scripts/experiments/humanoid_foot_placement/policies/T1/still_fp_6.pkl 
+# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete_2/gpgen_track_3.pkl # mov_local_no_still_coeff 
+agent_path: /home/puze/Projects/accu_loco/policies/gpgen_puze.pkl # mov_local_no_still_coeff 
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
 # train_config_name: conf.yaml
 # --- Simulation Parameters ---
-xml_path: /Users/ale/code/PyProjects/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
-# xml_path: /home/puze/Projects/accu_loco/loco_mujoco/models/booster_t1/booster_t1_original.xml
+# xml_path: /Users/ale/code/PyProjects/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
+xml_path: /home/puze/Projects/accu_loco/loco_mujoco/models/booster_t1/booster_t1_original.xml
 simulation_duration: 300.0 # seconds
 simulation_dt: 0.002 # seconds, physics timestep
 control_decimation: 10 # policy will run every N physics steps (policy freq = 1 / (dt * decimation))
@@ -186,7 +186,7 @@ command:
   feet_distance: 0.2
   gait_frequency: 1.0
   stop_steps: 4
-  is_gp_adaptive: false
+  is_gp_adaptive: true
   max_delta_gp: 0.04
   min_delta_gp: 0.01
   

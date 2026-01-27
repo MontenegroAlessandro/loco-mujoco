@@ -88,11 +88,6 @@ def pd_control(target_q, q, kp, target_dq, dq, kd):
     """Calculates PD control torques."""
     return (target_q - q) * kp + (target_dq - dq) * kd
 
-def map_adaptive_gp(raw_gp_off, max_delta = 0.0,  min_delta = 0.0):
-    raw_gp_clip = np.clip(raw_gp_off, -1.0, 1.0)
-    scaled_gp = raw_gp_clip * (max_delta - min_delta) / 2.0 + (max_delta + min_delta) / 2.0
-    return scaled_gp
-
 @hydra.main(config_name="config_sim2sim.yaml")
 def main(config: DictConfig):
 
@@ -233,7 +228,9 @@ def main(config: DictConfig):
         stop_steps=cmd_params["stop_steps"], 
         gait_frequency=gait_frequency, 
         policy_dt=policy_dt, 
-        is_gp_adaptive=is_gp_adaptive
+        is_gp_adaptive=is_gp_adaptive,
+        min_gp_delta=min_delta_gp,
+        max_gp_delta=max_delta_gp,
     )
     GG.print_instruction()
 
@@ -323,14 +320,13 @@ def main(config: DictConfig):
             # --- Policy Inference ---
             emitted_action = np.asarray(policy.predict_action(obs)).flatten()
             gp_off = 0.0 if not is_gp_adaptive else emitted_action[-1]
-            gp_offset_mapped = map_adaptive_gp(gp_off, max_delta=max_delta_gp, min_delta=min_delta_gp)
             if is_gp_adaptive:
-                GG.gp_off = gp_offset_mapped
-                print(f"Mapped GP Offset: {gp_offset_mapped:.4f}\nUnmapped GP Offset: {gp_off:.4f}")
+                GG.set_gp_offset(gp_off)
+                # print(f"Mapped GP Offset: {GG.gp_off:.4f}\nUnmapped GP Offset: {gp_off:.4f}")
 
             emitted_action = np.clip(emitted_action, -1.0, 1.0)
-            if is_gp_adaptive:
-                emitted_action[-1] = gp_off # gp_offset_mapped
+            # if is_gp_adaptive:
+            #     emitted_action[-1] = gp_off # gp_offset_mapped
 
             # Apply smoothing/filtering to the action
             action = action * 0.0 + emitted_action * 1.0
