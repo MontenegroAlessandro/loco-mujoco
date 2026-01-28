@@ -260,7 +260,7 @@ def add_stairs_platform_stairs(
     platform_end_z = platform_center_z  # Same height as platform
     
     # Down stairs start at the front edge of the platform
-    down_stairs_start = [platform_end_x, platform_end_y, platform_end_z]
+    down_stairs_start = [platform_end_x + (step_length / 2.0) * backend.cos(yaw_rad), platform_end_y + (step_length / 2.0) * backend.sin(yaw_rad), platform_end_z]
     
     # Add the down stairs
     add_stair(
