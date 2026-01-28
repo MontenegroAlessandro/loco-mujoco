@@ -63,7 +63,7 @@ class PDControl(ControlFunction):
         self._scale_action_to_jnt_limits = scale_action_to_jnt_limits
         self._action_scale = action_scale
         self._clip_actions = clip_actions
-        
+
         for actuator in env.mjspec.actuators:
             jnt_name = actuator.target
             ctrl_range = actuator.ctrlrange if actuator.ctrllimited else np.array([-np.inf, np.inf])
@@ -95,6 +95,9 @@ class PDControl(ControlFunction):
         # calculate mean and delta
         self.norm_act_mean = (self._high_pos_target + self._low_pos_target) / 2.0
         self.norm_act_delta = (self._high_pos_target - self._low_pos_target) / 2.0
+
+        self._scale_neg = -(self._jnt_ranges[:, 0] - self._nominal_joint_positions)
+        self._scale_pos = self._jnt_ranges[:, 1] - self._nominal_joint_positions
 
         # set the action space limits for the agent to -1 and 1
         # low = -np.ones_like(self.norm_act_mean)
@@ -165,7 +168,8 @@ class PDControl(ControlFunction):
         action = backend.clip(action, -self._clip_actions, self._clip_actions)
 
         if self._scale_action_to_jnt_limits:
-            unnormalized_action = self._unnormalize_action(action)
+            # unnormalized_action = self._unnormalize_action(action)
+            unnormalized_action = self._asymmetric_unnormalize_action(action, backend)
         else:
             unnormalized_action = action
 
@@ -199,6 +203,25 @@ class PDControl(ControlFunction):
         unnormalized_action = ((action * self.norm_act_delta) + self.norm_act_mean)
         return unnormalized_action
 
+    def _asymmetric_unnormalize_action(
+        self, action: Union[np.ndarray, jax.Array], backend
+    ) -> Union[np.ndarray, jax.Array]:
+        """
+        Assymetric unnormalization of the action from [-1, 1] to the desired action space.
+        -1 -> low, 1 -> high, 0 -> nominal
+
+        Args:
+            action (Union[np.ndarray, jax.Array]): The action to be unnormalized.
+
+        Returns:
+            Union[np.ndarray, jax.Array]: The unnormalized action
+
+        """
+        unnormalized_action = (
+            backend.clip(action, None, 0.0) * self._scale_neg + backend.clip(action, 0.0, None) * self._scale_pos
+        )
+        return unnormalized_action
+
     @property
     def run_with_simulation_frequency(self):
         """
@@ -213,7 +236,7 @@ class PDControlGaitState(PDControlState):
     Extended state for PDControlGait that includes gait phase information.
     """
     gait_phase_offset: Union[np.ndarray, jax.Array]  # Store the gait offset for use in goals/rewards
-    
+
 class PDControlGait(PDControl):
     """
     Extended PD controller handling an additional output of the policy that will serve as an offset
