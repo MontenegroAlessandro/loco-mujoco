@@ -108,6 +108,14 @@ def main(config: DictConfig):
     base_num_actions = config["num_actions"]  # This is also 23
 
     cmd_params = config["command"]
+    is_gp_adaptive = cmd_params["is_gp_adaptive"]
+    if is_gp_adaptive:
+        max_delta_gp = cmd_params["max_delta_gp"]
+        min_delta_gp = cmd_params["min_delta_gp"]
+    else:
+        max_delta_gp = 0.0
+        min_delta_gp = 0.0
+    base_num_actions += 1 if is_gp_adaptive else 0
 
     # --- Load Policy ---
     # Initialize Hydra to access environment config used during training
@@ -251,14 +259,21 @@ def main(config: DictConfig):
     # init the gait generator
     # GG = GaitGenerator(feet_distance=feet_dist, vertical_dist=0.0, lateral_dist=0.0, steering_angle=0.0)
     GG = VisualGaitGenerator(
-        robot_model=m, robot_data=d, 
+        robot_model=m,
+        robot_data=d,
         gait_frequency=cmd_params["gait_frequency"],
         policy_dt=0.02,
-        cam_width=cam_width, cam_height=cam_height,
-        feet_distance=cmd_params["feet_distance"], stop_steps=cmd_params["stop_steps"], 
+        cam_width=cam_width,
+        cam_height=cam_height,
+        feet_distance=cmd_params["feet_distance"],
+        stop_steps=cmd_params["stop_steps"],
         img_delay_steps=cmd_params["img_delay_steps"],
         max_gp_pause_steps=cmd_params["max_pause_steps"],
-        debug_vis=False)
+        is_gp_adaptive=is_gp_adaptive,
+        min_gp_delta=min_delta_gp,
+        max_gp_delta=max_delta_gp,
+        debug_vis=False,
+    )
     GG.print_instruction()
 
     # ===========================================TELEOPERATION via KEYBOARD===========================================
@@ -366,25 +381,29 @@ def main(config: DictConfig):
             obs_list += action.flatten().tolist()  # 'action' here is the previous action
             obs_list += cmd.flatten().tolist()
 
-            obs = [0.0] * (78) + obs_list
+            critic_n_obs = 78 if not is_gp_adaptive else 79
+            # obs = [0.0] * (78) + obs_list
+            obs = [0.0] * critic_n_obs + obs_list
 
             obs = np.array(obs, dtype=np.float32).reshape(1, -1)
 
             # Override Head Pitch Angle in Observation
-            obs[0, 81] = 0.0  # Head Yaw Angle
-            obs[0, 82] = 0.0  # Head Pitch joint position
+            obs[0, critic_n_obs + 3] = 0.0  # Head Yaw Angle
+            obs[0, critic_n_obs + 4] = 0.0  # Head Pitch joint position
 
             # --- Policy Inference ---
             emitted_action = np.asarray(policy.predict_action(obs)).flatten()
+            if is_gp_adaptive:
+                GG.set_gp_offset(emitted_action[-1])
+                # print(f"Mapped GP Offset: {GG.gp_off:.4f}\nUnmapped GP Offset: {gp_off:.4f}")
 
-            emitted_action = np.clip(emitted_action, -1.0, 1.0)
-
+            clipped_action = np.clip(emitted_action, -1.0, 1.0)
             # Apply smoothing/filtering to the action
             action = action * 0.0 + emitted_action * 1.0
 
             # Deconstruct action vector into control commands
             target_dof_pos = (
-                action[:num_qj] + default_angles[:num_qj]
+                clipped_action[:num_qj] + default_angles[:num_qj]
             )  # Use num_qj here as it's the base action for positions
 
             # Override head joint for control

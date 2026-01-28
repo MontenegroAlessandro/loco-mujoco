@@ -312,28 +312,22 @@ def main(config: DictConfig):
             obs = np.array(obs, dtype=np.float32).reshape(1, -1)
 
             # Override Head Pitch Angle in Observation
-            # obs[0, 81] = 0.0  # Head Yaw Angle
-            # obs[0, 82] = 0.0  # Head Pitch joint position
             obs[0, critic_n_obs + 3] = 0.0  # Head Yaw Angle
             obs[0, critic_n_obs + 4] = 0.0  # Head Pitch joint position
 
             # --- Policy Inference ---
             emitted_action = np.asarray(policy.predict_action(obs)).flatten()
-            gp_off = 0.0 if not is_gp_adaptive else emitted_action[-1]
             if is_gp_adaptive:
-                GG.set_gp_offset(gp_off)
+                GG.set_gp_offset(emitted_action[-1])
                 # print(f"Mapped GP Offset: {GG.gp_off:.4f}\nUnmapped GP Offset: {gp_off:.4f}")
 
-            emitted_action = np.clip(emitted_action, -1.0, 1.0)
-            # if is_gp_adaptive:
-            #     emitted_action[-1] = gp_off # gp_offset_mapped
-
+            clipped_action = np.clip(emitted_action, -1.0, 1.0)
             # Apply smoothing/filtering to the action
             action = action * 0.0 + emitted_action * 1.0
 
             # Deconstruct action vector into control commands
             target_dof_pos = (
-                action[:num_qj] + default_angles[:num_qj]
+                clipped_action[:num_qj] + default_angles[:num_qj]
             )  # Use num_qj here as it's the base action for positions
 
             # Override head joint for control

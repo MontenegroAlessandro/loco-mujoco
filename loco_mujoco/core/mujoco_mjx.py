@@ -531,7 +531,7 @@ class Mjx(Mujoco):
             # retrieve the state and copy the model
             terrain_state = state.additional_carry.terrain_state
             model = copy.deepcopy(self._model)
-            
+
             # check whether to consider the hfield
             if not (isinstance(self._terrain, ParkourTerrain) or isinstance(self._terrain, AdaPillarsTerrain)):
                 assert hasattr(terrain_state, "height_field_raw"), "Terrain state does not have height_field_raw."
@@ -620,4 +620,3 @@ class Mjx(Mujoco):
     def mjx_env(self) -> bool:
         """Indicates whether this is an MJX environment."""
         return True
-
