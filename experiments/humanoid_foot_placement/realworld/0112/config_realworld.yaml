@@ -184,5 +184,5 @@ command:
   stop_steps: 2
   img_delay_steps: 0
   is_gp_adaptive: true
-  max_delta_gp: 0.04
-  min_delta_gp: 0.01
+  max_gp_delta: 0.04
+  min_gp_delta: 0.01

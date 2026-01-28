@@ -109,12 +109,6 @@ def main(config: DictConfig):
 
     cmd_params = config["command"]
     is_gp_adaptive = cmd_params["is_gp_adaptive"]
-    if is_gp_adaptive:
-        max_delta_gp = cmd_params["max_delta_gp"]
-        min_delta_gp = cmd_params["min_delta_gp"]
-    else:
-        max_delta_gp = 0.0
-        min_delta_gp = 0.0
     base_num_actions += 1 if is_gp_adaptive else 0
 
     # --- Load Policy ---
@@ -152,7 +146,7 @@ def main(config: DictConfig):
         pos=(0.1, 0.0, 0.0),  # **
         quat=(0, 0, 0, 1),
         group=1,
-        rgba=(1.0, 0.5, 0.0, 0.0),
+        rgba=(1.0, 0.5, 0.0, 1.0),
     )
 
     wb.add_site(
@@ -162,7 +156,7 @@ def main(config: DictConfig):
         pos=(0.1, 0.0, 0.0),  # **
         quat=(0, 0, 0, 1),
         group=1,
-        rgba=(1.0, 1.0, 0.0, 0.0),
+        rgba=(1.0, 1.0, 0.0, 1.0),
     )
 
     # get model spec
@@ -224,13 +218,13 @@ def main(config: DictConfig):
 
     # init the gait generator
     GG = GaitGenerator(
-        feet_distance=cmd_params["feet_distance"], 
-        stop_steps=cmd_params["stop_steps"], 
-        gait_frequency=gait_frequency, 
-        policy_dt=policy_dt, 
+        feet_distance=cmd_params["feet_distance"],
+        stop_steps=cmd_params["stop_steps"],
+        gait_frequency=gait_frequency,
+        policy_dt=policy_dt,
         is_gp_adaptive=is_gp_adaptive,
-        min_gp_delta=min_delta_gp,
-        max_gp_delta=max_delta_gp,
+        min_gp_delta=cmd_params["min_gp_delta"],
+        max_gp_delta=cmd_params["max_gp_delta"],
     )
     GG.print_instruction()
 

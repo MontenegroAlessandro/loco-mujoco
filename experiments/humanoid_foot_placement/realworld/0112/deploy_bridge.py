@@ -7,7 +7,7 @@ import jax.numpy as jnp
 from typing import Dict
 from scipy.spatial.transform import Rotation as np_R
 import hydra
-import mujoco 
+import mujoco
 
 import rclpy
 from rclpy.node import Node
@@ -29,6 +29,7 @@ LMJ_PATH = loco_mujoco.__path__[0]
 deploy_path = os.path.join(LMJ_PATH, "..", "experiments/humanoid_foot_placement/deploy")
 sys.path.insert(0, deploy_path)
 from gait_generators import GaitGenerator, VisualGaitGenerator
+
 
 class JAXPolicy:
     """A wrapper for loading and running a JAX-based PPO policy."""
@@ -57,7 +58,7 @@ class JAXPolicy:
 
     @staticmethod
     def _sample_action(network_apply, params, run_stats, rng, obs):
-        y, _ = network_apply({'params': params, 'run_stats': run_stats}, obs, mutable=["run_stats"])
+        y, _ = network_apply({"params": params, "run_stats": run_stats}, obs, mutable=["run_stats"])
         pi, _ = y
         a = pi.mode()
         a = jnp.atleast_2d(a)
@@ -77,7 +78,9 @@ class JAXPolicy:
 class RobotController:
     def __init__(self, node, cfg):
         self.node: Node = node
-        self.robot = RobotClient(node=self.node, robot_type="T1", num_dof=23, control_frequency=50.0, interpolation_order=0.)
+        self.robot = RobotClient(
+            node=self.node, robot_type="T1", num_dof=23, control_frequency=50.0, interpolation_order=0.0
+        )
 
         policy_path = cfg["agent_path"]
         self.policy = JAXPolicy(policy_path=policy_path)
@@ -86,13 +89,17 @@ class RobotController:
         self.depth_image: Image = None
         self.cam_info: CameraInfo = None
 
-        qos_profile = QoSProfile(reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT,
-                                durability=rclpy.qos.DurabilityPolicy.VOLATILE,
-                                depth=1)
+        qos_profile = QoSProfile(
+            reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT, durability=rclpy.qos.DurabilityPolicy.VOLATILE, depth=1
+        )
 
-        self.depth_sub = Subscriber(self.node, Image, '/camera/camera/aligned_depth_to_color/image_raw', qos_profile=qos_profile)
-        self.color_sub = Subscriber(self.node, Image, '/camera/camera/color/image_raw', qos_profile=qos_profile)
-        self.info_sub = Subscriber(self.node, CameraInfo, "/camera/camera/aligned_depth_to_color/camera_info", qos_profile=qos_profile)
+        self.depth_sub = Subscriber(
+            self.node, Image, "/camera/camera/aligned_depth_to_color/image_raw", qos_profile=qos_profile
+        )
+        self.color_sub = Subscriber(self.node, Image, "/camera/camera/color/image_raw", qos_profile=qos_profile)
+        self.info_sub = Subscriber(
+            self.node, CameraInfo, "/camera/camera/aligned_depth_to_color/camera_info", qos_profile=qos_profile
+        )
 
         self.color_local_pub = self.node.create_publisher(Image, "/deploy_bridge/color/image_new", 1)
         self.depth_local_pub = self.node.create_publisher(Image, "/deploy_bridge/depth/image_new", 1)
@@ -120,8 +127,11 @@ class RobotController:
         self.min_angles: np.ndarray = np.array(cfg["min_angles"], dtype=np.float32)
         self.max_angles: np.ndarray = np.array(cfg["max_angles"], dtype=np.float32)
 
-        self.num_actions: int = cfg["num_actions"]
-        self.command: Dict[str, float] = cfg["command"]
+        self.num_qj = len(self.default_angles)
+
+        self.cmd_params: Dict[str, float] = cfg["command"]
+        self.num_actions = cfg["num_actions"]
+        self.num_actions += 1 if self.cmd_params.is_gp_adaptive else 0
 
         self.robot.set_default_cmd(default_pos=self.default_angles, default_kp=self.kps, default_kd=self.kds)
 
@@ -136,12 +146,21 @@ class RobotController:
 
         self.last_img_time = self.cam_info.header.stamp.sec + self.cam_info.header.stamp.nanosec * 1e-9
 
-        self.GG = VisualGaitGenerator(robot_model=self._model, robot_data=self._data, 
-                                      gait_frequency=self.command.gait_frequency, policy_dt=self.policy_dt,
-                                      cam_width=self.cam_info.width, cam_height=self.cam_info.height,
-                                      feet_distance=self.command.feet_distance, stop_steps=self.command.stop_steps,
-                                        img_delay_steps=self.command.img_delay_steps,
-                                      debug_vis=True)
+        self.GG = VisualGaitGenerator(
+            robot_model=self._model,
+            robot_data=self._data,
+            gait_frequency=self.cmd_params.gait_frequency,
+            policy_dt=self.policy_dt,
+            cam_width=self.cam_info.width,
+            cam_height=self.cam_info.height,
+            feet_distance=self.cmd_params.feet_distance,
+            stop_steps=self.cmd_params.stop_steps,
+            img_delay_steps=self.cmd_params.img_delay_steps,
+            is_gp_adaptive=self.cmd_params.is_gp_adaptive,
+            min_gp_delta=self.cmd_params.min_gp_delta,
+            max_gp_delta=self.cmd_params.max_gp_delta,
+            debug_vis=True,
+        )
 
         print(
             "Controller bindings:\n"
@@ -162,7 +181,7 @@ class RobotController:
     def synchronized_callback(self, color_msg, depth_msg, info_msg):
         depth_array = np.frombuffer(depth_msg.data, dtype=np.uint16)
         self.depth_image = depth_array.reshape((depth_msg.height, depth_msg.width))
-        self.depth_image = self.depth_image.astype(np.float32) / 1000.0 # Convert from mm to meters
+        self.depth_image = self.depth_image.astype(np.float32) / 1000.0  # Convert from mm to meters
         # TODO
         # self.depth_image = np.maximum(self.depth_image - 0.05, 0.0)
 
@@ -170,7 +189,7 @@ class RobotController:
         self.color_image = color_array.reshape((color_msg.height, color_msg.width, 3))
         # Match the 'rgb8' requirement
         # If the camera sends BGR (standard for ROS), swap it to RGB
-        if color_msg.encoding == 'bgr8':
+        if color_msg.encoding == "bgr8":
             self.color_image = cv2.cvtColor(self.color_image, cv2.COLOR_BGR2RGB)
 
         self.img_q_pos = self.robot.q_pos.copy()
@@ -194,8 +213,12 @@ class RobotController:
 
     def _teleop_w(self):
         self.GG.vertical_dist = float(
-            np.clip(self.GG.vertical_dist + self.GG.teleop["vert_step"], self.GG.teleop["vert_min"], self.GG.teleop["vert_max"])
+            np.clip(
+                self.GG.vertical_dist + self.GG.teleop["vert_step"],
+                self.GG.teleop["vert_min"],
+                self.GG.teleop["vert_max"],
             )
+        )
         # self.vert_dist = self.GG.vertical_dist
 
         self.GG.teleop["mov_dir"] = "FWD"
@@ -204,8 +227,12 @@ class RobotController:
     def _teleop_s(self):
         # mirror your sim2sim: DOWN increases step length, sets BWD
         self.GG.vertical_dist = float(
-            np.clip(self.GG.vertical_dist - self.GG.teleop["vert_step"], self.GG.teleop["vert_min"], self.GG.teleop["vert_max"])
+            np.clip(
+                self.GG.vertical_dist - self.GG.teleop["vert_step"],
+                self.GG.teleop["vert_min"],
+                self.GG.teleop["vert_max"],
             )
+        )
         # self.vert_dist = self.GG.vertical_dist
 
         self.GG.teleop["mov_dir"] = "FWD"
@@ -213,8 +240,10 @@ class RobotController:
 
     def _teleop_left(self):
         self.GG.lateral_dist = float(
-            np.clip(self.GG.lateral_dist + self.GG.teleop["lat_step"], self.GG.teleop["lat_min"], self.GG.teleop["lat_max"])
+            np.clip(
+                self.GG.lateral_dist + self.GG.teleop["lat_step"], self.GG.teleop["lat_min"], self.GG.teleop["lat_max"]
             )
+        )
         # if self.GG.teleop["move_enabled"]:
         #     self.GG.teleop["mov_dir"] = "LEFT"
         #     self.node.get_logger().info("[teleop] mov_dir=LEFT")
@@ -223,8 +252,10 @@ class RobotController:
 
     def _teleop_right(self):
         self.GG.lateral_dist = float(
-            np.clip(self.GG.lateral_dist - self.GG.teleop["lat_step"], self.GG.teleop["lat_min"], self.GG.teleop["lat_max"])
+            np.clip(
+                self.GG.lateral_dist - self.GG.teleop["lat_step"], self.GG.teleop["lat_min"], self.GG.teleop["lat_max"]
             )
+        )
         # if self.GG.teleop["move_enabled"]:
         #     self.GG.teleop["mov_dir"] = "RIGHT"
         #     self.node.get_logger().info("[teleop] mov_dir=RIGHT")
@@ -233,14 +264,22 @@ class RobotController:
 
     def _teleop_q(self):
         self.GG.steering_angle = float(
-            np.clip(self.GG.steering_angle + self.GG.teleop["yaw_step"], self.GG.teleop["yaw_min"], self.GG.teleop["yaw_max"])
+            np.clip(
+                self.GG.steering_angle + self.GG.teleop["yaw_step"],
+                self.GG.teleop["yaw_min"],
+                self.GG.teleop["yaw_max"],
             )
+        )
         self.steering_angle = self.GG.steering_angle
         self.node.get_logger().info(f"[teleop] steering_angle(deg)={np.rad2deg(self.GG.steering_angle):.2f}")
 
     def _teleop_e(self):
         self.GG.steering_angle = float(
-            np.clip(self.GG.steering_angle - self.GG.teleop["yaw_step"], self.GG.teleop["yaw_min"], self.GG.teleop["yaw_max"])
+            np.clip(
+                self.GG.steering_angle - self.GG.teleop["yaw_step"],
+                self.GG.teleop["yaw_min"],
+                self.GG.teleop["yaw_max"],
+            )
         )
         self.steering_angle = self.GG.steering_angle
         self.node.get_logger().info(f"[teleop] steering_angle(deg)={np.rad2deg(self.GG.steering_angle):.2f}")
@@ -281,9 +320,7 @@ class RobotController:
             self.policy_step()
 
     def policy_step(self):
-        projected_gravity = self._quat_to_projected_gravity(
-            self.robot.quat, np.array([0, 0, -1], dtype=np.float32)
-        )
+        projected_gravity = self._quat_to_projected_gravity(self.robot.quat, np.array([0, 0, -1], dtype=np.float32))
         dof_pos = self.robot.q_pos
         dof_vel = self.robot.q_vel
         base_ang_vel = self.robot.angular_velocity
@@ -299,7 +336,7 @@ class RobotController:
             self.color_image.copy(), self.depth_image.copy(), self.img_q_pos, image_updated=image_updated
         )
 
-        if self.GG.sample_goal and self.GG.remaining_delay_steps==0 and image_updated:
+        if self.GG.sample_goal and self.GG.remaining_delay_steps == 0 and image_updated:
             self.last_img_time = new_img_time
 
         if self.GG.sample_goal:
@@ -316,9 +353,7 @@ class RobotController:
         # r_orn_offset = np.array([1, 0, 0, 0])
         # gait_info = np.array([0.0, 0.0])
 
-        cmd = np.concatenate(
-            [l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32
-        )
+        cmd = np.concatenate([l_offset, l_orn_offset, r_offset, r_orn_offset, gait_info], dtype=np.float32)
 
         obs_list = []
         obs_list.extend(projected_gravity.flatten())
@@ -328,16 +363,21 @@ class RobotController:
         obs_list.extend(self.prev_action.flatten())
         obs_list.extend(cmd.flatten())
 
-        padded_obs_list = [0.] * 78 + obs_list
+        critic_n_obs = 78 if not self.GG.is_gp_adaptive else 79
+        padded_obs_list = [0.0] * critic_n_obs + obs_list
         obs = np.array(padded_obs_list, dtype=np.float32).reshape(1, -1)
-        obs[0, 81] = 0.0
-        obs[0, 82] = 0.0
+        obs[0, critic_n_obs + 3] = 0.0  # Head Yaw Angle
+        obs[0, critic_n_obs + 4] = 0.0  # Head Pitch joint position
 
         emitted_action = np.asarray(self.policy.predict_action(obs)).flatten()
-        self.prev_action = emitted_action.copy()
-        emitted_action = np.clip(emitted_action, -1.0, 1.0)
+        if self.GG.is_gp_adaptive:
+            self.GG.set_gp_offset(emitted_action[-1])
 
-        q_des = emitted_action + self.default_angles
+        self.prev_action = emitted_action.copy()
+        clipped_action = np.clip(emitted_action, -1.0, 1.0)
+
+        q_des = clipped_action[:self.num_qj] + self.default_angles[:self.num_qj]
+        q_des[0] = 0.0
         q_des[1] = 1.0
         q_des = np.clip(q_des, self.min_angles, self.max_angles)
 
@@ -346,11 +386,13 @@ class RobotController:
     # ---------------- Utility ----------------
     def convert_quat_to_rot_mat(self, quat):
         w, x, y, z = quat
-        R = np.array([
-            [1 - 2*(y**2 + z**2), 2*(x*y - z*w),     2*(x*z + y*w)],
-            [2*(x*y + z*w),       1 - 2*(x**2 + z**2), 2*(y*z - x*w)],
-            [2*(x*z - y*w),       2*(y*z + x*w),     1 - 2*(x**2 + y**2)]
-        ])
+        R = np.array(
+            [
+                [1 - 2 * (y**2 + z**2), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                [2 * (x * y + z * w), 1 - 2 * (x**2 + z**2), 2 * (y * z - x * w)],
+                [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x**2 + y**2)],
+            ]
+        )
         return R
 
     def _quat_to_projected_gravity(self, quat, vector):
@@ -370,7 +412,7 @@ class RobotController:
 
         if self.robot.joy_key is not None:
             # 1) LT + RT + A : initialization in still mode
-            if (self.robot.joy_key.lt and self.robot.joy_key.rt and self.robot.joy_key.a and self.robot.key_count == 3):
+            if self.robot.joy_key.lt and self.robot.joy_key.rt and self.robot.joy_key.a and self.robot.key_count == 3:
                 if self.robot.control_started:
                     self.agent_started = True
 
@@ -395,7 +437,7 @@ class RobotController:
                     self.node.get_logger().info("Initialized agent in STILL mode (LT+RT+A).")
                 else:
                     self.node.get_logger().warn("Please start the control first (robot control not started).")
-            elif (self.robot.joy_key.lt and self.robot.joy_key.back and self.robot.key_count == 2):
+            elif self.robot.joy_key.lt and self.robot.joy_key.back and self.robot.key_count == 2:
                 self.robot.stop_control()
                 self.node.get_logger().info("Stopped robot control.")
 
@@ -438,7 +480,12 @@ class RobotController:
                     self.lat_dist = self.GG.lateral_dist
                     print("RESET")
 
-                elif self.robot.joy_key.lt and self.robot.joy_key.rt and self.robot.joy_key.x and self.robot.key_count == 3:
+                elif (
+                    self.robot.joy_key.lt
+                    and self.robot.joy_key.rt
+                    and self.robot.joy_key.x
+                    and self.robot.key_count == 3
+                ):
                     self.agent_started = False
                     self.robot.init_control()
                     self.GG.gait_process = 0.0
@@ -591,8 +638,10 @@ class RobotController:
 
     def publish_images(self):
         if self.pub_img_flag:
-            color_msg = self.cv_bridge.cv2_to_imgmsg(self.color_image, encoding='rgb8')
-            depth_msg = self.cv_bridge.cv2_to_imgmsg((self.depth_image * 1000.0).astype(np.uint16), encoding='16UC1')  # Convert back to mm
+            color_msg = self.cv_bridge.cv2_to_imgmsg(self.color_image, encoding="rgb8")
+            depth_msg = self.cv_bridge.cv2_to_imgmsg(
+                (self.depth_image * 1000.0).astype(np.uint16), encoding="16UC1"
+            )  # Convert back to mm
             color_msg.header = self.cam_info.header
             depth_msg.header = self.cam_info.header
             self.color_local_pub.publish(color_msg)
@@ -604,11 +653,11 @@ class RobotController:
 if __name__ == "__main__":
     rclpy.init()
     cfg_file = "config_realworld.yaml"
-    
+
     hydra.initialize(config_path="./")
     cfg = hydra.compose(config_name=cfg_file)
 
-    node = rclpy.create_node('robot_client_node')
+    node = rclpy.create_node("robot_client_node")
     controller = RobotController(node, cfg)
 
     rclpy.spin(node)

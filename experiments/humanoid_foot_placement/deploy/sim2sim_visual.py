@@ -109,12 +109,6 @@ def main(config: DictConfig):
 
     cmd_params = config["command"]
     is_gp_adaptive = cmd_params["is_gp_adaptive"]
-    if is_gp_adaptive:
-        max_delta_gp = cmd_params["max_delta_gp"]
-        min_delta_gp = cmd_params["min_delta_gp"]
-    else:
-        max_delta_gp = 0.0
-        min_delta_gp = 0.0
     base_num_actions += 1 if is_gp_adaptive else 0
 
     # --- Load Policy ---
@@ -270,8 +264,8 @@ def main(config: DictConfig):
         img_delay_steps=cmd_params["img_delay_steps"],
         max_gp_pause_steps=cmd_params["max_pause_steps"],
         is_gp_adaptive=is_gp_adaptive,
-        min_gp_delta=min_delta_gp,
-        max_gp_delta=max_delta_gp,
+        min_gp_delta=cmd_params["min_gp_delta"],
+        max_gp_delta=cmd_params["max_gp_delta"],
         debug_vis=False,
     )
     GG.print_instruction()
