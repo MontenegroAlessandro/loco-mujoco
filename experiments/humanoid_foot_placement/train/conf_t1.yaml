@@ -287,7 +287,7 @@ experiment:
 
     control_type: PDControl
     control_params:
-      scale_action_to_jnt_limits: False
+      scale_action_to_jnt_limits: false
       action_scale: 1.0
       clip_actions: 1.0
       gait_phase_delta_max: null
