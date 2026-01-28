@@ -366,6 +366,8 @@ class RobotController:
 
         self.GG.update_camera_info(cam_info=self.cam_info)
 
+        self.agent_started = self.agent_started and self.robot.control_started
+
         if self.robot.joy_key is not None:
             # 1) LT + RT + A : initialization in still mode
             if (self.robot.joy_key.lt and self.robot.joy_key.rt and self.robot.joy_key.a and self.robot.key_count == 3):
@@ -393,6 +395,9 @@ class RobotController:
                     self.node.get_logger().info("Initialized agent in STILL mode (LT+RT+A).")
                 else:
                     self.node.get_logger().warn("Please start the control first (robot control not started).")
+            elif (self.robot.joy_key.lt and self.robot.joy_key.back and self.robot.key_count == 2):
+                self.robot.stop_control()
+                self.node.get_logger().info("Stopped robot control.")
 
             # Teleop commands only if agent started
             if self.agent_started:
@@ -595,11 +600,10 @@ class RobotController:
             self.depth_caminfo_local_pub.publish(self.cam_info)
             self.pub_img_flag = False
 
+
 if __name__ == "__main__":
     rclpy.init()
     cfg_file = "config_realworld.yaml"
-
-    print("wrf")
     
     hydra.initialize(config_path="./")
     cfg = hydra.compose(config_name=cfg_file)

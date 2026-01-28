@@ -481,17 +481,6 @@ class VisualGaitGenerator(GaitGenerator):
                 # cv2.imshow("rgb_image", cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
                 # cv2.waitKey(1)
 
-            # # TODO remove
-            # if self.remaining_delay_steps == 0:
-            #     print(
-            #         f"#################### STEP {self.img_count} # SWING FOOT {self.swing_foot_idx} ######################"
-            #     )
-            #     self.foot_offset = self._gen_visual_cmd(targets, joint_pos)
-            #     print(
-            #         f"Left foot offset from vision: {np.array(self.foot_offset[0])}, "
-            #         f"Right foot offset from vision: {np.array(self.foot_offset[2])}"
-            #     )
-
         return self.foot_offset, gait_info, rgb_image, depth_image, targets
 
     def _gen_visual_cmd(self, targets, joint_pos):
@@ -517,13 +506,21 @@ class VisualGaitGenerator(GaitGenerator):
 
         # Filter targets too close to the stance foot
         mask = np.linalg.norm(targets_to_stance_pos[:, :2], axis=1) > 0.15
+        # Mask out target too high or too far
+        mask = np.logical_and(mask, targets_to_stance_pos[:, 2] < 0.15)
+        mask = np.logical_and(mask, np.linalg.norm(targets_to_stance_pos[:, :2], axis=1) < 1.0)
         targets_to_stance_pos = targets_to_stance_pos[mask]
         targets = targets[mask]
         target_ids = target_ids[mask]
 
+        if len(targets) == 0:
+            print("No valid targets after filtering too close to stance foot.")
+            return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset
+
         # Sort the targets by distance to the swing foot zero position
         targets_to_zero = targets_to_stance_pos - swing_zero_pos
         sort_inds = np.argsort(np.linalg.norm(targets_to_zero[:, :2], axis=1))
+        mask_current_target = np.ones(len(targets), dtype=bool)
 
         # for target_idx, target in enumerate(targets_to_stance_pos):
         for idx in sort_inds:
@@ -532,164 +529,176 @@ class VisualGaitGenerator(GaitGenerator):
             current_target_to_stance = targets_to_stance_pos[idx]
 
             target_dist = np.linalg.norm(current_target_to_stance[:2])
-            if target_dist > 0.5 or target_dist < 0.2:
+            if target_dist > 0.6 or target_dist < 0.2:
                 print(
                     f"Target Idx: {target_ids[idx]}, Target Offset: {current_target_to_stance}, Distance: {target_dist} out of range."
                 )
                 feasible = False
-            else:
-                if current_target_to_stance[1] * is_swing_left < (self.feet_distance / 2.0):
-                    print(f"Target Idx: {target_ids[idx]}, y range violated {current_target_to_stance[1]}, and feet distance {self.feet_distance / 2.0}.")
-                    feasible = False
-                elif current_target_to_stance[1] * is_swing_left < (self.feet_distance / 2.0):
-                    current_target_to_stance[1] = np.maximum(current_target_to_stance[1] * is_swing_left, self.feet_distance / 2.0) * is_swing_left
-                current_target_to_stance[0] = np.minimum(current_target_to_stance[0], 0.45)
 
+            if current_target_to_stance[1] * is_swing_left < (self.feet_distance / 2.0) - 0.05:
+                print(f"Target Idx: {target_ids[idx]}, y range violated {current_target_to_stance[1]}, and feet distance {self.feet_distance / 2.0}.")
+                feasible = False
+
+            mask_current_target[idx] = False
             if feasible:
+                current_target_to_stance[0] = np.minimum(current_target_to_stance[0], 0.45)
+                current_target_to_stance[1] = (
+                    np.maximum(current_target_to_stance[1] * is_swing_left, self.feet_distance / 2.0) * is_swing_left
+                )
                 print(f"Selected Target Idx: {target_ids[idx]}, Target Offset: {current_target_to_stance}")
                 l_pos_offset = current_target_to_stance if self.swing_foot_idx == 0 else zero_pos_offset
                 r_pos_offset = current_target_to_stance if self.swing_foot_idx == 1 else zero_pos_offset
-                l_orn_offset = zero_orn_offset
-                r_orn_offset = zero_orn_offset
-
-                mask_current_target = np.ones(len(targets), dtype=bool)
-                mask_current_target[idx] = False
-                masked_targets_to_stance_pos = targets_to_stance_pos[mask_current_target]
-                target_ids = target_ids[mask_current_target]
-                if len(masked_targets_to_stance_pos) > 0:
-                    sort_ids_next = np.argsort(np.linalg.norm(masked_targets_to_stance_pos[:, :2], axis=1))
-                    if len(masked_targets_to_stance_pos) > 1:
-                        next_target_to_stance = masked_targets_to_stance_pos[sort_ids_next[1]]
-                        target_dir = next_target_to_stance - current_target_to_stance
-                        print(
-                            f"NNext Target Idx: {target_ids[sort_ids_next[1]]}, Next Target Offset: {next_target_to_stance}"
-                        )
-                        yaw = np.clip(np.arctan2(target_dir[1], target_dir[0]), np.deg2rad(-45), np.deg2rad(45))
-                    elif len(masked_targets_to_stance_pos) > 0:
-                        next_target_to_stance = masked_targets_to_stance_pos[sort_ids_next[0]]
-                        print(f"Next Target Idx: {target_ids[sort_ids_next[0]]}, Next Target Offset: {next_target_to_stance}")
-
-                        target_dir = next_target_to_stance - current_target_to_stance
-
-                        desired_y_offset = self.feet_distance + 0.05
-                        foot_sign = 1 if self.swing_foot_idx == 0 else -1
-                        yaw_offset = np.arcsin(
-                            -foot_sign * desired_y_offset / (np.maximum(np.linalg.norm(target_dir[:2]), desired_y_offset) + 1e-6)
-                        )
-                        yaw = np.clip(np.arctan2(target_dir[1], target_dir[0]) - yaw_offset, np.deg2rad(-45), np.deg2rad(45))
-                    l_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True) if self.swing_foot_idx == 0 else l_orn_offset
-                    r_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True) if self.swing_foot_idx == 1 else r_orn_offset
-
-                # if self.swing_foot_idx == 0:
-
-                #     yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
-                #     yaw = np.clip(yaw, np.deg2rad(-30), np.deg2rad(90))
-                #     l_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
-                # else:
-                #     next_l_to_target = l_rel_xmat @ next_target + l_rel_pos
-                #     target_dir = next_l_to_target - target
-                #     desired_y_offset = self.feet_distance + 0.05
-                #     yaw_offset = np.arcsin(
-                #         desired_y_offset / (np.maximum(np.linalg.norm(target_dir[:2]), desired_y_offset) + 1e-6)
-                #     )
-                #     yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
-                #     yaw = np.clip(yaw, np.deg2rad(-90), np.deg2rad(30))
-                #     r_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
-
-                # if target_idx < len(targets) - 1:
-                #     next_target = targets[target_idx + 1]
-                #     if self.swing_foot_idx == 0:
-                #         next_r_to_target = r_rel_xmat @ next_target + r_rel_pos
-                #         target_dir = next_r_to_target - target
-                #         desired_y_offset = self.feet_distance + 0.02
-                #         yaw_offset = np.arcsin(
-                #             -desired_y_offset / (np.maximum(np.linalg.norm(target_dir[:2]), desired_y_offset) + 1e-6)
-                #         )
-                #         yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
-                #         yaw = np.clip(yaw, np.deg2rad(-30), np.deg2rad(90))
-                #         l_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
-                #     else:
-                #         next_l_to_target = l_rel_xmat @ next_target + l_rel_pos
-                #         target_dir = next_l_to_target - target
-                #         desired_y_offset = self.feet_distance + 0.05
-                #         yaw_offset = np.arcsin(
-                #             desired_y_offset / (np.maximum(np.linalg.norm(target_dir[:2]), desired_y_offset) + 1e-6)
-                #         )
-                #         yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
-                #         yaw = np.clip(yaw, np.deg2rad(-90), np.deg2rad(30))
-                #         r_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
 
                 break
 
-            # for target_idx, target in enumerate(targets):
-            # l_to_target = l_rel_xmat @ target + l_rel_pos
-            # r_to_target = r_rel_xmat @ target + r_rel_pos
-            # l_dist = np.linalg.norm(l_to_target[:2])
-            # r_dist = np.linalg.norm(r_to_target[:2])
+        # Determine the angle of the orientation offset
+        yaw = 0.0
+        masked_targets_to_stance_pos = targets_to_stance_pos[mask_current_target]
+        masked_target_ids = target_ids[mask_current_target]
 
-            # break if both feet are too far
-            # if min(l_dist, r_dist) > 0.5:
-            #     break
+        if self.swing_foot_idx == 0:
+            masked_targets_to_swing_target = masked_targets_to_stance_pos - l_pos_offset
+        else:
+            masked_targets_to_swing_target = masked_targets_to_stance_pos - r_pos_offset
 
-            # Check feasibility for the swing foot
-            # feasible = True
-            # if self.swing_foot_idx == 0:
-            #     stance_target_offset = r_to_target
-            #     stance_dist = r_dist
-            #     if stance_dist > 0.5 or stance_dist < 0.1:
-            #         print(f"Stance Foot Offset: {stance_target_offset}, Distance: {stance_dist} out of range.")
-            #         feasible = False
-            #     else:
-            #         if stance_target_offset[1] < self.feet_distance / 2.0:
-            #             print(f"y range violated {stance_target_offset[1]} < {self.feet_distance / 2.0}.")
-            #             feasible = False
-            #             # Wait for one step
-            #             l_pos_offset = np.array([0.0, self.feet_distance, 0.0])
-            # else:
-            #     stance_target_offset = l_to_target
-            #     stance_dist = l_dist
-            #     if stance_dist > 0.5 or stance_dist < 0.2:
-            #         print(f"Stance Foot Offset: {stance_target_offset}, Distance: {stance_dist} out of range.")
-            #         feasible = False
-            #     else:
-            #         if stance_target_offset[1] > -self.feet_distance / 2.0:
-            #             print(f"y range violated {stance_target_offset[1]} > {-self.feet_distance / 2.0}.")
-            #             feasible = False
-            #             # Wait for one step
-            #             r_pos_offset = np.array([0.0, -self.feet_distance, 0.0])
+        if len(masked_targets_to_stance_pos) > 1:
+            # sort_ids_next = np.argsort(np.linalg.norm(masked_targets_to_swing_target[:, :2], axis=1))
+            # sort_ids_next = np.argsort(masked_targets_to_stance_pos[:, 0])
+            # next_target_to_stance = masked_targets_to_stance_pos[sort_ids_next[1]]
+            swing_foot_yaw = np.arctan2(masked_targets_to_swing_target[:3, 1], masked_targets_to_swing_target[:3, 0])
+            sort_ids_next = np.argsort(np.abs(swing_foot_yaw))
+            next_target_id = sort_ids_next[0]
+            next_target_to_stance = masked_targets_to_stance_pos[next_target_id]
 
-            # # TODO remove
-            # feasible = True
+            target_dir = next_target_to_stance - current_target_to_stance
+            print(
+                f"NNext Target Idx: {masked_target_ids[next_target_id]}, Next Target Offset: {next_target_to_stance}"
+            )
+            yaw = np.clip(np.arctan2(target_dir[1], target_dir[0]), np.deg2rad(-45), np.deg2rad(45))
+        elif len(masked_targets_to_stance_pos) > 0:
+            next_target_to_stance = masked_targets_to_stance_pos[0]
+            print(f"Next Target Idx: {masked_target_ids[0]}, Next Target Offset: {next_target_to_stance}")
 
-            # if feasible:
-            #     l_pos_offset = r_to_target if self.swing_foot_idx == 0 else zero_pos_offset
-            #     r_pos_offset = l_to_target if self.swing_foot_idx == 1 else zero_pos_offset
-            #     l_orn_offset = zero_orn_offset
-            #     r_orn_offset = zero_orn_offset
+            target_dir = next_target_to_stance - current_target_to_stance
 
-            #     # Determine orientation based on the next target
-            #     if target_idx < len(targets) - 1:
-            #         next_target = targets[target_idx + 1]
-            #         if self.swing_foot_idx == 0:
-            #             next_r_to_target = r_rel_xmat @ next_target + r_rel_pos
-            #             target_dir = next_r_to_target - r_to_target
-            #             yaw_offset = np.arcsin(
-            #                 -self.feet_distance / (np.maximum(np.linalg.norm(target_dir[:2]), self.feet_distance) + 1e-6)
-            #             )
-            #             yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
-            #             yaw = np.clip(yaw, np.deg2rad(-30), np.deg2rad(90))
-            #             l_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
-            #         else:
-            #             next_l_to_target = l_rel_xmat @ next_target + l_rel_pos
-            #             target_dir = next_l_to_target - l_to_target
-            #             yaw_offset = np.arcsin(
-            #                 self.feet_distance / (np.maximum(np.linalg.norm(target_dir[:2]), self.feet_distance) + 1e-6)
-            #             )
-            #             yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
-            #             yaw = np.clip(yaw, np.deg2rad(-90), np.deg2rad(30))
-            #             r_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
+            desired_y_offset = self.feet_distance + 0.05
+            foot_sign = 1 if self.swing_foot_idx == 0 else -1
+            yaw_offset = np.arcsin(
+                -foot_sign * desired_y_offset / (np.maximum(np.linalg.norm(target_dir[:2]), desired_y_offset) + 1e-6)
+            )
+            yaw = np.clip(np.arctan2(target_dir[1], target_dir[0]) - yaw_offset, np.deg2rad(-45), np.deg2rad(45))
 
-            #     break
+        l_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True) if self.swing_foot_idx == 0 else l_orn_offset
+        r_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True) if self.swing_foot_idx == 1 else r_orn_offset
+
+        # if self.swing_foot_idx == 0:
+
+        #     yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
+        #     yaw = np.clip(yaw, np.deg2rad(-30), np.deg2rad(90))
+        #     l_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
+        # else:
+        #     next_l_to_target = l_rel_xmat @ next_target + l_rel_pos
+        #     target_dir = next_l_to_target - target
+        #     desired_y_offset = self.feet_distance + 0.05
+        #     yaw_offset = np.arcsin(
+        #         desired_y_offset / (np.maximum(np.linalg.norm(target_dir[:2]), desired_y_offset) + 1e-6)
+        #     )
+        #     yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
+        #     yaw = np.clip(yaw, np.deg2rad(-90), np.deg2rad(30))
+        #     r_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
+
+        # if target_idx < len(targets) - 1:
+        #     next_target = targets[target_idx + 1]
+        #     if self.swing_foot_idx == 0:
+        #         next_r_to_target = r_rel_xmat @ next_target + r_rel_pos
+        #         target_dir = next_r_to_target - target
+        #         desired_y_offset = self.feet_distance + 0.02
+        #         yaw_offset = np.arcsin(
+        #             -desired_y_offset / (np.maximum(np.linalg.norm(target_dir[:2]), desired_y_offset) + 1e-6)
+        #         )
+        #         yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
+        #         yaw = np.clip(yaw, np.deg2rad(-30), np.deg2rad(90))
+        #         l_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
+        #     else:
+        #         next_l_to_target = l_rel_xmat @ next_target + l_rel_pos
+        #         target_dir = next_l_to_target - target
+        #         desired_y_offset = self.feet_distance + 0.05
+        #         yaw_offset = np.arcsin(
+        #             desired_y_offset / (np.maximum(np.linalg.norm(target_dir[:2]), desired_y_offset) + 1e-6)
+        #         )
+        #         yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
+        #         yaw = np.clip(yaw, np.deg2rad(-90), np.deg2rad(30))
+        #         r_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
+
+        # for target_idx, target in enumerate(targets):
+        # l_to_target = l_rel_xmat @ target + l_rel_pos
+        # r_to_target = r_rel_xmat @ target + r_rel_pos
+        # l_dist = np.linalg.norm(l_to_target[:2])
+        # r_dist = np.linalg.norm(r_to_target[:2])
+
+        # break if both feet are too far
+        # if min(l_dist, r_dist) > 0.5:
+        #     break
+
+        # Check feasibility for the swing foot
+        # feasible = True
+        # if self.swing_foot_idx == 0:
+        #     stance_target_offset = r_to_target
+        #     stance_dist = r_dist
+        #     if stance_dist > 0.5 or stance_dist < 0.1:
+        #         print(f"Stance Foot Offset: {stance_target_offset}, Distance: {stance_dist} out of range.")
+        #         feasible = False
+        #     else:
+        #         if stance_target_offset[1] < self.feet_distance / 2.0:
+        #             print(f"y range violated {stance_target_offset[1]} < {self.feet_distance / 2.0}.")
+        #             feasible = False
+        #             # Wait for one step
+        #             l_pos_offset = np.array([0.0, self.feet_distance, 0.0])
+        # else:
+        #     stance_target_offset = l_to_target
+        #     stance_dist = l_dist
+        #     if stance_dist > 0.5 or stance_dist < 0.2:
+        #         print(f"Stance Foot Offset: {stance_target_offset}, Distance: {stance_dist} out of range.")
+        #         feasible = False
+        #     else:
+        #         if stance_target_offset[1] > -self.feet_distance / 2.0:
+        #             print(f"y range violated {stance_target_offset[1]} > {-self.feet_distance / 2.0}.")
+        #             feasible = False
+        #             # Wait for one step
+        #             r_pos_offset = np.array([0.0, -self.feet_distance, 0.0])
+
+        # # TODO remove
+        # feasible = True
+
+        # if feasible:
+        #     l_pos_offset = r_to_target if self.swing_foot_idx == 0 else zero_pos_offset
+        #     r_pos_offset = l_to_target if self.swing_foot_idx == 1 else zero_pos_offset
+        #     l_orn_offset = zero_orn_offset
+        #     r_orn_offset = zero_orn_offset
+
+        #     # Determine orientation based on the next target
+        #     if target_idx < len(targets) - 1:
+        #         next_target = targets[target_idx + 1]
+        #         if self.swing_foot_idx == 0:
+        #             next_r_to_target = r_rel_xmat @ next_target + r_rel_pos
+        #             target_dir = next_r_to_target - r_to_target
+        #             yaw_offset = np.arcsin(
+        #                 -self.feet_distance / (np.maximum(np.linalg.norm(target_dir[:2]), self.feet_distance) + 1e-6)
+        #             )
+        #             yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
+        #             yaw = np.clip(yaw, np.deg2rad(-30), np.deg2rad(90))
+        #             l_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
+        #         else:
+        #             next_l_to_target = l_rel_xmat @ next_target + l_rel_pos
+        #             target_dir = next_l_to_target - l_to_target
+        #             yaw_offset = np.arcsin(
+        #                 self.feet_distance / (np.maximum(np.linalg.norm(target_dir[:2]), self.feet_distance) + 1e-6)
+        #             )
+        #             yaw = np.arctan2(target_dir[1], target_dir[0]) - yaw_offset
+        #             yaw = np.clip(yaw, np.deg2rad(-90), np.deg2rad(30))
+        #             r_orn_offset = np_R.from_euler("z", yaw).as_quat(scalar_first=True)
+
+        #     break
 
         return l_pos_offset, l_orn_offset, r_pos_offset, r_orn_offset
 
@@ -836,7 +845,7 @@ class VisualGaitGenerator(GaitGenerator):
             bgr = cv2.circle(bgr, (int(x), int(y)), 3, (0, 255, 255), -1)
             bgr = cv2.putText(bgr, f"ID:{i}", (int(x) + 5, int(y) - 5), cv2.FONT_HERSHEY_SIMPLEX,
                               0.5, (0, 0, 255), 1, cv2.LINE_AA)
-            
+
             # cv2.imshow("Detection", bgr)
             # cv2.waitKey(1)
         return targets_cam, cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), mask

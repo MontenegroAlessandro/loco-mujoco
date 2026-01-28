@@ -158,7 +158,7 @@ def main(config: DictConfig):
     )
 
     # Add visual sites as foot targets
-    target_dist = 0.25
+    target_dist = 0.2
     target_angle_range = 30  # degrees
     action_delay_steps = 0
     image_delay_steps = 0
@@ -339,7 +339,7 @@ def main(config: DictConfig):
                 target_pos_in_robot = robot_orn.T @ (target_pos - robot_pos)
                 if target_pos_in_robot[0] < -0.05:
                     target_has_passed = True
-                target_has_passed = False
+
                 if target_has_passed:
                     angle += np.random.uniform(-target_angle_range, target_angle_range)
                     target_site_pos += target_dist * np.array([np.cos(np.deg2rad(angle)), np.sin(np.deg2rad(angle)), 0.0])
