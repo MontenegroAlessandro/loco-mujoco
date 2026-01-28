@@ -152,7 +152,7 @@ def main(config: DictConfig):
         pos=(0.1, 0.0, 0.0),  # **
         quat=(0, 0, 0, 1),
         group=1,
-        rgba=(1.0, 0.5, 0.0, 0.5),
+        rgba=(1.0, 0.5, 0.0, 0.0),
     )
 
     wb.add_site(
@@ -162,7 +162,7 @@ def main(config: DictConfig):
         pos=(0.1, 0.0, 0.0),  # **
         quat=(0, 0, 0, 1),
         group=1,
-        rgba=(1.0, 1.0, 0.0, 0.5),
+        rgba=(1.0, 1.0, 0.0, 0.0),
     )
 
     # get model spec

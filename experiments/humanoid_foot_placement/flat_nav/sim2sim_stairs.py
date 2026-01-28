@@ -35,42 +35,41 @@ def key_callback(keycode):
 
 # =====================================================================================================================
 class StairPlanGenerator:
-    def __init__(self, start_x, num_steps, step_len, step_height, step_width, feet_spacing, n_flat_steps=3):
+    def __init__(self, start_x, num_steps, step_len, step_height, step_width, feet_spacing, n_flat_steps=3, platform_length=None):
         self.start_x = start_x
         self.num_steps = num_steps
         self.step_len = step_len
         self.step_height = step_height
         self.step_width = step_width
         self.feet_spacing = feet_spacing
-        self.n_flat_steps = n_flat_steps 
+        self.n_flat_steps = n_flat_steps
+        self.platform_length = platform_length if platform_length is not None else step_len * n_flat_steps
 
     def generate_plan(self):
         # generate a list of footholds for the left and right foot (shape is (N,3) for both)
         left_plan = []
         right_plan = []
-
-        # Adjust stair start to be half step before to avoid edge placement
-        adjusted_start = self.start_x - self.step_len / 2
-        approach_dist = adjusted_start
         
         # Initial stance
         left_plan.append([0.0, self.feet_spacing/2, 0.0])
         right_plan.append([0.0, -self.feet_spacing/2, 0.0])
 
-        # Generate walking steps up to the stairs
-        n_approach = int(approach_dist / self.step_len)
+        # Generate walking steps up to the stairs with EXACT step_len spacing
+        # Calculate how many steps fit before the first stair center
+        n_approach = int(self.start_x / self.step_len)
+        
         for i in range(1, n_approach + 1):
             x = i * self.step_len
             left_plan.append([x, self.feet_spacing/2, 0.0])
             right_plan.append([x, -self.feet_spacing/2, 0.0])
 
         last_x = n_approach * self.step_len
-        last_z = 0.0
 
-        # stairs part of the plan
-        for i in range(1, self.num_steps + 1):
-            z = i * self.step_height
-            target_x = self.start_x + (i-1)*self.step_len  # center of the step
+        # UP stairs - place targets in the CENTER of each step
+        # First step center is at start_x
+        for i in range(self.num_steps):
+            z = (i + 1) * self.step_height
+            target_x = self.start_x + i * self.step_len
             
             left_plan.append([target_x, self.feet_spacing/2, z])
             right_plan.append([target_x, -self.feet_spacing/2, z])
@@ -78,17 +77,46 @@ class StairPlanGenerator:
             last_x = target_x
             last_z = z
 
-        # platform
-        for i in range(1, self.n_flat_steps + 1):
-            x = last_x + i * self.step_len
+        # PLATFORM - flat section at the top
+        # Platform geometry starts at front edge of last stair: last_x + step_len/2
+        # Platform extends for platform_length from there
+        platform_start_x = last_x + self.step_len / 2.0
+        platform_end_x = platform_start_x + self.platform_length + self.step_len / 2.0
+        
+        # Place footholds at step_len intervals across the platform
+        n_platform = max(1, int(self.platform_length / self.step_len))
+        
+        for i in range(n_platform):
+            x = platform_start_x + (i + 0.5) * self.step_len
             left_plan.append([x, self.feet_spacing/2, last_z])
             right_plan.append([x, -self.feet_spacing/2, last_z])
+
+        # DOWN stairs - descending from platform
+        # Down stairs geometry starts at platform_end_x
+        # First down stair center is at platform_end_x at same height as platform
+        for i in range(self.num_steps):
+            # Height decreases by step_height for each step
+            z = last_z - (i) * self.step_height
+            target_x = platform_end_x + i * self.step_len
+            
+            left_plan.append([target_x, self.feet_spacing/2, z])
+            right_plan.append([target_x, -self.feet_spacing/2, z])
+            
+            last_x = target_x
+            # last_z = z
+
+        # Final approach steps on ground after descending
+        # Should be at z=0 now
+        for i in range(1, n_approach + 1):
+            x = last_x + i * self.step_len
+            left_plan.append([x, self.feet_spacing/2, 0.0])
+            right_plan.append([x, -self.feet_spacing/2, 0.0])
 
         return np.array(left_plan, dtype=np.float32), np.array(right_plan, dtype=np.float32)
 
 # =====================================================================================================================
 class PlanFollowingGaitGenerator:
-    def __init__(self, model, data, left_plan, right_plan, gait_freq, policy_dt):
+    def __init__(self, model, data, left_plan, right_plan, gait_freq, policy_dt, max_vert: float = 0.4, feet_dist: float = 0.2):
         self.model = model
         self.data = data
         
@@ -98,7 +126,9 @@ class PlanFollowingGaitGenerator:
         self.gait_freq = gait_freq
         self.policy_dt = policy_dt
         self.gait_phase = 0.0
-        
+        self.max_vert = max_vert
+        self.feet_dist = feet_dist
+
         self.l_idx = 0 # idx left plan
         self.r_idx = 0 # idx right plan
         
@@ -142,9 +172,14 @@ class PlanFollowingGaitGenerator:
             # computing offsets for the left foot
             self.l_off_phase_cmd, self.l_orn_phase_cmd = self.get_observation_cmd()[:2]
 
-            if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
-                (self.l_idx == 0 and self.r_idx == 0):
-                self.l_off_phase_cmd, self.l_orn_phase_cmd = self.left_plan[-1] - self.right_plan[-1], np.array([1,0,0,0])
+            # if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
+            #     (self.l_idx == 0 and self.r_idx == 0):
+            #     self.l_off_phase_cmd, self.l_orn_phase_cmd = self.left_plan[-1] - self.right_plan[-1], np.array([1,0,0,0])
+            # if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
+            #     (self.l_idx == 0 and self.r_idx == 0):
+            #     self.l_off_phase_cmd = self.left_plan[-1] - self.right_plan[-1]
+            self.l_off_phase_cmd[0] = np.clip(self.l_off_phase_cmd[0], 0, self.max_vert)
+            self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1], 0, self.feet_dist)
         
         # switching phase from right swing foot to left
         if self.prev_phase <= 0.5 and self.gait_phase > 0.5:
@@ -158,9 +193,14 @@ class PlanFollowingGaitGenerator:
             # computing the offsets for the right foot
             self.r_off_phase_cmd, self.r_orn_phase_cmd = self.get_observation_cmd()[2:4]
 
-            if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
-                (self.l_idx == 0 and self.r_idx == 0):
-                self.r_off_phase_cmd, self.r_orn_phase_cmd = self.right_plan[-1] - self.left_plan[-1], np.array([1,0,0,0])
+            # if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
+            #     (self.l_idx == 0 and self.r_idx == 0):
+            #     self.r_off_phase_cmd, self.r_orn_phase_cmd = self.right_plan[-1] - self.left_plan[-1], np.array([1,0,0,0])
+            # if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
+            #     (self.l_idx == 0 and self.r_idx == 0):
+            #     self.r_off_phase_cmd = self.right_plan[-1] - self.left_plan[-1]
+            self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], 0, self.max_vert)
+            self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, 0)
 
         print(f"[DEBUG] Gait Phase: {self.gait_phase:.3f}, l_idx: {self.l_idx}, r_idx: {self.r_idx}")
 
@@ -268,12 +308,14 @@ def pd_control(target_q, q, kp, target_dq, dq, kd):
 @hydra.main(config_name="fp_config.yaml")
 def main(config: DictConfig):
     # laoding stuff
-    STAIR_START_X = 2.0
+    STEP_LEN = 0.35  # Maximum foot placement target distance
     N_STEPS = 5
-    STEP_LEN = 0.4
+    STAIR_START_X = 6 * STEP_LEN  # Must be multiple of STEP_LEN for proper alignment (2.1m)
     STEP_HEIGHT = config["command"]["step_height"]
     STEP_WIDTH = 2.0
+    PLATFORM_LENGTH = STEP_LEN * 4
     FEET_DIST = float(config["command"]["feet_distance"])
+    MAX_VERT = 0.4
 
     xml_path = config["xml_path"]
     simulation_dt = config["simulation_dt"]
@@ -344,11 +386,12 @@ def main(config: DictConfig):
         step_length=STEP_LEN,
         step_width=STEP_WIDTH,
         orientation_yaw_deg=0.0,
-        platform_length=STEP_LEN * 3,
+        platform_length=PLATFORM_LENGTH,
         backend=np
     )
     
-    planner = StairPlanGenerator(STAIR_START_X, N_STEPS, STEP_LEN, STEP_HEIGHT, STEP_WIDTH, FEET_DIST)
+    planner = StairPlanGenerator(STAIR_START_X, N_STEPS, STEP_LEN, STEP_HEIGHT, STEP_WIDTH, FEET_DIST, 
+                                 platform_length=PLATFORM_LENGTH)
     l_plan, r_plan = planner.generate_plan()
     
     for i, pos in enumerate(l_plan):
@@ -381,7 +424,7 @@ def main(config: DictConfig):
 
     # --- Controller ---
     gait_freq = float(config["command"]["gait_frequency"])
-    planner_ctrl = PlanFollowingGaitGenerator(m, d, l_plan, r_plan, gait_freq, simulation_dt * control_decimation)
+    planner_ctrl = PlanFollowingGaitGenerator(m, d, l_plan, r_plan, gait_freq, simulation_dt * control_decimation, max_vert=MAX_VERT)
 
     # PD Gains
     kps = np.array(config["lmj_kps"], dtype=np.float32)
