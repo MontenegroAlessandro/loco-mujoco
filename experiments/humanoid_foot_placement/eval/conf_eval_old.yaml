@@ -16,7 +16,8 @@ curriculum: &curriculum false
 
 # Experiment Vars
 experiment:
-  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/nocv_d2_noterm_smalld_smallangles.pkl 
+  # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/nocv_d2_noterm_smalld_smallangles.pkl 
+  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/gp_nocv_d2_noterm_smalld.pkl
 
   task_factory:
     name: RLFactory
@@ -24,6 +25,7 @@ experiment:
   env_params:
     env_name: MjxBoosterT1
     horizon: 1000
+    virtual_action_names: [gait_phase_offset]
 
     terrain_type: AdaPillarsTerrain
     terrain_params:
@@ -293,11 +295,18 @@ experiment:
         group: policy
         allow_randomization: false
 
-    control_type: PDControl
+    # control_type: PDControl
+    control_type: PDControlGait
     control_params:
-      scale_action_to_jnt_limits: False
+      scale_action_to_jnt_limits: false
       action_scale: 1.0
       clip_actions: 1.0
+      # gait_phase_delta_max: null
+      # gait_phase_delta_min: null
+      # gait_action_name: null
+      gait_phase_delta_max: 0.04
+      gait_phase_delta_min: 0.01
+      gait_action_name: gait_phase_offset
       
       p_gain: 
         - 20 # 40 # AAHead_yaw
@@ -376,14 +385,22 @@ experiment:
 
     init_state_type: DefaultInitialStateHandler
     init_state_params:
-      qpos_init: [0, 0, 0.68, 
+      # qpos_init: [0, 0, 0.68, 
+      #             1, 0, 0, 0, 
+      #             0, 0,
+      #             0.2,-1.2, 0, -0.5,
+      #             0.2, 1.2, 0, 0.5,
+      #             0,
+      #             -0.2, 0, 0, 0.4, -0.25, 0,
+      #             -0.2, 0, 0, 0.4, -0.25, 0]
+      qpos_init: [0, 0, 0.663, 
                   1, 0, 0, 0, 
                   0, 0,
                   0.2,-1.2, 0, -0.5,
                   0.2, 1.2, 0, 0.5,
                   0,
-                  -0.2, 0, 0, 0.4, -0.25, 0,
-                  -0.2, 0, 0, 0.4, -0.25, 0]
+                  -0.2, 0, 0, 0.5, -0.25, 0,
+                  -0.2, 0, 0, 0.5, -0.25, 0]
 
       qvel_init: [0, 0, 0, 
                   0, 0, 0, 

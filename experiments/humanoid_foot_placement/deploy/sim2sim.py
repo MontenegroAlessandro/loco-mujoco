@@ -305,7 +305,6 @@ def main(config: DictConfig):
             critic_n_obs = 78 if not is_gp_adaptive else 79
             # obs = [0.0] * (78) + obs_list
             obs = [0.0] * critic_n_obs + obs_list
-
             obs = np.array(obs, dtype=np.float32).reshape(1, -1)
 
             # Override Head Pitch Angle in Observation
@@ -320,7 +319,7 @@ def main(config: DictConfig):
 
             clipped_action = np.clip(emitted_action, -1.0, 1.0)
             if asymmetric:
-                clipped_action = np.clip(clipped_action, None, 0.0) * scale_neg + np.clip(clipped_action, 0.0, None) * scale_pos
+                clipped_action = np.clip(clipped_action[:-1], None, 0.0) * scale_neg + np.clip(clipped_action[:-1], 0.0, None) * scale_pos
             # Apply smoothing/filtering to the action
             action = action * 0.0 + emitted_action * 1.0
 

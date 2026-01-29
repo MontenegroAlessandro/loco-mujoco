@@ -143,6 +143,8 @@ class PlanFollowingGaitGenerator:
         self.l_orn_phase_cmd = np.array([1,0,0,0])
         self.r_orn_phase_cmd = np.array([1,0,0,0])
 
+        self.gp_off = policy_dt * gait_freq
+
     def reset(self):
         """Reset the plan indices and gait phase."""
         self.l_idx = 0
@@ -156,9 +158,15 @@ class PlanFollowingGaitGenerator:
         self.r_orn_phase_cmd = np.array([1,0,0,0])
         print(f"Controller reset: l_idx={self.l_idx}, r_idx={self.r_idx}, phase={self.gait_phase}")
 
+    def set_gp_offset(self, gp_off: float, min_off: float = 0.01, max_off: float = 0.04):
+        gp_off = np.clip(gp_off, -1, 1)
+        self.gp_off = gp_off * (max_off - min_off) / 2.0 + (max_off + min_off)/ 2.0
+        print(f"[DEBUG] Gait Phase Offset set to: {self.gp_off:.4f}")
+
     def update(self):
         self.prev_phase = self.gait_phase
-        self.gait_phase = (self.gait_phase + self.policy_dt * self.gait_freq) % 1.0
+        # self.gait_phase = (self.gait_phase + self.policy_dt * self.gait_freq) % 1.0
+        self.gait_phase = (self.gait_phase + self.gp_off) % 1.0
         
         # switching phase from right swing foot to left
         if self.prev_phase > 0.5 and self.gait_phase < 0.5:
@@ -331,7 +339,8 @@ def main(config: DictConfig):
 
     num_qj = len(default_angles)
     num_actions = config["num_actions"]
-
+    is_gp_adaptive = config["command"].get("is_gp_adaptive", False)
+    num_actions += 1 if is_gp_adaptive else 0
     cmd_params = config["command"]
 
     # --- Load Policy ---
@@ -352,31 +361,7 @@ def main(config: DictConfig):
     wb = spec.worldbody
     
     first_step_center = [STAIR_START_X, 0.0, STEP_HEIGHT/2]
-    # wb = add_stair(
-    #     world_body=wb,
-    #     name="stair_1",
-    #     first_step_coordinates=first_step_center,
-    #     num_steps=N_STEPS,
-    #     step_height=STEP_HEIGHT,
-    #     step_length=STEP_LEN,
-    #     step_width=STEP_WIDTH,
-    #     down=False,
-    #     orientation_yaw_deg=0.0,
-    #     backend=np
-    # )
-    # wb = add_stair_and_flat(
-    #     world_body=wb,
-    #     name="stair_1",
-    #     first_step_coordinates=first_step_center,
-    #     num_steps=N_STEPS,
-    #     step_height=STEP_HEIGHT,
-    #     step_length=STEP_LEN,
-    #     step_width=STEP_WIDTH,
-    #     down=False,
-    #     orientation_yaw_deg=0.0,
-    #     platform_length=STEP_LEN * 3,
-    #     backend=np
-    # )
+
     wb = add_stairs_platform_stairs(
         world_body=wb,
         name="stair_1",
@@ -500,20 +485,28 @@ def main(config: DictConfig):
             obs_list += action.flatten().tolist()
             obs_list += cmd.flatten().tolist()
 
-            obs = [0.0] * 78 + obs_list
+            # obs = [0.0] * 78 + obs_list
+            critic_n_obs = 78 if not is_gp_adaptive else 79
+            obs = [0.0] * critic_n_obs + obs_list
             obs = np.array(obs, dtype=np.float32).reshape(1, -1)
 
             # Override Head Pitch Angle in Observation
-            obs[0, 81] = 0.0  # Head Yaw Angle
-            obs[0, 82] = 0.0  # Head Pitch joint position
+            # obs[0, 81] = 0.0  # Head Yaw Angle
+            # obs[0, 82] = 0.0  # Head Pitch joint position
+            obs[0, critic_n_obs + 3] = 0.0  # Head Yaw Angle
+            obs[0, critic_n_obs + 4] = 0.0  # Head Pitch joint position
 
             # --- Policy Inference ---
             emitted_action = np.asarray(policy.predict_action(obs)).flatten()
-            emitted_action = np.clip(emitted_action, -1.0, 1.0)
+            if is_gp_adaptive:
+                planner_ctrl.set_gp_offset(emitted_action[-1], min_off=cmd_params.get("min_gp_delta", 0.01), max_off=cmd_params.get("max_gp_delta", 0.04))
+            # emitted_action = np.clip(emitted_action, -1.0, 1.0)
+            clipped_action = np.clip(emitted_action, -1.0, 1.0)
             action = emitted_action
 
             # target dof pos
-            target_dof_pos = action[:num_qj] + default_angles[:num_qj]
+            # target_dof_pos = action[:num_qj] + default_angles[:num_qj]
+            target_dof_pos = clipped_action[:num_qj] + default_angles[:num_qj]
 
             # head override
             target_dof_pos[0] = 0.0

@@ -87,7 +87,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         # Initialize foot sensor addresses
         # Adapted from: https://github.com/google-deepmind/mujoco_playground/blob/main/mujoco_playground/_src/locomotion/h1/joystick_gait_tracking.py
         foot_sensor_adrs = []
-        for foot_sensor in ['left_foot_global_linvel', 'right_foot_global_linvel']:
+        for foot_sensor in ['left_foot_global_linvel', 'right_foot_global_linvel', 'left_foot_global_angvel', 'right_foot_global_angvel']:
             sensor_id = model.sensor(foot_sensor).id
             sensor_adr = model.sensor_adr[sensor_id]
             sensor_dim = model.sensor_dim[sensor_id]
@@ -95,6 +95,8 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         
         self._left_foot_sensor_adr = np.array(foot_sensor_adrs[0])
         self._right_foot_sensor_adr = np.array(foot_sensor_adrs[1])
+        self._left_foot_sensor_adr_ang = np.array(foot_sensor_adrs[2])
+        self._right_foot_sensor_adr_ang = np.array(foot_sensor_adrs[3])
 
         # Initialize foot site IDs
         self._left_foot_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "left_foot")
@@ -269,7 +271,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             self._left_foot_site_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, "left_foot")
             self._right_foot_site_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, "right_foot")
             foot_sensor_adrs = []
-            for foot_sensor in ['left_foot_global_linvel', 'right_foot_global_linvel']:
+            for foot_sensor in ['left_foot_global_linvel', 'right_foot_global_linvel', 'left_foot_global_angvel', 'right_foot_global_angvel']:
                 sensor_id = env.model.sensor(foot_sensor).id
                 sensor_adr = env.model.sensor_adr[sensor_id]
                 sensor_dim = env.model.sensor_dim[sensor_id]
@@ -277,6 +279,8 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             
             self._left_foot_sensor_adr = np.array(foot_sensor_adrs[0])
             self._right_foot_sensor_adr = np.array(foot_sensor_adrs[1])
+            self._left_foot_sensor_adr_ang = np.array(foot_sensor_adrs[2])
+            self._right_foot_sensor_adr_ang = np.array(foot_sensor_adrs[3])
 
         return CrispBoosterLocomotionRewardFootPlacementState(
             gait_process=0.0,
@@ -668,11 +672,15 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         
         left_foot_vel = data.sensordata[self._left_foot_sensor_adr]
         right_foot_vel = data.sensordata[self._right_foot_sensor_adr]
+        left_foot_vel_ang = data.sensordata[self._left_foot_sensor_adr_ang]
+        right_foot_vel_ang = data.sensordata[self._right_foot_sensor_adr_ang]
         feet_on_ground = get_feet_contact_states()
         
         feet_slip_reward = (
             backend.square(left_foot_vel[:3] * feet_on_ground[0]) + 
-            backend.square(right_foot_vel[:3] * feet_on_ground[1])
+            backend.square(right_foot_vel[:3] * feet_on_ground[1]) +
+            backend.square(left_foot_vel_ang[:3] * feet_on_ground[0]) + 
+            backend.square(right_foot_vel_ang[:3] * feet_on_ground[1])
         ).sum()
 
         # Feet yaw difference reward
