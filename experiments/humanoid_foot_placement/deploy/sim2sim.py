@@ -103,6 +103,9 @@ def main(config: DictConfig):
     default_angles = np.array(config["default_angles"], dtype=np.float32)
     min_angles = np.array(config["min_angles"], dtype=np.float32)
     max_angles = np.array(config["max_angles"], dtype=np.float32)
+    asymmetric = config.get("scale_action_to_jnt_limits", False)
+    scale_neg = - (min_angles - default_angles)
+    scale_pos = max_angles - default_angles
 
     num_qj = len(default_angles)  # Number of actuated joints (23)
     base_num_actions = config["num_actions"]  # This is also 23
@@ -316,6 +319,8 @@ def main(config: DictConfig):
                 # print(f"Mapped GP Offset: {GG.gp_off:.4f}\nUnmapped GP Offset: {gp_off:.4f}")
 
             clipped_action = np.clip(emitted_action, -1.0, 1.0)
+            if asymmetric:
+                clipped_action = np.clip(clipped_action, None, 0.0) * scale_neg + np.clip(clipped_action, 0.0, None) * scale_pos
             # Apply smoothing/filtering to the action
             action = action * 0.0 + emitted_action * 1.0
 
