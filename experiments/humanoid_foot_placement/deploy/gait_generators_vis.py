@@ -502,8 +502,8 @@ class VisualGaitGenerator(GaitGenerator):
             # Convert to grayscale and denoise
             hsv = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2HSV)
 
-        mask = cv2.inRange(hsv, (107, 100, 0), (120, 255, 255)) # Range for simulation
-        # mask = cv2.inRange(hsv, (90, 40, 80), (130, 255, 255))  # Range for real world
+        # mask = cv2.inRange(hsv, (107, 100, 0), (120, 255, 255)) # Range for simulation
+        mask = cv2.inRange(hsv, (90, 40, 80), (130, 255, 255))  # Range for real world
 
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
         # Close small holes inside the circle
@@ -579,9 +579,9 @@ class VisualGaitGenerator(GaitGenerator):
                 bgr, f"ID:{i}", (int(x) + 5, int(y) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA
             )
 
-        cv2.imshow("Detection", bgr)
-        cv2.imshow("Mask", mask)
-        cv2.waitKey(1)
+        # cv2.imshow("Detection", bgr)
+        # cv2.imshow("Mask", mask)
+        # cv2.waitKey(1)
         return targets_cam, cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), mask
 
     def reset(self):

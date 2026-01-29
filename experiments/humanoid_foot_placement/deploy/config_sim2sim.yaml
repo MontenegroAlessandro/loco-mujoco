@@ -191,7 +191,7 @@ command:
   feet_distance: 0.2
   gait_frequency: 1.0
   stop_steps: 4
-  is_gp_adaptive: true
+  is_gp_adaptive: false
   max_gp_delta: 0.04
   min_gp_delta: 0.01
   
