@@ -4,7 +4,7 @@
 # Updated with parameters and correct joint limits for a 23 DoF robot model.
 
 # policy parameters
-agent_path: /home/puze/Projects/accu_loco/policies/kick2.pkl
+agent_path: /home/puze/Projects/accu_loco/policies/gpgen_puze2.pkl
 # agent_path: /Users/ale/code/PyProjects/scripts/experiments/humanoid_foot_placement/policies/T1/still_fp_6.pkl 
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
 # train_config_name: conf.yaml
@@ -186,3 +186,5 @@ command:
   is_gp_adaptive: true
   max_gp_delta: 0.04
   min_gp_delta: 0.01
+  clahe_enhance: true
+  max_pause_steps: 8

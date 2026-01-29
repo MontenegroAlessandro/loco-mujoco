@@ -28,7 +28,7 @@ from loco_mujoco.algorithms import PPOJax
 LMJ_PATH = loco_mujoco.__path__[0]
 deploy_path = os.path.join(LMJ_PATH, "..", "experiments/humanoid_foot_placement/deploy")
 sys.path.insert(0, deploy_path)
-from gait_generators import GaitGenerator, VisualGaitGenerator
+from gait_generators_vis import VisualGaitGenerator
 
 
 class JAXPolicy:
@@ -159,6 +159,8 @@ class RobotController:
             is_gp_adaptive=self.cmd_params.is_gp_adaptive,
             min_gp_delta=self.cmd_params.min_gp_delta,
             max_gp_delta=self.cmd_params.max_gp_delta,
+            max_gp_pause_steps=self.cmd_params.max_pause_steps,
+            clahe_enhance=self.cmd_params.clahe_enhance,
             debug_vis=True,
         )
 
@@ -183,7 +185,7 @@ class RobotController:
         self.depth_image = depth_array.reshape((depth_msg.height, depth_msg.width))
         self.depth_image = self.depth_image.astype(np.float32) / 1000.0  # Convert from mm to meters
         # TODO
-        # self.depth_image = np.maximum(self.depth_image - 0.05, 0.0)
+        self.depth_image = np.maximum(self.depth_image - 0.04, 0.0)
 
         color_array = np.frombuffer(color_msg.data, dtype=np.uint8)
         self.color_image = color_array.reshape((color_msg.height, color_msg.width, 3))
@@ -303,8 +305,6 @@ class RobotController:
 
         # cv2.imshow("rgb_image", cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR))
         # cv2.imshow("mask_image", cv2.cvtColor(mask_image, cv2.COLOR_RGB2BGR))
-        # print(f"Detected targets in left foot frame: {target_in_l_foot}")
-        # print(f"Detected targets in right foot frame: {target_in_r_foot}")
         # cv2.waitKey(1)
 
         # TODO
@@ -380,6 +380,10 @@ class RobotController:
         q_des[0] = 0.0
         q_des[1] = 1.0
         q_des = np.clip(q_des, self.min_angles, self.max_angles)
+
+        assert np.isfinite(q_des).all(), "Non-infinite values in q_des!"
+        assert np.isfinite(self.kps).all(), "Non-infinite values in kps!"
+        assert np.isfinite(self.kds).all(), "Non-infinite values in kds!"
 
         self.robot.send_cmd(q_target_pos=q_des, target_kp=self.kps, target_kd=self.kds)
 

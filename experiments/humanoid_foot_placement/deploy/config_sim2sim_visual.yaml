@@ -5,7 +5,7 @@
 
 # policy parameters
 
-agent_path: /home/puze/Projects/accu_loco/policies/gpgen_puze2.pkl
+agent_path: /home/puze/Projects/accu_loco/policies/kick2.pkl
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
 # train_config_name: conf.yaml
 # --- Simulation Parameters ---
@@ -23,6 +23,9 @@ control_decimation: 10 # policy will run every N physics steps (policy freq = 1 
 # - Waist
 # - Left_Hip_Pitch, Left_Hip_Roll, Left_Hip_Yaw, Left_Knee_Pitch, Left_Ankle_Pitch, Left_Ankle_Roll
 # - Right_Hip_Pitch, Right_Hip_Roll, Right_Hip_Yaw, Right_Knee_Pitch, Right_Ankle_Pitch, Right_Ankle_Roll
+
+scale_action_to_jnt_limits: false
+
 lmj_kps:
   - 10 # 40 # AAHead_yaw
   - 10 # 40 # Head_pitch
@@ -159,6 +162,6 @@ command:
   stop_steps: 2
   img_delay_steps: 0
   max_pause_steps: 5
-  is_gp_adaptive: true
+  is_gp_adaptive: false
   max_gp_delta: 0.04
   min_gp_delta: 0.01
