@@ -6,8 +6,8 @@
 # policy parameters
 # agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/kick.pkl 
-# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/nocv_d2_noterm_smalld_smallangles.pkl # <---
-agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/gp_nocv_d2_noterm_smalld.pkl
+agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/nocv_d2_noterm_smalld_smallangles.pkl # <---
+# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/gp_nocv_d2_noterm_smalld.pkl
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
 # train_config_name: conf.yaml
 # --- Simulation Parameters ---
@@ -186,8 +186,8 @@ command:
   feet_distance: 0.2
   gait_frequency: 1.0
   stop_steps: 2
-  step_height: 0.1
-  difficulty: 0.1
-  is_gp_adaptive: true
+  step_height: 0.08
+  direction: -1 # 1 for forward, -1 for backward
+  is_gp_adaptive: false
   max_gp_delta: 0.04
   min_gp_delta: 0.01

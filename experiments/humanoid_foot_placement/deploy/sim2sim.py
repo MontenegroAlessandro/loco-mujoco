@@ -318,8 +318,10 @@ def main(config: DictConfig):
                 # print(f"Mapped GP Offset: {GG.gp_off:.4f}\nUnmapped GP Offset: {gp_off:.4f}")
 
             clipped_action = np.clip(emitted_action, -1.0, 1.0)
-            if asymmetric:
+            if asymmetric and is_gp_adaptive:
                 clipped_action = np.clip(clipped_action[:-1], None, 0.0) * scale_neg + np.clip(clipped_action[:-1], 0.0, None) * scale_pos
+            elif asymmetric and not is_gp_adaptive:
+                clipped_action = np.clip(clipped_action, None, 0.0) * scale_neg + np.clip(clipped_action, 0.0, None) * scale_pos
             # Apply smoothing/filtering to the action
             action = action * 0.0 + emitted_action * 1.0
 

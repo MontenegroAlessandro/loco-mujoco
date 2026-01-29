@@ -158,6 +158,8 @@ class PlanFollowingGaitGenerator:
         self.r_orn_phase_cmd = np.array([1,0,0,0])
         print(f"Controller reset: l_idx={self.l_idx}, r_idx={self.r_idx}, phase={self.gait_phase}")
 
+        self.gp_off = self.policy_dt * self.gait_freq
+
     def set_gp_offset(self, gp_off: float, min_off: float = 0.01, max_off: float = 0.04):
         gp_off = np.clip(gp_off, -1, 1)
         self.gp_off = gp_off * (max_off - min_off) / 2.0 + (max_off + min_off)/ 2.0
@@ -186,8 +188,8 @@ class PlanFollowingGaitGenerator:
             # if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
             #     (self.l_idx == 0 and self.r_idx == 0):
             #     self.l_off_phase_cmd = self.left_plan[-1] - self.right_plan[-1]
-            self.l_off_phase_cmd[0] = np.clip(self.l_off_phase_cmd[0], 0, self.max_vert)
-            self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1], 0, self.feet_dist)
+            # self.l_off_phase_cmd[0] = np.clip(self.l_off_phase_cmd[0], -self.max_vert, self.max_vert) 
+            # self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1], 0, self.feet_dist)
         
         # switching phase from right swing foot to left
         if self.prev_phase <= 0.5 and self.gait_phase > 0.5:
@@ -207,8 +209,8 @@ class PlanFollowingGaitGenerator:
             # if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
             #     (self.l_idx == 0 and self.r_idx == 0):
             #     self.r_off_phase_cmd = self.right_plan[-1] - self.left_plan[-1]
-            self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], 0, self.max_vert)
-            self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, 0)
+            # self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.max_vert, self.max_vert) 
+            # self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, 0)
 
         print(f"[DEBUG] Gait Phase: {self.gait_phase:.3f}, l_idx: {self.l_idx}, r_idx: {self.r_idx}")
 
@@ -318,7 +320,8 @@ def main(config: DictConfig):
     # laoding stuff
     STEP_LEN = 0.35  # Maximum foot placement target distance
     N_STEPS = 5
-    STAIR_START_X = 6 * STEP_LEN  # Must be multiple of STEP_LEN for proper alignment (2.1m)
+    sign = config["command"]["direction"]
+    STAIR_START_X = sign * 6 * STEP_LEN  # Must be multiple of STEP_LEN for proper alignment (2.1m)
     STEP_HEIGHT = config["command"]["step_height"]
     STEP_WIDTH = 2.0
     PLATFORM_LENGTH = STEP_LEN * 4
@@ -360,6 +363,10 @@ def main(config: DictConfig):
     spec = mujoco.MjSpec.from_file(xml_path)
     wb = spec.worldbody
     
+    # Determine orientation based on obstacle position
+    is_backward = STAIR_START_X < 0
+    orientation_yaw = 180.0 if is_backward else 0.0
+    
     first_step_center = [STAIR_START_X, 0.0, STEP_HEIGHT/2]
 
     wb = add_stairs_platform_stairs(
@@ -370,14 +377,20 @@ def main(config: DictConfig):
         step_height=STEP_HEIGHT,
         step_length=STEP_LEN,
         step_width=STEP_WIDTH,
-        orientation_yaw_deg=0.0,
+        orientation_yaw_deg=orientation_yaw,
         platform_length=PLATFORM_LENGTH,
         backend=np
     )
     
-    planner = StairPlanGenerator(STAIR_START_X, N_STEPS, STEP_LEN, STEP_HEIGHT, STEP_WIDTH, FEET_DIST, 
+    # Always generate plan with positive coordinates, then flip if needed
+    planner = StairPlanGenerator(abs(STAIR_START_X), N_STEPS, STEP_LEN, STEP_HEIGHT, STEP_WIDTH, FEET_DIST, 
                                  platform_length=PLATFORM_LENGTH)
     l_plan, r_plan = planner.generate_plan()
+    
+    # If obstacle is backward, just negate x-coordinates (keep same sequence)
+    if is_backward:
+        l_plan[:, 0] = -l_plan[:, 0]
+        r_plan[:, 0] = -r_plan[:, 0]
     
     for i, pos in enumerate(l_plan):
         wb.add_site(name=f"tgt_L_{i}", pos=pos, size=(0.02, 0.02, 0.02), rgba=(0, 0, 1, 0.5), group=2)
@@ -499,7 +512,8 @@ def main(config: DictConfig):
             # --- Policy Inference ---
             emitted_action = np.asarray(policy.predict_action(obs)).flatten()
             if is_gp_adaptive:
-                planner_ctrl.set_gp_offset(emitted_action[-1], min_off=cmd_params.get("min_gp_delta", 0.01), max_off=cmd_params.get("max_gp_delta", 0.04))
+                # planner_ctrl.set_gp_offset(emitted_action[-1], min_off=cmd_params.get("min_gp_delta", 0.01), max_off=cmd_params.get("max_gp_delta", 0.04))
+                planner_ctrl.set_gp_offset(emitted_action[-1], min_off=0.01, max_off=0.01)
             # emitted_action = np.clip(emitted_action, -1.0, 1.0)
             clipped_action = np.clip(emitted_action, -1.0, 1.0)
             action = emitted_action
