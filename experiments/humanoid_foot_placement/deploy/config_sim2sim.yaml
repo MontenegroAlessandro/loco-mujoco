@@ -6,14 +6,16 @@
 # policy parameters
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/kick.pkl # mov_local_no_still_coeff 
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete_2/kick_jnt_54.pkl # mov_local_no_still_coeff 
+
+# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete_2/kick2.pkl # mov_local_no_still_coeff 
 # agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl # mov_local_no_still_coeff 
-agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete_2/gpgen_puze2.pkl # mov_local_no_still_coeff 
-# agent_path: /home/puze/Projects/accu_loco/policies/gpgen_puze.pkl # mov_local_no_still_coeff 
+# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete_2/gpgen_track_3.pkl # mov_local_no_still_coeff 
+agent_path: /home/puze/Projects/accu_loco/policies/kick2.pkl # mov_local_no_still_coeff 
 # train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
 # train_config_name: conf.yaml
 # --- Simulation Parameters ---
-xml_path: /Users/ale/code/PyProjects/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
-# xml_path: /home/puze/Projects/accu_loco/loco_mujoco/models/booster_t1/booster_t1_original.xml
+# xml_path: /Users/ale/code/PyProjects/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
+xml_path: /home/puze/Projects/accu_loco/loco_mujoco/models/booster_t1/booster_t1_original.xml
 simulation_duration: 300.0 # seconds
 simulation_dt: 0.002 # seconds, physics timestep
 control_decimation: 10 # policy will run every N physics steps (policy freq = 1 / (dt * decimation))
@@ -94,13 +96,13 @@ default_angles:
   - -0.2  # Left_Hip_Pitch
   - 0.0   # Left_Hip_Roll
   - 0.0   # Left_Hip_Yaw
-  - 0.4   # Left_Knee_Pitch
+  - 0.5   # Left_Knee_Pitch
   - -0.25 # Left_Ankle_Pitch
   - 0.0   # Left_Ankle_Roll
   - -0.2  # Right_Hip_Pitch
   - 0.0   # Right_Hip_Roll
   - 0.0   # Right_Hip_Yaw
-  - 0.4   # Right_Knee_Pitch
+  - 0.5   # Right_Knee_Pitch
   - -0.25 # Right_Ankle_Pitch
   - 0.0   # Right_Ankle_Roll
 

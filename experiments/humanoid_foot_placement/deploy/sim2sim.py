@@ -26,8 +26,7 @@ import cv2
 
 from loco_mujoco.algorithms import PPOJax
 
-# from gait_generators import GaitGenerator
-from gait_generators_novis import GaitGenerator
+from gait_generators import GaitGenerator
 
 
 class LMJPolicy:
@@ -114,6 +113,8 @@ def main(config: DictConfig):
     is_gp_adaptive = cmd_params["is_gp_adaptive"]
     base_num_actions += 1 if is_gp_adaptive else 0
 
+    action_delay_steps = 5
+
     # --- Load Policy ---
     # Initialize Hydra to access environment config used during training
     # The config_path should point to the directory containing your hydra config files
@@ -172,6 +173,7 @@ def main(config: DictConfig):
     d = mujoco.MjData(m)
     left_foot_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "left_foot")
     right_foot_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "right_foot")
+    ctrl_range = m.actuator_ctrlrange
 
     # # --- Initialize Simulation ---
     m.opt.timestep = simulation_dt
@@ -209,8 +211,9 @@ def main(config: DictConfig):
     mujoco.mj_forward(m, d)
 
     # Initialize context variables
-    action = np.zeros(num_actions, dtype=np.float32)
+    last_action = np.zeros(num_actions, dtype=np.float32)
     target_dof_pos = default_angles.copy()
+    delayed_target_dof_pos = target_dof_pos.copy()
     target_dof_kps = kps.copy()
     target_dof_kds = kds.copy()
 
@@ -238,10 +241,13 @@ def main(config: DictConfig):
             step_start = time.time()
 
             for i in range(control_decimation):
+                if i >= action_delay_steps:
+                    delayed_target_dof_pos = target_dof_pos.copy()
                 # Step the simulation forward. The PD controller runs at the physics rate.
                 tau = pd_control(
-                    target_dof_pos, d.qpos[7:], target_dof_kps, np.zeros_like(kds), d.qvel[6:], target_dof_kds
+                    delayed_target_dof_pos, d.qpos[7:], target_dof_kps, np.zeros_like(kds), d.qvel[6:], target_dof_kds
                 )
+                tau = np.clip(tau, ctrl_range[:, 0], ctrl_range[:, 1])
                 d.ctrl[:] = tau
 
                 mujoco.mj_step(m, d)
@@ -299,7 +305,7 @@ def main(config: DictConfig):
             obs_list += qj.flatten().tolist()
             obs_list += (base_ang_vel * 1.0).flatten().tolist()
             obs_list += (dqj * 0.1).flatten().tolist()
-            obs_list += action.flatten().tolist()  # 'action' here is the previous action
+            obs_list += last_action.flatten().tolist()  # 'action' here is the previous action
             obs_list += cmd.flatten().tolist()
 
             critic_n_obs = 78 if not is_gp_adaptive else 79
@@ -317,11 +323,11 @@ def main(config: DictConfig):
                 GG.set_gp_offset(emitted_action[-1])
                 # print(f"Mapped GP Offset: {GG.gp_off:.4f}\nUnmapped GP Offset: {gp_off:.4f}")
 
+            # Apply smoothing/filtering to the action
+            last_action = last_action * 0.0 + emitted_action * 1.0
             clipped_action = np.clip(emitted_action, -1.0, 1.0)
             if asymmetric:
                 clipped_action = np.clip(clipped_action[:-1], None, 0.0) * scale_neg + np.clip(clipped_action[:-1], 0.0, None) * scale_pos
-            # Apply smoothing/filtering to the action
-            action = action * 0.0 + emitted_action * 1.0
 
             # Deconstruct action vector into control commands
             target_dof_pos = (

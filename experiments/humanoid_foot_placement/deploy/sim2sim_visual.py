@@ -26,7 +26,7 @@ from collections import deque
 
 from loco_mujoco.algorithms import PPOJax
 
-from gait_generators import GaitGenerator, VisualGaitGenerator
+from experiments.humanoid_foot_placement.deploy.gait_generators_vis import VisualGaitGenerator
 
 
 class LMJPolicy:
@@ -103,6 +103,9 @@ def main(config: DictConfig):
     default_angles = np.array(config["default_angles"], dtype=np.float32)
     min_angles = np.array(config["min_angles"], dtype=np.float32)
     max_angles = np.array(config["max_angles"], dtype=np.float32)
+    asymmetric = config.get("scale_action_to_jnt_limits", False)
+    scale_neg = - (min_angles - default_angles)
+    scale_pos = max_angles - default_angles
 
     num_qj = len(default_angles)  # Number of actuated joints (23)
     base_num_actions = config["num_actions"]  # This is also 23
@@ -160,9 +163,9 @@ def main(config: DictConfig):
     )
 
     # Add visual sites as foot targets
-    target_dist = 0.2
+    target_dist = 0.3
     target_angle_range = 30  # degrees
-    action_delay_steps = 0
+    action_delay_steps = 5
     image_delay_steps = 0
 
     target_site_pos = np.zeros(3)
@@ -241,7 +244,7 @@ def main(config: DictConfig):
     depth_deque = deque([depth_array.copy() for _ in range(image_delay_steps + 1)], maxlen=image_delay_steps + 1)
 
     # Initialize context variables
-    action = np.zeros(num_actions, dtype=np.float32)
+    last_action = np.zeros(num_actions, dtype=np.float32)
     target_dof_pos = default_angles.copy()
     target_dof_kps = kps.copy()
     target_dof_kds = kds.copy()
@@ -266,6 +269,7 @@ def main(config: DictConfig):
         is_gp_adaptive=is_gp_adaptive,
         min_gp_delta=cmd_params["min_gp_delta"],
         max_gp_delta=cmd_params["max_gp_delta"],
+        clahe_enhance=False,
         debug_vis=False,
     )
     GG.print_instruction()
@@ -372,7 +376,7 @@ def main(config: DictConfig):
             obs_list += qj.flatten().tolist()
             obs_list += (base_ang_vel * 1.0).flatten().tolist()
             obs_list += (dqj * 0.1).flatten().tolist()
-            obs_list += action.flatten().tolist()  # 'action' here is the previous action
+            obs_list += last_action.flatten().tolist()  # 'action' here is the previous action
             obs_list += cmd.flatten().tolist()
 
             critic_n_obs = 78 if not is_gp_adaptive else 79
@@ -391,9 +395,11 @@ def main(config: DictConfig):
                 GG.set_gp_offset(emitted_action[-1])
                 # print(f"Mapped GP Offset: {GG.gp_off:.4f}\nUnmapped GP Offset: {gp_off:.4f}")
 
-            clipped_action = np.clip(emitted_action, -1.0, 1.0)
             # Apply smoothing/filtering to the action
-            action = action * 0.0 + emitted_action * 1.0
+            last_action = last_action * 0.0 + emitted_action * 1.0
+            clipped_action = np.clip(emitted_action, -1.0, 1.0)
+            if asymmetric:
+                clipped_action = np.clip(clipped_action, None, 0.0) * scale_neg + np.clip(clipped_action, 0.0, None) * scale_pos
 
             # Deconstruct action vector into control commands
             target_dof_pos = (
