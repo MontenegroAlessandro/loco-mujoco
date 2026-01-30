@@ -2,6 +2,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as np_R
 import copy
 import mujoco
+from typing import List, Tuple, Optional
 
 
 class GaitGenerator:
@@ -547,3 +548,93 @@ class NarrowPathGaitGenerator(GoalReachingGaitGenerator):
         cand2 = self._wrap_to_pi(hear_yaw - np.pi / 2)
 
         return cand1 if abs(cand1) < abs(cand2) else cand2
+
+
+
+
+
+class PlannedFootstepGaitGenerator(GaitGenerator):
+    """
+    Execute a planned footstep path.
+    """
+
+    def __init__(self, model, data, feet_distance=0.2, stop_steps=2,
+                 goal_region: float = 0.25):
+        super().__init__(feet_distance=feet_distance, stop_steps=stop_steps)
+        self.model = model
+        self.data = data
+
+        self.left_foot_id  = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "left_foot")
+        self.right_foot_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "right_foot")
+
+        self.path: List[Tuple[float, float, float, int]] = []
+        self.step_idx = 0
+        self.swing_foot_idx = 1
+
+
+    def set_plan(self, path_steps_world, goal_xy: Optional[Tuple[float,float]] = None):
+        self.path = [(float(x), float(y), float(yaw), int(st))
+                     for (x, y, yaw, st) in (path_steps_world or [])]
+
+        if len(self.path) == 0:
+            self.step_idx = 0
+            self.swing_foot_idx = 0
+            return
+
+        print("[set_plan] len=", len(self.path))
+
+
+
+    def query_cmd(self, goal_pos, q_pos):
+        self.data.qpos[:] = q_pos
+        mujoco.mj_fwdPosition(self.model, self.data)
+
+        gait_info = self.preprocess_gp_info()
+
+        if self.sample_goal:
+            if self.move_dir == "STILL":
+                self.foot_offset = self._gen_still_cmd()
+                self.gaits_to_still = max(0, self.gaits_to_still - 1)
+
+            if self.move_dir in ["FWD", "BWD"]:
+                if self.step_idx >= len(self.path):
+                    gait_info = self.preprocess_gp_info()
+                    self.foot_offset = self._gen_still_cmd()
+                    self.gaits_to_still = max(0, self.gaits_to_still - 1)
+                    return self.foot_offset, gait_info
+                else:
+                   # target landing pose (world)
+                   tx, ty, tyaw, _ = self.path[self.step_idx]
+
+                   # current stance foot frame (world)
+                   stance_site_id = self.left_foot_id if self.swing_foot_idx == 1 else self.right_foot_id
+                   stance_pos_w = self.data.site_xpos[stance_site_id].copy()
+                   stance_xmat_w = self.data.site_xmat[stance_site_id].reshape(3, 3).copy()
+
+                   target_pos_w = np.array([tx, ty, stance_pos_w[2]], dtype=np.float32)
+
+                   # stance-frame relative position
+                   R_sw = stance_xmat_w.T
+                   rel_pos = (R_sw @ (target_pos_w - stance_pos_w)).astype(np.float32)
+
+                   # stance-frame relative yaw
+                   stance_yaw_w = np_R.from_matrix(stance_xmat_w).as_euler("xyz")[2]
+                   rel_yaw = float((tyaw - stance_yaw_w + np.pi) % (2 * np.pi) - np.pi)
+                   swing_orn_offset = np_R.from_euler("z", rel_yaw).as_quat(scalar_first=True).astype(np.float32)
+
+                   zero_orn = np.array([1, 0, 0, 0], dtype=np.float32)
+                   zero_pos = np.zeros(3, dtype=np.float32)
+
+                   # command offsets
+
+                   if self.swing_foot_idx == 0:
+                       l_pos, l_orn = rel_pos, swing_orn_offset
+                       r_pos, r_orn = zero_pos, zero_orn
+                   else:
+                       l_pos, l_orn = zero_pos, zero_orn
+                       r_pos, r_orn = rel_pos, swing_orn_offset
+
+                   self.foot_offset = (l_pos, l_orn, r_pos, r_orn)
+                   self.step_idx += 1
+
+        return self.foot_offset, gait_info

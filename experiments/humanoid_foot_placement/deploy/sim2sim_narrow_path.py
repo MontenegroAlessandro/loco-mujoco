@@ -157,7 +157,7 @@ def spawn_feet_on_platform_upright(
             d.qpos[0] = start_xy[0]
             d.qpos[1] = start_xy[1]
             d.qvel[0] = 0.0
-            d.qvel[0] = 0.0
+            d.qvel[1] = 0.0
 
     mujoco.mj_forward(m, d)
 

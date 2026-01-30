@@ -7,11 +7,13 @@
 seed: 0
 
 # policy parameters
-agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl
+#agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl
 #agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/kick.pkl
+agent_path: /home/shihaoli/loco-mujoco/experiments/humanoid_foot_placement/policies/kick2.pkl
 
 # Simulation Parameters
-xml_path: /home/puze/Projects/accu_loco/loco_mujoco/models/booster_t1/booster_t1_original.xml
+xml_path: /home/shihaoli/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1.xml
+#xml_path: /home/puze/Projects/accu_loco/loco_mujoco/models/booster_t1/booster_t1_original.xml
 #xml_path: /Users/ale/code/PyProjects/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
 simulation_duration: 300.0
 simulation_dt: 0.002

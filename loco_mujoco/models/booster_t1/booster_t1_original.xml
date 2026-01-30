@@ -45,6 +45,7 @@
     <mesh name="Shank_Right" file="Shank_Right.STL"/>
     <mesh name="Ankle_Cross_Right" file="Ankle_Cross_Right.STL"/>
     <mesh name="right_foot_link" file="right_foot_link.STL"/>
+    <mesh name="traffic_cone" file="/home/shihaoli/traffic-cone/source/cone.obj"/>
   </asset>
 
   <worldbody>
