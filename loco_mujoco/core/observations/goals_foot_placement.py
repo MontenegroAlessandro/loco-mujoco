@@ -80,6 +80,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # movement direction
             direction_range_deg: List[float] = [0.0, 0.0],
             change_direction_range_deg: List[float] = [0.0, 0.0],
+            just_fwd_bwd: bool = False,
             # feet direction
             feet_direction_range_deg: List[float] = [0.0, 0.0],
             track_movement_only: bool = False,
@@ -139,6 +140,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.stance_absorbing_threshold = stance_absorbing_threshold
         self.is_gp_adaptive = is_gp_adaptive
         self._feet_swing_period = feet_swing_period
+        self.just_fwd_bwd = just_fwd_bwd
         
         # curriculum parmeters
         self.curriculum = curriculum
@@ -323,9 +325,13 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         # ==================================================MOVEMENT==================================================
         # sample movement direction
-        movement_dir = jax.random.uniform(
-            sk1, shape=(), minval=self.direction_range_rad[0], maxval=self.direction_range_rad[1]
-        )
+        if self.just_fwd_bwd:
+            # just sample forward or backward
+            movement_dir = jax.random.choice(sk1, jnp.array([-jnp.pi, 0.0]))
+        else:
+            movement_dir = jax.random.uniform(
+                sk1, shape=(), minval=self.direction_range_rad[0], maxval=self.direction_range_rad[1]
+            )
         movement_dir = self.wrap_to_pi(movement_dir, jnp)
         
         # ====================================================FEET====================================================

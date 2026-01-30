@@ -56,6 +56,7 @@ experiment:
       # direction range in deg
       direction_range_deg: [-180, 180] # [-180, 180]
       change_direction_range_deg: [0, 0]
+      just_fwd_bwd: false
       # feet direction range in deg
       track_movement_only: false
       feet_direction_range_deg: [0,0] # [-180, 180]

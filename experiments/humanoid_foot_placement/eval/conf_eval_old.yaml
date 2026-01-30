@@ -49,7 +49,7 @@ experiment:
       # Range for omnidirectional step angle [-180, 180] for a full circle
       angle_range_deg: [-30, 30] # [-20, 20] # [20, 90] 
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [0, 0] # [-20, 20] # [-30, 30]
+      yaw_range_deg: [-10, 10] # [-20, 20] # [-30, 30]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
@@ -58,6 +58,7 @@ experiment:
       goal_height: 0.68
       # direction range in deg
       direction_range_deg: [0,0] # [-180, 180]
+      just_fwd_bwd: true
       change_direction_range_deg: [0, 0]
       # feet direction range in deg
       track_movement_only: false
