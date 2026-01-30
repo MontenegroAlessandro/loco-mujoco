@@ -10,7 +10,7 @@ import jax
 import jax.numpy as jnp
 from scipy.spatial.transform import Rotation as np_R
 
-from loco_mujoco.environments.utils import add_stair, add_stair_and_flat, add_stairs_platform_stairs
+from loco_mujoco.environments.utils import add_ramp_platform_ramp
 from loco_mujoco.algorithms import PPOJax
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -34,88 +34,144 @@ def key_callback(keycode):
         print("Reset requested...")
 
 # =====================================================================================================================
-class StairPlanGenerator:
-    def __init__(self, start_x, num_steps, step_len, step_height, step_width, feet_spacing, n_flat_steps=3, platform_length=None):
-        self.start_x = start_x
-        self.num_steps = num_steps
-        self.step_len = step_len
-        self.step_height = step_height
-        self.step_width = step_width
+class LateralRampPlanGenerator:
+    """
+    Generates foothold plans for lateral movement over a ramp structure.
+    The robot moves sideways (left or right) crossing: ramp up -> platform -> ramp down.
+    """
+    def __init__(self, start_y, run, rise, platform_length, width, feet_spacing, 
+                 step_size=0.25, direction='left', min_feet_distance=0.2):
+        """
+        Args:
+            start_y: Y coordinate where the ramp structure starts
+            run: Horizontal length of each ramp section
+            rise: Height change of each ramp
+            platform_length: Length of the flat platform
+            width: Width of the ramp structure (along X axis)
+            feet_spacing: Distance between left and right foot in X direction
+            step_size: Lateral step size for foothold placement
+            direction: 'left' or 'right' - direction of lateral movement
+            min_feet_distance: Minimum distance to maintain between feet (default 0.2m)
+        """
+        self.start_y = start_y
+        self.run = run
+        self.rise = rise
+        self.platform_length = platform_length
+        self.width = width
         self.feet_spacing = feet_spacing
-        self.n_flat_steps = n_flat_steps
-        self.platform_length = platform_length if platform_length is not None else step_len * n_flat_steps
-
+        self.step_size = step_size
+        self.direction = direction
+        self.min_feet_distance = min_feet_distance
+        
+        # Calculate key positions
+        self.ramp_up_end_y = start_y + run
+        self.platform_end_y = self.ramp_up_end_y + platform_length
+        self.ramp_down_end_y = self.platform_end_y + run
+        
     def generate_plan(self):
-        # generate a list of footholds for the left and right foot (shape is (N,3) for both)
+        """
+        Generate foothold plans for left and right feet.
+        Only the lead foot (left for left movement, right for right movement) 
+        follows the actual ramp plan. The other foot maintains lateral spacing.
+        """
+        # Direction multiplier: +1 for left (positive Y), -1 for right (negative Y)
+        dir_mult = 1 if self.direction == 'left' else -1
+        is_left_lead = (self.direction == 'left')
+        
+        # Determine X positions for left and right feet
+        # Left foot at +feet_spacing/2, right foot at -feet_spacing/2
+        left_x = self.feet_spacing / 2.0
+        right_x = -self.feet_spacing / 2.0
+        
+        # Generate the Y-coordinate schedule (same for both feet)
+        y_schedule = []
+        
+        # Initial stance
+        y_schedule.append(0.0)
+        
+        # Approach steps - move laterally towards the ramp
+        num_approach = int(abs(self.start_y) / self.step_size)
+        for i in range(1, num_approach + 1):
+            y = dir_mult * i * self.step_size
+            y_schedule.append(y)
+        
+        # RAMP UP - ascending while moving laterally
+        num_ramp_steps = max(2, int(self.run / self.step_size))
+        
+        for i in range(1, num_ramp_steps + 1):
+            progress = i / num_ramp_steps
+            y = dir_mult * (abs(self.start_y) + progress * self.run)
+            y_schedule.append(y)
+        
+        # PLATFORM - flat section at the top
+        num_platform = max(2, int(self.platform_length / self.step_size))
+        
+        for i in range(1, num_platform + 1):
+            progress = i / num_platform
+            y = dir_mult * (abs(self.start_y) + self.run + progress * self.platform_length)
+            y_schedule.append(y)
+        
+        # RAMP DOWN - descending while moving laterally
+        for i in range(1, num_ramp_steps + 1):
+            progress = i / num_ramp_steps
+            y = dir_mult * (abs(self.start_y) + self.run + self.platform_length + progress * self.run)
+            y_schedule.append(y)
+        
+        # Exit steps - continue moving laterally on flat ground
+        last_y = y_schedule[-1]
+        for i in range(1, num_approach + 1):
+            y = last_y + dir_mult * i * self.step_size
+            y_schedule.append(y)
+        
+        # Now create plans for both feet based on their X positions
         left_plan = []
         right_plan = []
         
-        # Initial stance
-        left_plan.append([0.0, self.feet_spacing/2, 0.0])
-        right_plan.append([0.0, -self.feet_spacing/2, 0.0])
-
-        # Generate walking steps up to the stairs with EXACT step_len spacing
-        # Calculate how many steps fit before the first stair center
-        # We stop one step BEFORE the stair position to avoid overlap
-        n_approach = int(self.start_x / self.step_len)
-        if abs(self.start_x - n_approach * self.step_len) < 1e-6:
-            n_approach -= 1
+        for y in y_schedule:
+            # Calculate height for each foot based on its actual position
+            # The feet are offset in X, so they're at slightly different Y positions on the rotated ramp
+            # But since the ramp is oriented along Y axis, X offset doesn't affect the height calculation
+            z_left = self._calculate_height_at_y(abs(y))
+            z_right = self._calculate_height_at_y(abs(y))
+            
+            left_plan.append([left_x, y, z_left])
+            right_plan.append([right_x, y, z_right])
         
-        for i in range(1, n_approach + 1):
-            x = i * self.step_len
-            left_plan.append([x, self.feet_spacing/2, 0.0])
-            right_plan.append([x, -self.feet_spacing/2, 0.0])
-
-        last_x = n_approach * self.step_len
-
-        # UP stairs - place targets in the CENTER of each step
-        # First step center is at start_x
-        for i in range(self.num_steps):
-            z = (i + 1) * self.step_height
-            target_x = self.start_x + i * self.step_len
-            
-            left_plan.append([target_x, self.feet_spacing/2, z])
-            right_plan.append([target_x, -self.feet_spacing/2, z])
-            
-            last_x = target_x
-            last_z = z
-
-        # PLATFORM - flat section at the top
-        # Platform geometry starts at front edge of last stair: last_x + step_len/2
-        # Platform extends for platform_length from there
-        platform_start_x = last_x + self.step_len / 2.0
-        platform_end_x = platform_start_x + self.platform_length + self.step_len / 2.0
-        
-        # Place footholds at step_len intervals across the platform
-        n_platform = max(1, int(self.platform_length / self.step_len))
-        
-        for i in range(n_platform):
-            x = platform_start_x + (i + 0.5) * self.step_len
-            left_plan.append([x, self.feet_spacing/2, last_z])
-            right_plan.append([x, -self.feet_spacing/2, last_z])
-
-        # DOWN stairs - descending from platform
-        # Down stairs geometry starts at platform_end_x
-        # First down stair center is at platform_end_x at same height as platform
-        for i in range(self.num_steps):
-            # Height decreases by step_height for each step
-            z = last_z - (i) * self.step_height
-            target_x = platform_end_x + i * self.step_len
-            
-            left_plan.append([target_x, self.feet_spacing/2, z])
-            right_plan.append([target_x, -self.feet_spacing/2, z])
-            
-            last_x = target_x
-            # last_z = z
-
-        # Final approach steps on ground after descending
-        # Should be at z=0 now
-        for i in range(1, n_approach + 1):
-            x = last_x + i * self.step_len
-            left_plan.append([x, self.feet_spacing/2, 0.0])
-            right_plan.append([x, -self.feet_spacing/2, 0.0])
-
         return np.array(left_plan, dtype=np.float32), np.array(right_plan, dtype=np.float32)
+    
+    def _calculate_height_at_y(self, y_abs):
+        """
+        Calculate the height (Z) at a given absolute Y position along the ramp structure.
+        
+        Args:
+            y_abs: Absolute Y position (always positive, already adjusted for direction)
+        
+        Returns:
+            Height (Z) at that position
+        """
+        # Before ramp: z = 0
+        if y_abs < abs(self.start_y):
+            return 0.0
+        
+        # On ramp up
+        ramp_up_end = abs(self.start_y) + self.run
+        if y_abs < ramp_up_end:
+            progress = (y_abs - abs(self.start_y)) / self.run
+            return progress * self.rise
+        
+        # On platform
+        platform_end = ramp_up_end + self.platform_length
+        if y_abs < platform_end:
+            return self.rise
+        
+        # On ramp down
+        ramp_down_end = platform_end + self.run
+        if y_abs < ramp_down_end:
+            progress = (y_abs - platform_end) / self.run
+            return self.rise * (1.0 - progress)
+        
+        # After ramp: z = 0
+        return 0.0
 
 # =====================================================================================================================
 class PlanFollowingGaitGenerator:
@@ -140,16 +196,6 @@ class PlanFollowingGaitGenerator:
         self.left_foot_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "left_foot")
         self.right_foot_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "right_foot")
 
-        # try:
-        #     left_foot_geom_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "left_foot_1")
-        #     self.foot_h_off = model.geom_size[left_foot_geom_id][0]/2
-        #     print(f"Foot height offset: {self.foot_h_off}m (capsule radius)")
-        # except:
-        #     # Fallback
-        #     self.foot_h_off = 0.02 
-        #     print(f"Warning: Could not find foot geom, using default offset: {self.foot_h_off}m")
-        self.foot_h_off = 0.0 
-
         # storing variables for giving the commands during the phase
         self.l_off_phase_cmd = np.zeros(3)
         self.r_off_phase_cmd = np.zeros(3)
@@ -160,7 +206,7 @@ class PlanFollowingGaitGenerator:
 
     def reset(self):
         """Reset the plan indices and gait phase."""
-        self.l_idx = 1
+        self.l_idx = 0
         self.r_idx = 0
         self.gait_phase = 0.0
         self.prev_phase = 0.0
@@ -176,16 +222,14 @@ class PlanFollowingGaitGenerator:
     def set_gp_offset(self, gp_off: float, min_off: float = 0.01, max_off: float = 0.04):
         gp_off = np.clip(gp_off, -1, 1)
         self.gp_off = gp_off * (max_off - min_off) / 2.0 + (max_off + min_off)/ 2.0
-        # print(f"[DEBUG] Gait Phase Offset set to: {self.gp_off:.4f}")
+        print(f"[DEBUG] Gait Phase Offset set to: {self.gp_off:.4f}")
 
     def update(self):
         self.prev_phase = self.gait_phase
-        # self.gait_phase = (self.gait_phase + self.policy_dt * self.gait_freq) % 1.0
         self.gait_phase = (self.gait_phase + self.gp_off) % 1.0
         
         # switching phase from right swing foot to left
         if self.prev_phase > 0.5 and self.gait_phase < 0.5:
-            # self.l_idx = min(self.l_idx + 1, len(self.left_plan) - 1)
             self.l_idx = min(self.r_idx + 1, len(self.left_plan) - 1)
 
             # right foot is stance
@@ -195,19 +239,14 @@ class PlanFollowingGaitGenerator:
             # computing offsets for the left foot
             self.l_off_phase_cmd, self.l_orn_phase_cmd = self.get_observation_cmd()[:2]
 
-            # if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
-            #     (self.l_idx == 0 and self.r_idx == 0):
-            #     self.l_off_phase_cmd, self.l_orn_phase_cmd = self.left_plan[-1] - self.right_plan[-1], np.array([1,0,0,0])
             if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
                 (self.l_idx == 0 and self.r_idx == 0):
-                # self.l_off_phase_cmd = self.left_plan[-1] - self.right_plan[-1]
                 self.l_off_phase_cmd[2] = 0
-            self.l_off_phase_cmd[0] = np.clip(self.l_off_phase_cmd[0], -self.max_vert, self.max_vert) 
-            self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1], 0, self.feet_dist)
+            self.l_off_phase_cmd[0] = np.clip(self.l_off_phase_cmd[0], -self.feet_dist, self.feet_dist) 
+            self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1], -self.max_vert, self.max_vert)
         
-        # switching phase from right swing foot to left
+        # switching phase from left swing foot to right
         if self.prev_phase <= 0.5 and self.gait_phase > 0.5:
-            # self.r_idx = min(self.r_idx + 1, len(self.right_plan) - 1)
             self.r_idx = min(self.l_idx + 1, len(self.right_plan) - 1)
 
             # left foot is stance
@@ -217,17 +256,13 @@ class PlanFollowingGaitGenerator:
             # computing the offsets for the right foot
             self.r_off_phase_cmd, self.r_orn_phase_cmd = self.get_observation_cmd()[2:4]
 
-            # if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
-            #     (self.l_idx == 0 and self.r_idx == 0):
-            #     self.r_off_phase_cmd, self.r_orn_phase_cmd = self.right_plan[-1] - self.left_plan[-1], np.array([1,0,0,0])
             if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
                 (self.l_idx == 0 and self.r_idx == 0):
-                # self.r_off_phase_cmd = self.right_plan[-1] - self.left_plan[-1]
                 self.r_off_phase_cmd[2] = 0
-            self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.max_vert, self.max_vert) 
-            self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, 0)
+            self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.feet_dist, self.feet_dist) 
+            self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.max_vert, self.max_vert)
 
-        # print(f"[DEBUG] Gait Phase: {self.gait_phase:.3f}, l_idx: {self.l_idx}, r_idx: {self.r_idx}")
+        print(f"[DEBUG] Gait Phase: {self.gait_phase:.3f}, l_idx: {self.l_idx}, r_idx: {self.r_idx}")
 
     def get_observation_cmd(self):
         """
@@ -281,10 +316,6 @@ class PlanFollowingGaitGenerator:
         
         rel_rot = r_s.inv() * r_t
         rel_quat_xyzw = rel_rot.as_quat()
-
-        # if abs(rel_pos[2]) < 0.01:  # 1cm threshold
-        #     rel_pos[2] = 0.0
-        rel_pos[2] -= self.foot_h_off
         
         return rel_pos, xyzw_to_wxyz(rel_quat_xyzw)
 
@@ -336,18 +367,21 @@ def pd_control(target_q, q, kp, target_dq, dq, kd):
 # =====================================================================================================================
 @hydra.main(config_name="fp_config.yaml")
 def main(config: DictConfig):
-    # laoding stuff
-    STEP_LEN = config["command"]["step_spacing"]  # Maximum foot placement target distance
-    N_STEPS = 5
-    sign = config["command"]["direction"]
-    STAIR_START_X = sign * 6 * STEP_LEN  # Must be multiple of STEP_LEN for proper alignment (2.1m)
-    STEP_HEIGHT = config["command"]["step_height"]
-    STEP_WIDTH = 2.0
-    PLATFORM_LENGTH = STEP_LEN * 4
-    FEET_DIST = float(config["command"]["feet_distance"])
+    # Loading parameters
+    RUN = 1.5  # Horizontal length of ramp
+    RISE = 0.4  # Height of ramp
+    PLATFORM_LENGTH = 1.5  # Length of flat platform
+    RAMP_WIDTH = 2.0  # Width of the ramp structure
+    STEP_SIZE = 0.25  # Lateral step size
+    
+    # Direction: 'left' for positive Y, 'right' for negative Y
+    sign = config["command"].get("direction", 1)
+    direction = "left" if sign == 1 else "right"
+    RAMP_START_Y = sign * 1.5  # Starting Y position of the ramp
+    
+    FEET_DIST = float(config["command"].get("feet_distance", 0.2))
+    MIN_FEET_DISTANCE = 0.2  # Minimum distance between feet
     MAX_VERT = 0.4
-    velocity_based = config["command"].get("velocity", False)
-    obs_dim = 16 if not velocity_based else 6
 
     xml_path = config["xml_path"]
     simulation_dt = config["simulation_dt"]
@@ -385,40 +419,57 @@ def main(config: DictConfig):
     spec = mujoco.MjSpec.from_file(xml_path)
     wb = spec.worldbody
     
-    # Determine orientation based on obstacle position
-    is_backward = STAIR_START_X < 0
-    orientation_yaw = 180.0 if is_backward else 0.0
+    # Determine orientation for lateral movement (90 or -90 degrees from forward)
+    # Left movement: rotate structure 90° (facing left)
+    # Right movement: rotate structure -90° (facing right)
+    orientation_yaw = 90.0 if direction == "left" else -90.0
     
-    first_step_center = [STAIR_START_X, 0.0, STEP_HEIGHT/2]
+    # Starting position of the ramp structure (bottom of first ramp)
+    # For lateral movement, the ramp extends along Y axis when rotated
+    ramp_start_pos = [0.0, RAMP_START_Y, 0.0]
 
-    wb = add_stairs_platform_stairs(
+    # Add the ramp-platform-ramp structure
+    wb = add_ramp_platform_ramp(
         world_body=wb,
-        name="stair_1",
-        first_step_coordinates=first_step_center,
-        num_steps=N_STEPS,
-        step_height=STEP_HEIGHT,
-        step_length=STEP_LEN,
-        step_width=STEP_WIDTH,
-        orientation_yaw_deg=orientation_yaw,
+        name="lateral_ramp",
+        coordinates=ramp_start_pos,
+        run=RUN,
+        rise=RISE,
         platform_length=PLATFORM_LENGTH,
+        platform_width=RAMP_WIDTH,
+        width=RAMP_WIDTH,
+        thickness=0.1,
+        orientation_yaw_deg=orientation_yaw,
+        color=[0.3, 0.3, 0.3, 1.0],
+        friction=[1.0, 0.005, 0.0001],
         backend=np
     )
     
-    # Always generate plan with positive coordinates, then flip if needed
-    planner = StairPlanGenerator(np.abs(STAIR_START_X), N_STEPS, STEP_LEN, STEP_HEIGHT, STEP_WIDTH, FEET_DIST, 
-                                 platform_length=PLATFORM_LENGTH)
+    # Generate foothold plan
+    planner = LateralRampPlanGenerator(
+        start_y=RAMP_START_Y,
+        run=RUN,
+        rise=RISE,
+        platform_length=PLATFORM_LENGTH,
+        width=RAMP_WIDTH,
+        feet_spacing=FEET_DIST,
+        step_size=STEP_SIZE,
+        direction=direction,
+        min_feet_distance=MIN_FEET_DISTANCE
+    )
     l_plan, r_plan = planner.generate_plan()
     
-    # If obstacle is backward, just negate x-coordinates (keep same sequence)
-    if is_backward:
-        l_plan[:, 0] = -l_plan[:, 0]
-        r_plan[:, 0] = -r_plan[:, 0]
-    
-    for i, pos in enumerate(l_plan):
-        wb.add_site(name=f"tgt_L_{i}", pos=pos, size=(0.02, 0.02, 0.02), rgba=(0, 0, 1, 0.5), group=2)
-    for i, pos in enumerate(r_plan):
-        wb.add_site(name=f"tgt_R_{i}", pos=pos, size=(0.02, 0.02, 0.02), rgba=(1, 0, 0, 0.5), group=2)
+    # Add visual markers only for the lead foot (the one actively following the ramp)
+    if direction == "left":
+        # Left foot is lead - show only left markers
+        for i, pos in enumerate(l_plan):
+            wb.add_site(name=f"tgt_L_{i}", pos=pos, size=(0.02, 0.02, 0.02), rgba=(0, 0, 1, 0.8), group=2)
+    else:
+        # Right foot is lead - show only right markers
+        for i, pos in enumerate(r_plan):
+            wb.add_site(name=f"tgt_R_{i}", pos=pos, size=(0.02, 0.02, 0.02), rgba=(1, 0, 0, 0.8), group=2)
 
+    # Remove collision geoms if they exist
     for geom in spec.geoms:
         if geom.name.endswith("_col"):
             geom.delete()
@@ -427,8 +478,8 @@ def main(config: DictConfig):
     d = mujoco.MjData(m)
     m.opt.timestep = simulation_dt
 
-    # init state from policy config
-    if sign > 0 or 1:
+    # Initialize state from policy config
+    try:
         initial_qpos = np.array(config["init_state_params"]["qpos_init"], dtype=np.float32)
         initial_qvel = np.array(config["init_state_params"]["qvel_init"], dtype=np.float32)
         if len(initial_qpos) == m.nq and len(initial_qvel) == m.nv:
@@ -437,35 +488,29 @@ def main(config: DictConfig):
             print("Initial state loaded from policy config.")
         else:
             print("Warning: init state length mismatch. Using default init.")
+    except Exception as e:
+        print(f"Warning: Could not load initial state ({e}). Using default init.")
 
     mujoco.mj_forward(m, d)
-    initial_qpos = d.qpos.copy()
-    initial_qvel = d.qvel.copy()
 
     # --- Controller ---
     gait_freq = float(config["command"]["gait_frequency"])
-    planner_ctrl = PlanFollowingGaitGenerator(m, d, l_plan, r_plan, gait_freq, simulation_dt * control_decimation, max_vert=MAX_VERT)
+    planner_ctrl = PlanFollowingGaitGenerator(
+        m, d, l_plan, r_plan, gait_freq, 
+        simulation_dt * control_decimation, 
+        max_vert=MAX_VERT,
+        feet_dist=MIN_FEET_DISTANCE
+    )
 
-    # PD Gains
-    kps = np.array(config["lmj_kps"], dtype=np.float32)
-    kds = np.array(config["lmj_kds"], dtype=np.float32)
-    default_angles = np.array(config["default_angles"], dtype=np.float32)
-    target_dof_pos = default_angles.copy()
-
-    # controller state
+    # Controller state
     action = np.zeros(num_actions, dtype=np.float32)
     target_dof_pos = default_angles.copy()
-    target_dof_kps = kps.copy()
-    target_dof_kds = kds.copy()
 
-    cmd = np.zeros(obs_dim, dtype=np.float32)
-    counter = 1
-    gait_frequency = float(cmd_params["gait_frequency"])
-    
     keyboard_state['paused'] = True  # Start paused
     keyboard_state['reset_requested'] = False
     
-    print("\n=== Simulation Ready ===")
+    print("\n=== Lateral Ramp Navigation Ready ===")
+    print(f"Direction: {direction.upper()}")
     print("Click on the viewer window, then:")
     print("Press 'P' to start/pause")
     print("Press '\\' (backslash) to reset\n")
@@ -482,8 +527,6 @@ def main(config: DictConfig):
                 planner_ctrl.reset()
                 action[:] = 0.0
                 target_dof_pos[:] = default_angles
-                d.qpos[:] = initial_qpos
-                d.qvel[:] = initial_qvel
                 keyboard_state['paused'] = True
                 keyboard_state['reset_requested'] = False
             
@@ -500,18 +543,9 @@ def main(config: DictConfig):
             
             planner_ctrl.update()
             
-            # l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_observation_cmd()
-            if not velocity_based:
-                l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_cmd()
-                # l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_observation_cmd()
-                print(f"[DEBUG] LEFT: {l_off} - {l_orn}\t RIGHT: {r_off} - {r_orn}")
-            else:
-                vel_x = sign * cmd_params.get("vel_x", 0.0)
-                vel_y = cmd_params.get("vel_y", 0.0)
-                vel_z = cmd_params.get("vel_yaw", 0.0)
-                height = cmd_params.get("height", 0.0)
-                cmd_gp_cos = np.cos(2 * np.pi * planner_ctrl.gait_phase)
-                cmd_gp_sin = np.sin(2 * np.pi * planner_ctrl.gait_phase)
+            # Get commands
+            l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_cmd()
+            print(f"[DEBUG] LEFT: {l_off} - {l_orn}\t RIGHT: {r_off} - {r_orn}")
             
             # Basic state
             qj = d.qpos[7:]
@@ -521,12 +555,7 @@ def main(config: DictConfig):
             projected_gravity = quat_rotate_inverse(quat, np.array([0.0, 0.0, -1.0]))
             
             # Command Vector
-            if not velocity_based:
-                cmd = np.concatenate([l_off, l_orn, r_off, r_orn, gait_info])
-            else:
-                cmd = np.array([vel_x, vel_y, vel_z, height, cmd_gp_cos, cmd_gp_sin])
-                print(cmd)
-            # cmd = np.concatenate([l_off, l_orn, r_off, r_orn, gait_info])
+            cmd = np.concatenate([l_off, l_orn, r_off, r_orn, gait_info])
             
             obs_list = []
             obs_list += projected_gravity.flatten().tolist()
@@ -536,23 +565,19 @@ def main(config: DictConfig):
             obs_list += action.flatten().tolist()
             obs_list += cmd.flatten().tolist()
 
-            # obs = [0.0] * 78 + obs_list
             critic_n_obs = 78 if not is_gp_adaptive else 79
             obs = [0.0] * critic_n_obs + obs_list
             obs = np.array(obs, dtype=np.float32).reshape(1, -1)
 
             # Override Head Pitch Angle in Observation
-            # obs[0, 81] = 0.0  # Head Yaw Angle
-            # obs[0, 82] = 0.0  # Head Pitch joint position
             obs[0, critic_n_obs + 3] = 0.0  # Head Yaw Angle
             obs[0, critic_n_obs + 4] = 0.0  # Head Pitch joint position
 
             # --- Policy Inference ---
             emitted_action = np.asarray(policy.predict_action(obs)).flatten()
             if is_gp_adaptive:
-                # planner_ctrl.set_gp_offset(emitted_action[-1], min_off=cmd_params.get("min_gp_delta", 0.01), max_off=cmd_params.get("max_gp_delta", 0.04))
                 planner_ctrl.set_gp_offset(emitted_action[-1], min_off=0.01, max_off=0.01)
-            # emitted_action = np.clip(emitted_action, -1.0, 1.0)
+            
             clipped_action = np.clip(emitted_action, -1.0, 1.0)
             if asymmetric:
                 neg = - min_angles + default_angles
@@ -560,16 +585,15 @@ def main(config: DictConfig):
                 clipped_action = np.clip(clipped_action, None, 0.0) * neg + np.clip(clipped_action, 0.0, None) * pos
             action = emitted_action
 
-            # target dof pos
-            # target_dof_pos = action[:num_qj] + default_angles[:num_qj]
+            # Target dof pos
             target_dof_pos = clipped_action[:num_qj] + default_angles[:num_qj]
 
-            # head override
-            # target_dof_pos[0] = 0.0
-            # target_dof_pos[1] = 0.0 # 1.0
-            # force the arms
-            # target_dof_pos[3] = -1.2
-            # target_dof_pos[7] = 1.2
+            # Head override
+            target_dof_pos[0] = 0.0
+            target_dof_pos[1] = 0.0
+            # Force the arms
+            target_dof_pos[3] = -1.2
+            target_dof_pos[7] = 1.2
             target_dof_pos = np.clip(target_dof_pos, min_angles, max_angles)
             
             viewer.sync()

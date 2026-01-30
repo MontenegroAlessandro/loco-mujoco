@@ -182,7 +182,7 @@ def add_stairs_platform_stairs(
         step_width: float = 1,
         platform_length: float = 2.0,
         platform_width: float = None,
-        color: Union[jnp.array, np.array, List, Tuple] = [0,0,0,1],
+        color: Union[jnp.array, np.array, List, Tuple] = [0.2,0.2,0.2,1],
         orientation_yaw_deg: float = 0.0,
         friction: Union[jnp.array, np.array, List, Tuple] = [1.0, 0.005, 0.0001],
         priority: int = 0,

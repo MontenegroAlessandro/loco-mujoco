@@ -16,8 +16,8 @@ curriculum: &curriculum false
 
 # Experiment Vars
 experiment:
-  # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/nocv_d2_noterm_smalld_smallangles.pkl 
-  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/gp_nocv_d2_noterm_smalld.pkl
+  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/nocv_d2_noterm_smalld_smallangles.pkl 
+  # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/jnt_nocv_term_30.pkl
 
   task_factory:
     name: RLFactory
@@ -25,7 +25,7 @@ experiment:
   env_params:
     env_name: MjxBoosterT1
     horizon: 1000
-    virtual_action_names: [gait_phase_offset]
+    virtual_action_names: []
 
     terrain_type: AdaPillarsTerrain
     terrain_params:
@@ -49,7 +49,7 @@ experiment:
       # Range for omnidirectional step angle [-180, 180] for a full circle
       angle_range_deg: [-30, 30] # [-20, 20] # [20, 90] 
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-30, 30] # [-20, 20] # [-30, 30]
+      yaw_range_deg: [0, 0] # [-20, 20] # [-30, 30]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
@@ -57,7 +57,7 @@ experiment:
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
-      direction_range_deg: [-180,180] # [-180, 180]
+      direction_range_deg: [0,0] # [-180, 180]
       change_direction_range_deg: [0, 0]
       # feet direction range in deg
       track_movement_only: false
@@ -296,17 +296,17 @@ experiment:
         allow_randomization: false
 
     # control_type: PDControl
-    control_type: PDControlGait
+    control_type: PDControl
     control_params:
       scale_action_to_jnt_limits: false
       action_scale: 1.0
       clip_actions: 1.0
-      # gait_phase_delta_max: null
-      # gait_phase_delta_min: null
-      # gait_action_name: null
-      gait_phase_delta_max: 0.04
-      gait_phase_delta_min: 0.01
-      gait_action_name: gait_phase_offset
+      gait_phase_delta_max: null
+      gait_phase_delta_min: null
+      gait_action_name: null
+      # gait_phase_delta_max: 0.04
+      # gait_phase_delta_min: 0.01
+      # gait_action_name: gait_phase_offset
       
       p_gain: 
         - 20 # 40 # AAHead_yaw
