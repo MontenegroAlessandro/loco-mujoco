@@ -115,7 +115,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         self._tracking_stance_pos_w = kwargs.get("stance_pos_w", 0.0)
         self._tracking_stance_orn_w = kwargs.get("stance_orn_w", 0.0)
         self._tracking_stance_pos_sharp = kwargs.get("stance_sharp_pos", 0.0)
-        self._tracking_stance_orn_sharp = kwargs.get("stance_sharp_orn", 0.0)
+        self._tracking_stancetracking_orn_sharp = kwargs.get("stance_sharp_orn", 0.0)
 
         self._tracking_swing_pos_threshold = kwargs.get("swing_pos_threshold", 0.0)
         
@@ -127,7 +127,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         self._tracking_swing_z_coeff = kwargs.get("tracking_swing_z_coeff", 0.0)
         self._tracking_swing_z_sharp = kwargs.get("tracking_swing_z_sharp", 0.0)
 
-        # Nominal posture tracking weights and coefficients
+        # Nominal posture  weights and coefficients
         self._nominal_joint_pos_exp = kwargs.get("tracking_nominal_joint_pos_exp", 0.0)
         self._nominal_joint_pos_coeff = kwargs.get("tracking_nominal_joint_pos_coeff", 0.0)
         self._nominal_joint_pos_names = kwargs.get("tracking_nominal_joint_pos_names", None)

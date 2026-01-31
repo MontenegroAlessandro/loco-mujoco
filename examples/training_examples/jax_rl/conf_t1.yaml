@@ -45,19 +45,19 @@ experiment:
     goal_params:
       max_x_vel: 0.8
       max_y_vel: 0.5
-      max_yaw_vel: 1
-      max_height: 0.67
-      min_height: 0.67
+      max_yaw_vel: 1.5
+      max_height: 0.65
+      min_height: 0.65
       resample_rate: 0.004
       still_proportion: 0.1
-      gait_frequency_range: [1.0, 2.0] # Hz
+      gait_frequency_range: [1.0, 1.0] # Hz
       visualize_goal: true
       group: [prioritized, policy]
 
     
     headless: true
 
-    reward_type: CrispBoosterLocomotionReward
+    reward_type: CrispBoosterLocomotionReward #HumanoidLocomotionReward
     reward_params:
       survival: 0.25
       # tracking rewards
@@ -68,7 +68,7 @@ experiment:
       tracking_w_exp_angvel: 4.0
       tracking_w_sum_angvel: 1.0 # 0.5
       tracking_nominal_joint_pos_exp: 4
-      tracking_nominal_joint_pos_coeff: 0
+      tracking_nominal_joint_pos_coeff: 4.0
       tracking_nominal_joint_pos_names: 
         - AAHead_yaw
         - Head_pitch
@@ -85,7 +85,7 @@ experiment:
         - Left_Ankle_Roll
       # penalties
       joint_deviation_l1_coeff: -0.3
-      base_height_target: 0.68
+      base_height_target: 0.65
       base_height_coeff: -10.
       orientation_coeff: -5.
       joint_torque_coeff: -2.e-4
@@ -269,37 +269,37 @@ experiment:
         - 0.0 # AAHead_yaw
         - 0.0 # Head_pitch
         - 0.2 # Left_Shoulder_Pitch
-        - -1.35 # Left_Shoulder_Roll
+        - -1.2 # -1.35 # Left_Shoulder_Roll
         - 0.0 # Left_Elbow_Pitch
         - -0.5 # Left_Elbow_Yaw
         - 0.2 # Right_Shoulder_Pitch
-        - 1.35 # Right_Shoulder_Roll
+        - 1.2 # 1.35 # Right_Shoulder_Roll
         - 0.0 # Right_Elbow_Pitch
         - 0.5 # Right_Elbow_Yaw
         - 0.0 # Waist
         - -0.2 # Left_Hip_Pitch
         - 0.0 # Left_Hip_Roll
         - 0.0 # Left_Hip_Yaw
-        - 0.4 # Left_Knee_Pitch
+        - 0.5 # Left_Knee_Pitch
         - -0.25 # Left_Ankle_Pitch
         - 0.0 # Left_Ankle_Roll
         - -0.2 # Right_Hip_Pitch
         - 0.0 # Right_Hip_Roll
         - 0.0 # Right_Hip_Yaw
-        - 0.4 # Right_Knee_Pitch
+        - 0.5 # Right_Knee_Pitch
         - -0.25 # Right_Ankle_Pitch
         - 0.0 # Right_Ankle_Roll
 
     init_state_type: DefaultInitialStateHandler
     init_state_params:
-      qpos_init: [0, 0, 0.72, 
-                  1, 0, 0, 0, 
-                  0, 0,
-                  0.2, -1.35, 0, -0.5,
-                  0.2, 1.35, 0, 0.5,
-                  0,
-                  -0.2, 0, 0, 0.4, -0.25, 0,
-                  -0.2, 0, 0, 0.4, -0.25, 0]
+      qpos_init: [ 0, 0, 0.65,
+                   1, 0, 0, 0,
+                   0, 0,
+                   0.2,-1.2, 0, -0.5,
+                   0.2, 1.2, 0, 0.5,
+                   0,
+                   -0.2, 0, 0, 0.5, -0.25, 0,
+                   -0.2, 0, 0, 0.5, -0.25, 0 ]
 
       qvel_init: [0, 0, 0, 
                   0, 0, 0, 
@@ -313,10 +313,10 @@ experiment:
     domain_randomization_type: CustomRandomizer
     domain_randomization_params: 
 
-      total_timesteps: 600e6
+      total_timesteps: 1000e6
       num_curriculum_steps: 1
       num_environments: 8192
-      num_total_timesteps: 600e6
+      num_total_timesteps: 1000e6
       # gravity
       randomize_gravity: true
       gravity_range: [9.51, 10.11]
@@ -428,7 +428,7 @@ experiment:
   len_obs_history: 1
   num_envs: 8192
   num_steps: 50
-  total_timesteps: 600e6
+  total_timesteps: 1000e6
   update_epochs: 20
   num_minibatches: 1
   gamma: 0.995
