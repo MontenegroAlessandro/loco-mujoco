@@ -50,13 +50,11 @@ class StairPlanGenerator:
         left_plan = []
         right_plan = []
         
-        # Initial stance
+        # initial stance
         left_plan.append([0.0, self.feet_spacing/2, 0.0])
         right_plan.append([0.0, -self.feet_spacing/2, 0.0])
 
-        # Generate walking steps up to the stairs with EXACT step_len spacing
-        # Calculate how many steps fit before the first stair center
-        # We stop one step BEFORE the stair position to avoid overlap
+        # flat plane
         n_approach = int(self.start_x / self.step_len)
         if abs(self.start_x - n_approach * self.step_len) < 1e-6:
             n_approach -= 1
@@ -68,9 +66,9 @@ class StairPlanGenerator:
 
         last_x = n_approach * self.step_len
 
-        # UP stairs - place targets in the CENTER of each step
-        # First step center is at start_x
+        # stairs up
         for i in range(self.num_steps):
+            # height increases
             z = (i + 1) * self.step_height
             target_x = self.start_x + i * self.step_len
             
@@ -80,13 +78,10 @@ class StairPlanGenerator:
             last_x = target_x
             last_z = z
 
-        # PLATFORM - flat section at the top
-        # Platform geometry starts at front edge of last stair: last_x + step_len/2
-        # Platform extends for platform_length from there
+        # platform part
         platform_start_x = last_x + self.step_len / 2.0
         platform_end_x = platform_start_x + self.platform_length + self.step_len / 2.0
         
-        # Place footholds at step_len intervals across the platform
         n_platform = max(1, int(self.platform_length / self.step_len))
         
         for i in range(n_platform):
@@ -94,11 +89,9 @@ class StairPlanGenerator:
             left_plan.append([x, self.feet_spacing/2, last_z])
             right_plan.append([x, -self.feet_spacing/2, last_z])
 
-        # DOWN stairs - descending from platform
-        # Down stairs geometry starts at platform_end_x
-        # First down stair center is at platform_end_x at same height as platform
+        # stairs down
         for i in range(self.num_steps):
-            # Height decreases by step_height for each step
+            # height decreases
             z = last_z - (i) * self.step_height
             target_x = platform_end_x + i * self.step_len
             
@@ -106,10 +99,8 @@ class StairPlanGenerator:
             right_plan.append([target_x, -self.feet_spacing/2, z])
             
             last_x = target_x
-            # last_z = z
-
-        # Final approach steps on ground after descending
-        # Should be at z=0 now
+    
+        # final plane
         for i in range(1, n_approach + 1):
             x = last_x + i * self.step_len
             left_plan.append([x, self.feet_spacing/2, 0.0])
@@ -119,7 +110,7 @@ class StairPlanGenerator:
 
 # =====================================================================================================================
 class PlanFollowingGaitGenerator:
-    def __init__(self, model, data, left_plan, right_plan, gait_freq, policy_dt, max_vert: float = 0.4, feet_dist: float = 0.2):
+    def __init__(self, model, data, left_plan, right_plan, gait_freq, policy_dt, max_vert: float = 0.4, feet_dist: float = 0.2, target_yaw: float = 0.0):
         self.model = model
         self.data = data
         
@@ -131,61 +122,111 @@ class PlanFollowingGaitGenerator:
         self.gait_phase = 0.0
         self.max_vert = max_vert
         self.feet_dist = feet_dist
-
+        self.target_yaw = target_yaw
         self.l_idx = 0 # idx left plan
         self.r_idx = 0 # idx right plan
+        half_yaw = self.target_yaw / 2.0
+        self.target_quat = np.array([np.cos(half_yaw), 0, 0, np.sin(half_yaw)])  # foot orientation target
         
         self.prev_phase = 0.0 # to detect switches
         
         self.left_foot_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "left_foot")
         self.right_foot_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "right_foot")
 
-        # try:
-        #     left_foot_geom_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "left_foot_1")
-        #     self.foot_h_off = model.geom_size[left_foot_geom_id][0]/2
-        #     print(f"Foot height offset: {self.foot_h_off}m (capsule radius)")
-        # except:
-        #     # Fallback
-        #     self.foot_h_off = 0.02 
-        #     print(f"Warning: Could not find foot geom, using default offset: {self.foot_h_off}m")
-        self.foot_h_off = 0.0 
-
         # storing variables for giving the commands during the phase
-        self.l_off_phase_cmd = np.zeros(3)
-        self.r_off_phase_cmd = np.zeros(3)
-        self.l_orn_phase_cmd = np.array([1,0,0,0])
-        self.r_orn_phase_cmd = np.array([1,0,0,0])
+        self.reset(data)
 
-        self.gp_off = policy_dt * gait_freq
-
-    def reset(self):
+    def reset(self, data):
         """Reset the plan indices and gait phase."""
-        self.l_idx = 1
+        self.l_idx = 0
         self.r_idx = 0
-        self.gait_phase = 0.0
-        self.prev_phase = 0.0
+        
+        # Get robot's current yaw from quaternion
+        robot_quat = data.qpos[3:7]  # wxyz format
+        robot_yaw = np_R.from_quat([robot_quat[1], robot_quat[2], robot_quat[3], robot_quat[0]]).as_euler('xyz')[2]
+        
+        # Calculate yaw difference relative to target direction
+        yaw_diff = robot_yaw - self.target_yaw
+        # Normalize to [-pi, pi]
+        yaw_diff = np.arctan2(np.sin(yaw_diff), np.cos(yaw_diff))
+        
+        print(f"  Robot yaw: {np.rad2deg(robot_yaw):.2f}°, Target yaw: {np.rad2deg(self.target_yaw):.2f}°, Diff: {np.rad2deg(yaw_diff):.2f}°")
+        
+        # If robot is rotated left (positive yaw diff), move RIGHT foot first (phase 0.5)
+        # If robot is rotated right (negative yaw diff), move LEFT foot first (phase 0.0)
+        if yaw_diff < 0:
+            # Robot leaning right -> move LEFT foot first
+            self.gait_phase = 0.0
+            self.r_off_phase_cmd = np.zeros(3)
+            self.r_orn_phase_cmd = np.array([1, 0, 0, 0])
+            self.l_off_phase_cmd, self.l_orn_phase_cmd, _, _, _ = self.get_observation_cmd(data)
+            print(f"  Starting with LEFT foot swing (phase=0.0)")
+        else:
+            # Robot leaning left -> move RIGHT foot first
+            self.gait_phase = 0.5
+            self.l_off_phase_cmd = np.zeros(3)
+            self.l_orn_phase_cmd = np.array([1, 0, 0, 0])
+            _, _, self.r_off_phase_cmd, self.r_orn_phase_cmd, _ = self.get_observation_cmd(data)
+            print(f"  Starting with RIGHT foot swing (phase=0.5)")
+        
+        self.prev_phase = self.gait_phase
 
-        self.l_off_phase_cmd = np.zeros(3)
-        self.r_off_phase_cmd = np.zeros(3)
-        self.l_orn_phase_cmd = np.array([1,0,0,0])
-        self.r_orn_phase_cmd = np.array([1,0,0,0])
-        print(f"Controller reset: l_idx={self.l_idx}, r_idx={self.r_idx}, phase={self.gait_phase}")
+        # Clip foot offsets
+        self.l_off_phase_cmd[0] = np.clip(self.l_off_phase_cmd[0], -self.max_vert, self.max_vert) 
+        self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1], 0, self.feet_dist)
+        self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.max_vert, self.max_vert) 
+        self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, 0)
+        
+        print(f"  Controller reset: l_idx={self.l_idx}, r_idx={self.r_idx}, phase={self.gait_phase}")
+        print(f"  Initial commands: L={self.l_off_phase_cmd}, R={self.r_off_phase_cmd}")
 
         self.gp_off = self.policy_dt * self.gait_freq
 
-    def set_gp_offset(self, gp_off: float, min_off: float = 0.01, max_off: float = 0.04):
-        gp_off = np.clip(gp_off, -1, 1)
-        self.gp_off = gp_off * (max_off - min_off) / 2.0 + (max_off + min_off)/ 2.0
-        # print(f"[DEBUG] Gait Phase Offset set to: {self.gp_off:.4f}")
-
-    def update(self):
+    def reset_old(self, data):
+        """Reset the plan indices and gait phase."""
+        self.l_idx = 0
+        self.r_idx = 0
+        if self.target_yaw >= 0.0 and self.target_yaw <= np.pi:
+            self.gait_phase = 0.5
+            self.l_off_phase_cmd = np.zeros(3)
+            self.l_orn_phase_cmd = np.array([1, 0, 0, 0])
+            _, _, self.r_off_phase_cmd, self.r_orn_phase_cmd, _ = self.get_observation_cmd(data)
+        else:
+            self.gait_phase = 0.0
+            self.r_off_phase_cmd = np.zeros(3)
+            self.r_orn_phase_cmd = np.array([1, 0, 0, 0])
+            self.l_off_phase_cmd, self.l_orn_phase_cmd, _, _, _ = self.get_observation_cmd(data)
+        # self.gait_phase = 0.0
+        # self.r_off_phase_cmd = np.zeros(3)
+        # self.r_orn_phase_cmd = np.array([1, 0, 0, 0])
+        # self.l_off_phase_cmd, self.l_orn_phase_cmd, _, _, _ = self.get_observation_cmd(data)
         self.prev_phase = self.gait_phase
-        # self.gait_phase = (self.gait_phase + self.policy_dt * self.gait_freq) % 1.0
-        self.gait_phase = (self.gait_phase + self.gp_off) % 1.0
+
+        # self.r_off_phase_cmd = np.zeros(3)
+        # self.r_orn_phase_cmd = np.array([1, 0, 0, 0])
+        
+        # Get the left foot target (it's the swing foot at phase 0)
+        # l_off, l_orn, _, _, _ = self.get_observation_cmd(data)
+        # self.l_off_phase_cmd = l_off
+        # self.l_orn_phase_cmd = l_orn
+        
+        # Clip left foot offset
+        self.l_off_phase_cmd[0] = np.clip(self.l_off_phase_cmd[0], -self.max_vert, self.max_vert) 
+        self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1], 0, self.feet_dist)
+        self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.max_vert, self.max_vert) 
+        self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, 0)
+        
+        print(f"Controller reset: l_idx={self.l_idx}, r_idx={self.r_idx}, phase={self.gait_phase}")
+        print(f"  Initial commands: L={self.l_off_phase_cmd}, R={self.r_off_phase_cmd}")
+
+        self.gp_off = self.policy_dt * self.gait_freq
+
+    def update(self, data):
+        self.prev_phase = self.gait_phase
+        self.gait_phase = (self.gait_phase + self.policy_dt * self.gait_freq) % 1.0
         
         # switching phase from right swing foot to left
-        if self.prev_phase > 0.5 and self.gait_phase < 0.5:
-            # self.l_idx = min(self.l_idx + 1, len(self.left_plan) - 1)
+        if (self.prev_phase > 0.5 and self.gait_phase < 0.5):
             self.l_idx = min(self.r_idx + 1, len(self.left_plan) - 1)
 
             # right foot is stance
@@ -193,21 +234,14 @@ class PlanFollowingGaitGenerator:
             self.r_orn_phase_cmd = np.array([1,0,0,0])
 
             # computing offsets for the left foot
-            self.l_off_phase_cmd, self.l_orn_phase_cmd = self.get_observation_cmd()[:2]
+            self.l_off_phase_cmd, self.l_orn_phase_cmd = self.get_observation_cmd(data)[:2]
 
-            # if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
-            #     (self.l_idx == 0 and self.r_idx == 0):
-            #     self.l_off_phase_cmd, self.l_orn_phase_cmd = self.left_plan[-1] - self.right_plan[-1], np.array([1,0,0,0])
-            if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
-                (self.l_idx == 0 and self.r_idx == 0):
-                # self.l_off_phase_cmd = self.left_plan[-1] - self.right_plan[-1]
-                self.l_off_phase_cmd[2] = 0
+            # clip values into the allotted range
             self.l_off_phase_cmd[0] = np.clip(self.l_off_phase_cmd[0], -self.max_vert, self.max_vert) 
             self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1], 0, self.feet_dist)
         
         # switching phase from right swing foot to left
-        if self.prev_phase <= 0.5 and self.gait_phase > 0.5:
-            # self.r_idx = min(self.r_idx + 1, len(self.right_plan) - 1)
+        if (self.prev_phase <= 0.5 and self.gait_phase > 0.5):
             self.r_idx = min(self.l_idx + 1, len(self.right_plan) - 1)
 
             # left foot is stance
@@ -215,54 +249,76 @@ class PlanFollowingGaitGenerator:
             self.l_orn_phase_cmd = np.array([1,0,0,0])
 
             # computing the offsets for the right foot
-            self.r_off_phase_cmd, self.r_orn_phase_cmd = self.get_observation_cmd()[2:4]
+            self.r_off_phase_cmd, self.r_orn_phase_cmd = self.get_observation_cmd(data)[2:4]
 
-            # if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
-            #     (self.l_idx == 0 and self.r_idx == 0):
-            #     self.r_off_phase_cmd, self.r_orn_phase_cmd = self.right_plan[-1] - self.left_plan[-1], np.array([1,0,0,0])
-            if (self.l_idx == len(self.left_plan) -1 and self.r_idx == len(self.right_plan) -1) or \
-                (self.l_idx == 0 and self.r_idx == 0):
-                # self.r_off_phase_cmd = self.right_plan[-1] - self.left_plan[-1]
-                self.r_off_phase_cmd[2] = 0
+            # clip values into the allotted range
             self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.max_vert, self.max_vert) 
             self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, 0)
 
-        # print(f"[DEBUG] Gait Phase: {self.gait_phase:.3f}, l_idx: {self.l_idx}, r_idx: {self.r_idx}")
-
-    def get_observation_cmd(self):
-        """
-        Returns:
-            l_offset (3), l_quat (4), r_offset (3), r_quat (4)
-            All expressed in the STANCE FOOT frame.
-        """
+    def get_observation_cmd_old(self, data):
+        # get who is the stance foot
         is_left_swing = (self.gait_phase < 0.5)
-        
         if is_left_swing:
             stance_id = self.right_foot_id
         else:
             stance_id = self.left_foot_id
 
-        stance_pos = self.data.site_xpos[stance_id]
-        stance_mat = self.data.site_xmat[stance_id].reshape(3, 3)
+        # get stance data
+        stance_pos = data.site_xpos[stance_id]
+        stance_mat = data.site_xmat[stance_id].reshape(3, 3)
         stance_quat = np_R.from_matrix(stance_mat).as_quat(scalar_first=True) # wxyz
         
-        target_pos_L = self.left_plan[self.l_idx]
-        target_pos_R = self.right_plan[self.r_idx]
-        
-        target_quat_L = np.array([1, 0, 0, 0]) # wxyz
-        target_quat_R = np.array([1, 0, 0, 0])
-        
-        l_rel_pos, l_rel_quat = self._to_stance_frame(target_pos_L, target_quat_L, stance_pos, stance_mat, stance_quat)
-        r_rel_pos, r_rel_quat = self._to_stance_frame(target_pos_R, target_quat_R, stance_pos, stance_mat, stance_quat)
-
+        # get offsets
         if is_left_swing:
             r_rel_pos = np.zeros(3)
             r_rel_quat = np.array([1, 0, 0, 0])
+            l_rel_pos, l_rel_quat = self._to_stance_frame(self.left_plan[self.l_idx], self.target_quat, stance_pos, stance_mat, stance_quat)
         else:
             l_rel_pos = np.zeros(3)
             l_rel_quat = np.array([1, 0, 0, 0])
+            r_rel_pos, r_rel_quat = self._to_stance_frame(self.right_plan[self.r_idx], self.target_quat, stance_pos, stance_mat, stance_quat)
         
         gait_info = np.array([np.cos(2 * np.pi * self.gait_phase), np.sin(2 * np.pi * self.gait_phase)])
+
+        # print(f"[DEBUG] get_obs_cmd - L_rel_pos: {l_rel_pos}, R_rel_pos: {r_rel_pos}, phase: {self.gait_phase}")
+        
+        return l_rel_pos, l_rel_quat, r_rel_pos, r_rel_quat, gait_info
+    
+    def get_observation_cmd(self, data):
+        is_left_swing = (self.gait_phase < 0.5)
+        
+        if is_left_swing:
+            stance_id = self.right_foot_id
+            swing_target_pos = self.left_plan[self.l_idx]
+        else:
+            stance_id = self.left_foot_id
+            swing_target_pos = self.right_plan[self.r_idx]
+
+        stance_pos = data.site_xpos[stance_id]
+        stance_mat = data.site_xmat[stance_id].reshape(3, 3)
+        stance_quat = np_R.from_matrix(stance_mat).as_quat(scalar_first=True) # wxyz
+        
+        # Target for swing foot (relative to current stance foot)
+        target_quat = self.target_quat # np.array([1, 0, 0, 0]) # wxyz
+        swing_rel_pos, swing_rel_quat = self._to_stance_frame(
+            swing_target_pos, target_quat, stance_pos, stance_mat, stance_quat
+        )
+        
+        # Stance foot always has zero offset relative to itself
+        stance_rel_pos = np.zeros(3)
+        stance_rel_quat = np.array([1, 0, 0, 0])
+        
+        # Assign to left/right based on which is swinging
+        if is_left_swing:
+            l_rel_pos, l_rel_quat = swing_rel_pos, swing_rel_quat
+            r_rel_pos, r_rel_quat = stance_rel_pos, stance_rel_quat
+        else:
+            r_rel_pos, r_rel_quat = swing_rel_pos, swing_rel_quat
+            l_rel_pos, l_rel_quat = stance_rel_pos, stance_rel_quat
+        
+        gait_info = np.array([np.cos(2 * np.pi * self.gait_phase), np.sin(2 * np.pi * self.gait_phase)])
+
+        # print(f"[DEBUG] get_obs_cmd - L_rel_pos: {l_rel_pos}, R_rel_pos: {r_rel_pos}, phase: {self.gait_phase:.3f}, swing={'LEFT' if is_left_swing else 'RIGHT'}")
         
         return l_rel_pos, l_rel_quat, r_rel_pos, r_rel_quat, gait_info
 
@@ -281,10 +337,6 @@ class PlanFollowingGaitGenerator:
         
         rel_rot = r_s.inv() * r_t
         rel_quat_xyzw = rel_rot.as_quat()
-
-        # if abs(rel_pos[2]) < 0.01:  # 1cm threshold
-        #     rel_pos[2] = 0.0
-        rel_pos[2] -= self.foot_h_off
         
         return rel_pos, xyzw_to_wxyz(rel_quat_xyzw)
 
@@ -346,8 +398,7 @@ def main(config: DictConfig):
     PLATFORM_LENGTH = STEP_LEN * 4
     FEET_DIST = float(config["command"]["feet_distance"])
     MAX_VERT = 0.4
-    velocity_based = config["command"].get("velocity", False)
-    obs_dim = 16 if not velocity_based else 6
+    obs_dim = 16 
 
     xml_path = config["xml_path"]
     simulation_dt = config["simulation_dt"]
@@ -360,16 +411,12 @@ def main(config: DictConfig):
     default_angles = np.array(config["default_angles"], dtype=np.float32)
     min_angles = np.array(config["min_angles"], dtype=np.float32)
     max_angles = np.array(config["max_angles"], dtype=np.float32)
-    asymmetric = config["scale_action_to_jnt_limits"]
 
     num_qj = len(default_angles)
     num_actions = config["num_actions"]
-    is_gp_adaptive = config["command"].get("is_gp_adaptive", False)
-    num_actions += 1 if is_gp_adaptive else 0
     cmd_params = config["command"]
 
     # --- Load Policy ---
-    lmj_hydra_config = hydra.compose(config_name="conf_t1")
     policy = LMJPolicy(policy_path=agent_path)
 
     num_obs = 3 + num_qj + 3 + num_qj + num_actions + 6
@@ -388,6 +435,8 @@ def main(config: DictConfig):
     # Determine orientation based on obstacle position
     is_backward = STAIR_START_X < 0
     orientation_yaw = 180.0 if is_backward else 0.0
+    yaw_off = cmd_params["yaw_off"]
+    orientation_yaw += yaw_off
     
     first_step_center = [STAIR_START_X, 0.0, STEP_HEIGHT/2]
 
@@ -405,14 +454,45 @@ def main(config: DictConfig):
     )
     
     # Always generate plan with positive coordinates, then flip if needed
-    planner = StairPlanGenerator(np.abs(STAIR_START_X), N_STEPS, STEP_LEN, STEP_HEIGHT, STEP_WIDTH, FEET_DIST, 
-                                 platform_length=PLATFORM_LENGTH)
+    planner = StairPlanGenerator(
+        np.abs(STAIR_START_X), N_STEPS, STEP_LEN, STEP_HEIGHT, STEP_WIDTH, FEET_DIST, platform_length=PLATFORM_LENGTH
+    )
     l_plan, r_plan = planner.generate_plan()
     
-    # If obstacle is backward, just negate x-coordinates (keep same sequence)
+    # If obstacle is backward, negate x-coordinates (keep same sequence)
     if is_backward:
         l_plan[:, 0] = -l_plan[:, 0]
         r_plan[:, 0] = -r_plan[:, 0]
+        # l_plan = np.flip(l_plan, axis=0).copy() 
+        # r_plan = np.flip(r_plan, axis=0).copy()
+    
+    # Rotate the foothold plans to match obstacle orientation (for yaw_off)
+    if yaw_off != 0.0:
+        # Convert yaw offset to radians (not total orientation_yaw, just the offset)
+        yaw_rad = np.deg2rad(yaw_off)
+        cos_yaw = np.cos(yaw_rad)
+        sin_yaw = np.sin(yaw_rad)
+        
+        # Rotate around the stair start position
+        center = np.array([STAIR_START_X, 0.0, 0.0])
+        
+        for i in range(len(l_plan)):
+            # Translate to origin
+            pos = l_plan[i] - center
+            # Rotate
+            x_new = pos[0] * cos_yaw - pos[1] * sin_yaw
+            y_new = pos[0] * sin_yaw + pos[1] * cos_yaw
+            # Translate back
+            l_plan[i, 0] = x_new + center[0]
+            l_plan[i, 1] = y_new + center[1]
+            # z stays the same
+        
+        for i in range(len(r_plan)):
+            pos = r_plan[i] - center
+            x_new = pos[0] * cos_yaw - pos[1] * sin_yaw
+            y_new = pos[0] * sin_yaw + pos[1] * cos_yaw
+            r_plan[i, 0] = x_new + center[0]
+            r_plan[i, 1] = y_new + center[1]
     
     for i, pos in enumerate(l_plan):
         wb.add_site(name=f"tgt_L_{i}", pos=pos, size=(0.02, 0.02, 0.02), rgba=(0, 0, 1, 0.5), group=2)
@@ -428,15 +508,19 @@ def main(config: DictConfig):
     m.opt.timestep = simulation_dt
 
     # init state from policy config
-    if sign > 0 or 1:
-        initial_qpos = np.array(config["init_state_params"]["qpos_init"], dtype=np.float32)
-        initial_qvel = np.array(config["init_state_params"]["qvel_init"], dtype=np.float32)
-        if len(initial_qpos) == m.nq and len(initial_qvel) == m.nv:
-            d.qpos[:] = initial_qpos
-            d.qvel[:] = initial_qvel
-            print("Initial state loaded from policy config.")
-        else:
-            print("Warning: init state length mismatch. Using default init.")
+    initial_qpos = np.array(config["init_state_params"]["qpos_init"], dtype=np.float32)
+    initial_qvel = np.array(config["init_state_params"]["qvel_init"], dtype=np.float32)
+    random_yaw_deg = np.random.uniform(-30, 30)
+    random_yaw_rad = np.deg2rad(random_yaw_deg)
+    random_quat = np_R.from_euler('z', random_yaw_rad).as_quat(scalar_first=True)
+    initial_qpos[3:7] = random_quat
+    print(f"  Randomized initial yaw: {random_yaw_deg:.2f}°")
+    if len(initial_qpos) == m.nq and len(initial_qvel) == m.nv:
+        d.qpos[:] = initial_qpos
+        d.qvel[:] = initial_qvel
+        print("Initial state loaded from policy config.")
+    else:
+        print("Warning: init state length mismatch. Using default init.")
 
     mujoco.mj_forward(m, d)
     initial_qpos = d.qpos.copy()
@@ -444,7 +528,10 @@ def main(config: DictConfig):
 
     # --- Controller ---
     gait_freq = float(config["command"]["gait_frequency"])
-    planner_ctrl = PlanFollowingGaitGenerator(m, d, l_plan, r_plan, gait_freq, simulation_dt * control_decimation, max_vert=MAX_VERT)
+    planner_ctrl = PlanFollowingGaitGenerator(
+        m, d, l_plan, r_plan, gait_freq, simulation_dt * control_decimation, max_vert=MAX_VERT, 
+        feet_dist=FEET_DIST, target_yaw=np.deg2rad(orientation_yaw)
+    )
 
     # PD Gains
     kps = np.array(config["lmj_kps"], dtype=np.float32)
@@ -455,12 +542,8 @@ def main(config: DictConfig):
     # controller state
     action = np.zeros(num_actions, dtype=np.float32)
     target_dof_pos = default_angles.copy()
-    target_dof_kps = kps.copy()
-    target_dof_kds = kds.copy()
 
     cmd = np.zeros(obs_dim, dtype=np.float32)
-    counter = 1
-    gait_frequency = float(cmd_params["gait_frequency"])
     
     keyboard_state['paused'] = True  # Start paused
     keyboard_state['reset_requested'] = False
@@ -472,20 +555,24 @@ def main(config: DictConfig):
 
     # --- Simulation Loop ---
     with mujoco.viewer.launch_passive(m, d, key_callback=key_callback) as viewer:
-        start_time = time.time()
         while viewer.is_running():
             step_start = time.time()
             
             # Handle reset request
             if keyboard_state['reset_requested']:
-                print("Resetting controller")
-                planner_ctrl.reset()
-                action[:] = 0.0
-                target_dof_pos[:] = default_angles
+                print("Resetting controller and robot state")
+                # Reset physics state
                 d.qpos[:] = initial_qpos
                 d.qvel[:] = initial_qvel
+                mujoco.mj_forward(m, d)  
+                
+                # Reset controller (now with updated foot positions)
+                planner_ctrl.reset(d)
+                action[:] = 0.0
+                target_dof_pos[:] = default_angles
                 keyboard_state['paused'] = True
                 keyboard_state['reset_requested'] = False
+                print("Reset complete - press 'P' to start")
             
             if keyboard_state['paused']:
                 viewer.sync()
@@ -498,20 +585,11 @@ def main(config: DictConfig):
                 d.ctrl[:] = tau
                 mujoco.mj_step(m, d)
             
-            planner_ctrl.update()
+            planner_ctrl.update(d)
             
+            l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_cmd()
             # l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_observation_cmd()
-            if not velocity_based:
-                l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_cmd()
-                # l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_observation_cmd()
-                print(f"[DEBUG] LEFT: {l_off} - {l_orn}\t RIGHT: {r_off} - {r_orn}")
-            else:
-                vel_x = sign * cmd_params.get("vel_x", 0.0)
-                vel_y = cmd_params.get("vel_y", 0.0)
-                vel_z = cmd_params.get("vel_yaw", 0.0)
-                height = cmd_params.get("height", 0.0)
-                cmd_gp_cos = np.cos(2 * np.pi * planner_ctrl.gait_phase)
-                cmd_gp_sin = np.sin(2 * np.pi * planner_ctrl.gait_phase)
+            # print(f"[DEBUG] LEFT: {l_off} - {l_orn}\t RIGHT: {r_off} - {r_orn}")
             
             # Basic state
             qj = d.qpos[7:]
@@ -521,12 +599,7 @@ def main(config: DictConfig):
             projected_gravity = quat_rotate_inverse(quat, np.array([0.0, 0.0, -1.0]))
             
             # Command Vector
-            if not velocity_based:
-                cmd = np.concatenate([l_off, l_orn, r_off, r_orn, gait_info])
-            else:
-                cmd = np.array([vel_x, vel_y, vel_z, height, cmd_gp_cos, cmd_gp_sin])
-                print(cmd)
-            # cmd = np.concatenate([l_off, l_orn, r_off, r_orn, gait_info])
+            cmd = np.concatenate([l_off, l_orn, r_off, r_orn, gait_info])
             
             obs_list = []
             obs_list += projected_gravity.flatten().tolist()
@@ -537,39 +610,17 @@ def main(config: DictConfig):
             obs_list += cmd.flatten().tolist()
 
             # obs = [0.0] * 78 + obs_list
-            critic_n_obs = 78 if not is_gp_adaptive else 79
+            critic_n_obs = 78 
             obs = [0.0] * critic_n_obs + obs_list
             obs = np.array(obs, dtype=np.float32).reshape(1, -1)
 
-            # Override Head Pitch Angle in Observation
-            # obs[0, 81] = 0.0  # Head Yaw Angle
-            # obs[0, 82] = 0.0  # Head Pitch joint position
-            obs[0, critic_n_obs + 3] = 0.0  # Head Yaw Angle
-            obs[0, critic_n_obs + 4] = 0.0  # Head Pitch joint position
-
             # --- Policy Inference ---
             emitted_action = np.asarray(policy.predict_action(obs)).flatten()
-            if is_gp_adaptive:
-                # planner_ctrl.set_gp_offset(emitted_action[-1], min_off=cmd_params.get("min_gp_delta", 0.01), max_off=cmd_params.get("max_gp_delta", 0.04))
-                planner_ctrl.set_gp_offset(emitted_action[-1], min_off=0.01, max_off=0.01)
             # emitted_action = np.clip(emitted_action, -1.0, 1.0)
             clipped_action = np.clip(emitted_action, -1.0, 1.0)
-            if asymmetric:
-                neg = - min_angles + default_angles
-                pos = max_angles - default_angles
-                clipped_action = np.clip(clipped_action, None, 0.0) * neg + np.clip(clipped_action, 0.0, None) * pos
             action = emitted_action
 
-            # target dof pos
-            # target_dof_pos = action[:num_qj] + default_angles[:num_qj]
             target_dof_pos = clipped_action[:num_qj] + default_angles[:num_qj]
-
-            # head override
-            # target_dof_pos[0] = 0.0
-            # target_dof_pos[1] = 0.0 # 1.0
-            # force the arms
-            # target_dof_pos[3] = -1.2
-            # target_dof_pos[7] = 1.2
             target_dof_pos = np.clip(target_dof_pos, min_angles, max_angles)
             
             viewer.sync()

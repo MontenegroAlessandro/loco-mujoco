@@ -59,8 +59,8 @@ class StairEvaluator:
         return min(100.0, (covered_distance / total_distance) * 100.0)
     
     def run_trial(self, step_height: float, trial_num: int, max_time: float = 30.0, 
-                  headless: bool = True) -> EvaluationResult:
-        """Run a single evaluation trial"""
+                  headless: bool = True, randomize_orientation: bool = False,
+                  max_yaw_deg: float = 10.0) -> EvaluationResult:
         print(f"\n{'='*60}")
         print(f"Trial {trial_num + 1} - Step Height: {step_height}m")
         print(f"{'='*60}")
@@ -86,12 +86,9 @@ class StairEvaluator:
         default_angles = np.array(self.config["default_angles"], dtype=np.float32)
         min_angles = np.array(self.config["min_angles"], dtype=np.float32)
         max_angles = np.array(self.config["max_angles"], dtype=np.float32)
-        asymmetric = self.config["scale_action_to_jnt_limits"]
         
         num_qj = len(default_angles)
         num_actions = self.config["num_actions"]
-        is_gp_adaptive = self.config["command"].get("is_gp_adaptive", False)
-        num_actions += 1 if is_gp_adaptive else 0
         cmd_params = self.config["command"]
         
         # Load Policy
@@ -103,6 +100,8 @@ class StairEvaluator:
         
         is_backward = STAIR_START_X < 0
         orientation_yaw = 180.0 if is_backward else 0.0
+        yaw_off = cmd_params.get("yaw_off", 0.0)
+        orientation_yaw += yaw_off
         first_step_center = [STAIR_START_X, 0.0, STEP_HEIGHT/2]
         
         wb = add_stairs_platform_stairs(
@@ -144,6 +143,20 @@ class StairEvaluator:
         try:
             initial_qpos = np.array(self.config["init_state_params"]["qpos_init"], dtype=np.float32)
             initial_qvel = np.array(self.config["init_state_params"]["qvel_init"], dtype=np.float32)
+            
+            # Randomize orientation if requested
+            if randomize_orientation:
+                random_yaw_deg = np.random.uniform(-max_yaw_deg, max_yaw_deg)
+                random_yaw_rad = np.deg2rad(random_yaw_deg)
+                
+                # Create quaternion for random yaw rotation (w, x, y, z format for MuJoCo)
+                random_quat = np_R.from_euler('z', random_yaw_rad).as_quat(scalar_first=True)
+                
+                # Replace the quaternion in initial_qpos (indices 3:7)
+                initial_qpos[3:7] = random_quat
+                
+                print(f"  Randomized initial yaw: {random_yaw_deg:.2f}°")
+            
             if len(initial_qpos) == m.nq and len(initial_qvel) == m.nv:
                 d.qpos[:] = initial_qpos
                 d.qvel[:] = initial_qvel
@@ -156,7 +169,7 @@ class StairEvaluator:
         # Controller setup
         gait_freq = float(self.config["command"]["gait_frequency"])
         planner_ctrl = PlanFollowingGaitGenerator(m, d, l_plan, r_plan, gait_freq, 
-                                                  simulation_dt * control_decimation, max_vert=MAX_VERT)
+                                                  simulation_dt * control_decimation, max_vert=MAX_VERT, feet_dist=FEET_DIST, target_yaw=orientation_yaw)
         
         target_dof_pos = default_angles.copy()
         action = np.zeros(num_actions, dtype=np.float32)
@@ -205,7 +218,7 @@ class StairEvaluator:
                     d.ctrl[:] = tau
                     mujoco.mj_step(m, d)
                 
-                planner_ctrl.update()
+                planner_ctrl.update(d)
                 l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_cmd()
                 
                 # Build observation
@@ -224,7 +237,7 @@ class StairEvaluator:
                 obs_list += action.flatten().tolist()
                 obs_list += cmd.flatten().tolist()
                 
-                critic_n_obs = 78 if not is_gp_adaptive else 79
+                critic_n_obs = 78 
                 obs = [0.0] * critic_n_obs + obs_list
                 obs = np.array(obs, dtype=np.float32).reshape(1, -1)
                 obs[0, critic_n_obs + 3] = 0.0
@@ -232,21 +245,14 @@ class StairEvaluator:
                 
                 # Policy inference
                 emitted_action = np.asarray(policy.predict_action(obs)).flatten()
-                if is_gp_adaptive:
-                    planner_ctrl.set_gp_offset(emitted_action[-1], min_off=0.01, max_off=0.01)
-                
                 clipped_action = np.clip(emitted_action, -1.0, 1.0)
-                if asymmetric:
-                    neg = - min_angles + default_angles
-                    pos = max_angles - default_angles
-                    clipped_action = np.clip(clipped_action, None, 0.0) * neg + np.clip(clipped_action, 0.0, None) * pos
                 action = emitted_action
                 
                 target_dof_pos = clipped_action[:num_qj] + default_angles[:num_qj]
-                target_dof_pos[0] = 0.0
-                target_dof_pos[1] = 0.0
-                target_dof_pos[3] = -1.2
-                target_dof_pos[7] = 1.2
+                # target_dof_pos[0] = 0.0
+                # target_dof_pos[1] = 0.0
+                # target_dof_pos[3] = -1.2
+                # target_dof_pos[7] = 1.2
                 target_dof_pos = np.clip(target_dof_pos, min_angles, max_angles)
                 
                 if viewer is not None:
@@ -283,22 +289,37 @@ class StairEvaluator:
         return result
     
     def run_evaluation(self, step_heights: List[float], num_trials: int = 10, 
-                      headless: bool = True, max_time: float = 30.0):
-        """Run full evaluation across multiple heights and trials"""
+                      headless: bool = True, max_time: float = 30.0,
+                      randomize_orientation: bool = False, max_yaw_deg: float = 10.0):
+        """Run full evaluation across multiple heights and trials
+        
+        Args:
+            step_heights: List of step heights to test
+            num_trials: Number of trials per height
+            headless: Run without viewer
+            max_time: Maximum time per trial in seconds
+            randomize_orientation: Whether to randomize initial yaw orientation
+            max_yaw_deg: Maximum random yaw deviation in degrees (±)
+        """
         print(f"\n{'='*60}")
         print(f"Starting Evaluation")
         print(f"Step heights: {step_heights}")
         print(f"Trials per height: {num_trials}")
         print(f"Max time per trial: {max_time}s")
+        if randomize_orientation:
+            print(f"Orientation randomization: ±{max_yaw_deg}")
         print(f"{'='*60}\n")
         
         for height in step_heights:
             for trial in range(num_trials):
-                result = self.run_trial(height, trial, max_time=max_time, headless=headless)
+                result = self.run_trial(height, trial, max_time=max_time, 
+                                       headless=headless,
+                                       randomize_orientation=randomize_orientation,
+                                       max_yaw_deg=max_yaw_deg)
                 self.results.append(result)
                 
                 # Small delay between trials
-                time.sleep(0.5)
+                # time.sleep(0.5)
         
         self.print_summary()
         return self.results
@@ -365,21 +386,27 @@ class StairEvaluator:
 def main(config: DictConfig):
     # Configuration
     STEP_HEIGHTS = [
-        0.01, 
-        0.02,
-        0.04, 
-        0.08, 
-        0.10, 
+        # 0.01, 
+        # 0.02,
+        # 0.04, 
+        # 0.08, 
+        # 0.10, 
         0.11, 
-        0.12, 
-        0.13,
-        0.14,
-        0.15
+        # 0.115,
+        # 0.12, 
+        # 0.125,
+        # 0.13,
+        # 0.14,
+        # 0.15
     ]  
-    NUM_TRIALS = 10  
+    NUM_TRIALS = 100  
     MAX_TIME = 30.0  
     HEADLESS = True  
-    OUTPUT_FILE = "bwd_stair_evaluation_results_z.json"
+    OUTPUT_FILE = "fwd_stair_evaluation_results_z.json"
+    
+    # Orientation randomization settings
+    RANDOMIZE_ORIENTATION = True  # Set to True to enable randomization
+    MAX_YAW_DEG = 30.0  
     
     # Run evaluation
     evaluator = StairEvaluator(config)
@@ -387,7 +414,9 @@ def main(config: DictConfig):
         step_heights=STEP_HEIGHTS,
         num_trials=NUM_TRIALS,
         headless=HEADLESS,
-        max_time=MAX_TIME
+        max_time=MAX_TIME,
+        randomize_orientation=RANDOMIZE_ORIENTATION,
+        max_yaw_deg=MAX_YAW_DEG
     )
     
     # Save results

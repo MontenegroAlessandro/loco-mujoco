@@ -4,7 +4,10 @@
 # Updated with parameters and correct joint limits for a 23 DoF robot model.
 
 # policy parameters
-agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/nocv_d2_noterm_smalld_smallangles.pkl # <---
+# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/nocv_d2_noterm_smalld_smallangles.pkl # <---
+# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/fwdbwd_20.pkl 
+agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/fwdbwd_24.pkl # <-----------------------------
+# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/fwdbwd_24_simple.pkl # <---
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete_2/kick2.pkl # <---
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/velocity/booster_2309.pkl # <---
 # --- Simulation Parameters ---
@@ -22,7 +25,7 @@ control_decimation: 10 # policy will run every N physics steps (policy freq = 1 
 # - Waist
 # - Left_Hip_Pitch, Left_Hip_Roll, Left_Hip_Yaw, Left_Knee_Pitch, Left_Ankle_Pitch, Left_Ankle_Roll
 # - Right_Hip_Pitch, Right_Hip_Roll, Right_Hip_Yaw, Right_Knee_Pitch, Right_Ankle_Pitch, Right_Ankle_Roll
-scale_action_to_jnt_limits: false
+
 lmj_kps:
   - 10 # 40 # AAHead_yaw
   - 10 # 40 # Head_pitch
@@ -149,7 +152,7 @@ max_angles:
   - 0.44  # Right_Ankle_Roll
 
 init_state_params:
-  qpos_init: [0, 0, 0.72, 
+  qpos_init: [0, 0, 0.68, # 0.72, 
               1, 0, 0, 0, 
               0, 0,
               0.2,-1.2, 0, -0.5,
@@ -180,18 +183,10 @@ num_actions: 23 # Base number of actions (one per joint). Script will handle var
 # --- Command Parameters (for generating the `cmd` vector) ---
 # These are default command values. The valid ranges are in the comments.
 command:
-  feet_distance: 0.2
+  feet_distance: 0.25
   gait_frequency: 1.0
   stop_steps: 2
-  step_spacing: 0.35 # [0.2, 0.4]
-  step_height: 0.12 # max 0.12
+  step_spacing: 0.3 # [0.2, 0.4]
+  step_height: 0.1 # max 0.12 (also 13!!)
   direction: 1 # 1 for forward, -1 for backward
-  is_gp_adaptive: false
-  max_gp_delta: 0.04
-  min_gp_delta: 0.01
-  ### Velocity commands
-  velocity: false
-  vel_x: 0.5 
-  vel_y: 0.0  
-  vel_yaw: 0.0
-  height: 0.68
+  yaw_off: 0.0
