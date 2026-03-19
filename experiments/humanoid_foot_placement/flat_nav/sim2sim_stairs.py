@@ -18,6 +18,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 os.environ["JAX_PLATFORMS"] = "cpu"
 os.environ["XLA_FLAGS"] = "--xla_gpu_triton_gemm_any=True"
 
+EPS = 0.15
+
 # Global keyboard state
 keyboard_state = {
     'paused': True,
@@ -110,7 +112,9 @@ class StairPlanGenerator:
 
 # =====================================================================================================================
 class PlanFollowingGaitGenerator:
-    def __init__(self, model, data, left_plan, right_plan, gait_freq, policy_dt, max_vert: float = 0.4, feet_dist: float = 0.2, target_yaw: float = 0.0):
+    def __init__(
+            self, model, data, left_plan, right_plan, gait_freq, policy_dt, max_vert: float = 0.4, 
+            feet_dist: float = 0.2, target_yaw: float = 0.0, mode: str = "fast"):
         self.model = model
         self.data = data
         
@@ -127,6 +131,8 @@ class PlanFollowingGaitGenerator:
         self.r_idx = 0 # idx right plan
         half_yaw = self.target_yaw / 2.0
         self.target_quat = np.array([np.cos(half_yaw), 0, 0, np.sin(half_yaw)])  # foot orientation target
+        assert mode in ["slow", "fast"]
+        self.mode = mode
         
         self.prev_phase = 0.0 # to detect switches
         
@@ -227,7 +233,10 @@ class PlanFollowingGaitGenerator:
         
         # switching phase from right swing foot to left
         if (self.prev_phase > 0.5 and self.gait_phase < 0.5):
-            self.l_idx = min(self.r_idx + 1, len(self.left_plan) - 1)
+            if self.mode == "fast":
+                self.l_idx = min(self.r_idx + 1, len(self.left_plan) - 1)
+            else:
+                self.l_idx = min(self.l_idx + 1, len(self.left_plan) - 1)
 
             # right foot is stance
             self.r_off_phase_cmd = np.zeros(3)
@@ -238,11 +247,15 @@ class PlanFollowingGaitGenerator:
 
             # clip values into the allotted range
             self.l_off_phase_cmd[0] = np.clip(self.l_off_phase_cmd[0], -self.max_vert, self.max_vert) 
-            self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1], 0, self.feet_dist)
+            self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1], EPS, self.feet_dist)
+            self.l_off_phase_cmd[2] = self.left_plan[self.l_idx][2]  - self.right_plan[self.r_idx][2]
         
         # switching phase from right swing foot to left
         if (self.prev_phase <= 0.5 and self.gait_phase > 0.5):
-            self.r_idx = min(self.l_idx + 1, len(self.right_plan) - 1)
+            if self.mode == "fast":
+                self.r_idx = min(self.l_idx + 1, len(self.right_plan) - 1)
+            else:
+                self.r_idx = min(self.r_idx + 1, len(self.right_plan) - 1)
 
             # left foot is stance
             self.l_off_phase_cmd = np.zeros(3)
@@ -253,7 +266,8 @@ class PlanFollowingGaitGenerator:
 
             # clip values into the allotted range
             self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.max_vert, self.max_vert) 
-            self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, 0)
+            self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, -EPS)
+            self.r_off_phase_cmd[2] = self.right_plan[self.r_idx][2]  - self.left_plan[self.l_idx][2]
 
     def get_observation_cmd_old(self, data):
         # get who is the stance foot
@@ -399,6 +413,8 @@ def main(config: DictConfig):
     FEET_DIST = float(config["command"]["feet_distance"])
     MAX_VERT = 0.4
     obs_dim = 16 
+    success = False
+    mode = config["command"]["mode"]
 
     xml_path = config["xml_path"]
     simulation_dt = config["simulation_dt"]
@@ -557,6 +573,10 @@ def main(config: DictConfig):
     with mujoco.viewer.launch_passive(m, d, key_callback=key_callback) as viewer:
         while viewer.is_running():
             step_start = time.time()
+
+            if np.linalg.norm(d.qpos[:2] - planner_ctrl.left_plan[-1][:2]) < 0.5:
+                success = True
+                # print("SUCCESS")
             
             # Handle reset request
             if keyboard_state['reset_requested']:
@@ -573,6 +593,7 @@ def main(config: DictConfig):
                 keyboard_state['paused'] = True
                 keyboard_state['reset_requested'] = False
                 print("Reset complete - press 'P' to start")
+                success = False
             
             if keyboard_state['paused']:
                 viewer.sync()
@@ -589,7 +610,7 @@ def main(config: DictConfig):
             
             l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_cmd()
             # l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_observation_cmd()
-            # print(f"[DEBUG] LEFT: {l_off} - {l_orn}\t RIGHT: {r_off} - {r_orn}")
+            print(f"[DEBUG] LEFT: {l_off} - {l_orn}\t RIGHT: {r_off} - {r_orn}")
             
             # Basic state
             qj = d.qpos[7:]

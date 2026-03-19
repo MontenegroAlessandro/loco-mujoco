@@ -103,6 +103,10 @@ experiment:
       sharp_orn: 100.0 # 10
       stance_sharp_pos: 100.0
       stance_sharp_orn: 100.0 
+      # knee
+      knee_lift_coeff: 0.0        
+      knee_lift_sharp: 100.0       
+      knee_clearance_margin: 0.18 
       # gait
       gait_height_sharp: 100.0
       gait_height_coeff: 4.0

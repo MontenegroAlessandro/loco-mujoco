@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import List, Dict
 import json
 from pathlib import Path
+import imageio
 
 from loco_mujoco.environments.utils import add_stairs_platform_stairs
 from loco_mujoco.algorithms import PPOJax
@@ -60,7 +61,7 @@ class StairEvaluator:
     
     def run_trial(self, step_height: float, trial_num: int, max_time: float = 30.0, 
                   headless: bool = True, randomize_orientation: bool = False,
-                  max_yaw_deg: float = 10.0) -> EvaluationResult:
+                  max_yaw_deg: float = 10.0, record_video: bool = False) -> EvaluationResult:
         print(f"\n{'='*60}")
         print(f"Trial {trial_num + 1} - Step Height: {step_height}m")
         print(f"{'='*60}")
@@ -128,16 +129,45 @@ class StairEvaluator:
         
         # Add visual markers for goal
         goal_pos = l_plan[-1]  # Last foothold position
-        wb.add_site(name="goal_marker", pos=goal_pos, size=(0.1, 0.1, 0.1), 
-                   rgba=(0, 1, 0, 0.8), group=2, type=mujoco.mjtGeom.mjGEOM_SPHERE)
+        for i, pos in enumerate(l_plan):
+            wb.add_site(name=f"tgt_L_{i}", pos=pos, size=(0.02, 0.02, 0.02), rgba=(0, 0, 1, 0.5), group=2)
+        for i, pos in enumerate(r_plan):
+            wb.add_site(name=f"tgt_R_{i}", pos=pos, size=(0.02, 0.02, 0.02), rgba=(1, 0, 0, 0.5), group=2)
+        # wb.add_site(name="goal_marker", pos=goal_pos, size=(0.1, 0.1, 0.1), 
+        #            rgba=(0, 1, 0, 0.8), group=2, type=mujoco.mjtGeom.mjGEOM_SPHERE)
         
         for geom in spec.geoms:
             if geom.name.endswith("_col"):
                 geom.delete()
-        
+
         m = spec.compile()
         d = mujoco.MjData(m)
         m.opt.timestep = simulation_dt
+
+        # adjust resolution
+        if record_video:
+            m.vis.global_.offwidth = 1280
+            m.vis.global_.offheight = 720
+        cam_z = 0.8
+
+        # video
+        video_writer = None
+        if record_video:
+            video_dir = Path("videos")
+            video_dir.mkdir(exist_ok=True)
+            video_path = video_dir / f"stair_l_{STEP_LEN}m_h_{step_height}m_trial_{trial_num}.mp4"
+            video_writer = imageio.get_writer(video_path, fps=30)
+            
+            # camera setup
+            renderer = mujoco.Renderer(m, height=720, width=1280)
+            cam = mujoco.MjvCamera()
+            cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+            # Initial camera settings to follow the robot
+            cam.distance = 4.0 
+            cam.elevation = -20.0
+            
+        render_dt = 1.0 / 30.0  # Recording at 30 FPS
+        last_render_time = 0.0
         
         # Initialize state
         try:
@@ -258,9 +288,20 @@ class StairEvaluator:
                 if viewer is not None:
                     viewer.sync()
                 
+                if record_video and (d.time - last_render_time) >= render_dt:
+                    cam.lookat = d.qpos[0:3] 
+                    cam.lookat[2] = cam_z
+                    renderer.update_scene(d, cam)
+                    pixels = renderer.render()
+                    video_writer.append_data(pixels)
+                    last_render_time = d.time
         finally:
             if viewer is not None:
                 viewer.close()
+            
+            if video_writer is not None:
+                video_writer.close()
+                print(f"Video saved at: {video_path}")
         
         # Calculate final metrics
         final_pos = d.qpos[:3]
@@ -290,7 +331,7 @@ class StairEvaluator:
     
     def run_evaluation(self, step_heights: List[float], num_trials: int = 10, 
                       headless: bool = True, max_time: float = 30.0,
-                      randomize_orientation: bool = False, max_yaw_deg: float = 10.0):
+                      randomize_orientation: bool = False, max_yaw_deg: float = 10.0, record_video: bool = False) -> List[EvaluationResult]:
         """Run full evaluation across multiple heights and trials
         
         Args:
@@ -300,6 +341,7 @@ class StairEvaluator:
             max_time: Maximum time per trial in seconds
             randomize_orientation: Whether to randomize initial yaw orientation
             max_yaw_deg: Maximum random yaw deviation in degrees (±)
+            record_video: Whether to record video of the trials
         """
         print(f"\n{'='*60}")
         print(f"Starting Evaluation")
@@ -315,7 +357,7 @@ class StairEvaluator:
                 result = self.run_trial(height, trial, max_time=max_time, 
                                        headless=headless,
                                        randomize_orientation=randomize_orientation,
-                                       max_yaw_deg=max_yaw_deg)
+                                       max_yaw_deg=max_yaw_deg,record_video=record_video)
                 self.results.append(result)
                 
                 # Small delay between trials
@@ -390,19 +432,18 @@ def main(config: DictConfig):
         # 0.02,
         # 0.04, 
         # 0.08, 
-        # 0.10, 
-        0.11, 
+        0.10, 
+        # 0.11, 
         # 0.115,
         # 0.12, 
         # 0.125,
         # 0.13,
-        # 0.14,
-        # 0.15
     ]  
-    NUM_TRIALS = 100  
+    NUM_TRIALS = 10 # 100  
     MAX_TIME = 30.0  
     HEADLESS = True  
     OUTPUT_FILE = "fwd_stair_evaluation_results_z.json"
+    RECORD_VIDEO = True
     
     # Orientation randomization settings
     RANDOMIZE_ORIENTATION = True  # Set to True to enable randomization
@@ -416,7 +457,8 @@ def main(config: DictConfig):
         headless=HEADLESS,
         max_time=MAX_TIME,
         randomize_orientation=RANDOMIZE_ORIENTATION,
-        max_yaw_deg=MAX_YAW_DEG
+        max_yaw_deg=MAX_YAW_DEG,
+        record_video=RECORD_VIDEO
     )
     
     # Save results

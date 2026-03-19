@@ -80,6 +80,11 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name) 
             for name in self._right_foot_names
         ]
+
+        # left and right knee names ids
+        # TODO: make it more general by not hardcoding the names
+        self._left_knee_site_id  = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "left_knee_mimic")
+        self._right_knee_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "right_knee_mimic")
         
         self._left_foot_body_ids = [model.geom_bodyid[foot_id] for foot_id in self._left_foot_ids]
         self._right_foot_body_ids = [model.geom_bodyid[foot_id] for foot_id in self._right_foot_ids]
@@ -126,6 +131,11 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         # terms to track the 
         self._tracking_swing_z_coeff = kwargs.get("tracking_swing_z_coeff", 0.0)
         self._tracking_swing_z_sharp = kwargs.get("tracking_swing_z_sharp", 0.0)
+
+        # knee-related terms
+        self._knee_lift_coeff = kwargs.get("knee_lift_coeff", 0.0)
+        self._knee_lift_sharp = kwargs.get("knee_lift_sharp", 10.0)
+        self._knee_clearance_margin = kwargs.get("knee_clearance_margin", 0.20)
 
         # Nominal posture  weights and coefficients
         self._nominal_joint_pos_exp = kwargs.get("tracking_nominal_joint_pos_exp", 0.0)
@@ -224,6 +234,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             "tracking/joint_qpos_reward": 0.,
             "tracking/feet_swing_reward": 0.,
             "tracking/gait_height_reward": 0.,
+            "tracking/knee_height": 0.,
             "penalties/joint_deviation_l1_penalty": 0.,
             "penalties/base_height_reward": 0.,
             "penalties/orientation_reward": 0.,
@@ -393,6 +404,12 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             ),
             lambda: reward_state
         )
+        # get stance and swing site ids for the knees
+        swing_knee_site_id, stance_knee_site_id = jax.lax.cond(
+            swing_foot_idx == 0,  # left is swinging
+            lambda: (self._left_knee_site_id, self._right_knee_site_id),
+            lambda: (self._right_knee_site_id, self._left_knee_site_id),
+        )
         
         # ==============================================REWARD COMPONENTS==============================================
         # Survival reward
@@ -473,6 +490,13 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq)
             swing_z_reward_plain = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq_plain)
             stance_z_reward = reward_state.stance_z_reward
+
+            # knee height reward
+            swing_knee_z = data.site_xpos[swing_knee_site_id][2]
+            knee_target_z = swing_target_z + self._knee_clearance_margin
+            knee_z_error = backend.maximum(knee_target_z - swing_knee_z, 0.0) # just one sided
+            knee_lift_reward = self._knee_lift_coeff * backend.exp(-self._knee_lift_sharp * backend.square(knee_z_error))
+            # TODO: adaptive gait?
             
             # update in the state the last reward
             reward_state = reward_state.replace(
@@ -512,6 +536,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             stance_orn_reward = 0
             swing_z_reward = 0
             stance_z_reward = 0
+            knee_lift_reward = 0
 
         # Base height reward
         floor_offset = env._terrain.get_height_at_xy(carry.terrain_state, global_pos_root[:2], backend)
@@ -924,6 +949,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         stance_z_reward *= env.dt
         gait_height_reward *= env.dt
         gen_gp_reward *= env.dt
+        knee_lift_reward *= env.dt
         joint_qpos_reward *= (joint_qpos_coeff * env.dt)
         joint_deviation_l1_penalty *= (self._joint_deviation_l1_coeff * env.dt)
         base_height_reward *= (self._base_height_coeff * env.dt)
@@ -956,7 +982,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             stance_pos_reward + stance_orn_reward +
             joint_qpos_reward + feet_swing_reward +
             swing_z_reward + stance_z_reward +
-            gait_height_reward + gen_gp_reward
+            gait_height_reward + gen_gp_reward + knee_lift_reward
         )
         
         penalty_rewards = (
@@ -997,6 +1023,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             "tracking/gait_height_reward": gait_height_reward,
             "tracking/joint_qpos_reward": joint_qpos_reward,
             "tracking/feet_swing_reward": feet_swing_reward,
+            "tracking/knee_height": knee_lift_reward,
             "penalties/base_height_reward": base_height_reward,
             "penalties/joint_deviation_l1_penalty": joint_deviation_l1_penalty,
             "penalties/orientation_reward": orientation_reward,
@@ -1018,7 +1045,7 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             "penalties/feet_distance_reward": feet_distance_reward,
             "penalties/air_time_reward": air_time_reward,
             "penalties/no_fly_reward": no_fly_reward,
-            "penalties/impact_reward": impact_reward,
+            "penalties/impact_reward": impact_reward
         }
         
         reward_state = reward_state.replace(reward_components=updated_reward_components)

@@ -110,6 +110,10 @@ experiment:
       gait_height_coeff: 4.0
       tracking_swing_z_coeff: 4.0
       tracking_swing_z_sharp: 100.0
+      # knee
+      knee_lift_coeff: 0.0        
+      knee_lift_sharp: 100.0       
+      knee_clearance_margin: 0.1
       # gp
       gen_gp_coeff: 2.0
       gen_gp_coeff_sharp: 200.0
