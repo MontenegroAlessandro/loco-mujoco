@@ -4,7 +4,8 @@
 # Updated with parameters and correct joint limits for a 23 DoF robot model.
 
 # policy parameters
-agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/28.pkl 
+# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/28.pkl 
+agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/knee-0.pkl 
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/nocv_d2_noterm_smalld_smallangles.pkl # <---
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/fwdbwd_20.pkl 
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/fwdbwd_24.pkl # <-----------------------------
@@ -188,8 +189,8 @@ command:
   feet_distance: 0.25
   gait_frequency: 1.0
   stop_steps: 2
-  step_spacing: 0.325 # [0.2, 0.4]
-  step_height: 0.135 # max 0.12 (also 13!!)
+  step_spacing: 0.35 # [0.2, 0.4]
+  step_height: 0.12 # max 0.12 (also 13!!)
   direction: 1 # 1 for forward, -1 for backward
   yaw_off: 0.0
   mode: fast

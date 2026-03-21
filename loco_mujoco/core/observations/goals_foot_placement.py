@@ -111,6 +111,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             is_gp_adaptive: bool = False,
             # needed for saving robot
             feet_swing_period: float = 0.2,
+            # flag indicating whether to have the observation in the root frame
+            root_frame: bool = False,
             **kwargs
         ):
         # store parameters
@@ -141,7 +143,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.is_gp_adaptive = is_gp_adaptive
         self._feet_swing_period = feet_swing_period
         self.just_fwd_bwd = just_fwd_bwd
-        
+        self.root_frame = root_frame
         # curriculum parmeters
         self.curriculum = curriculum
         curriculum_ends_at = min(curriculum_ends_at, num_total_timesteps)
@@ -157,7 +159,9 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         self._foot_site_ids = [-1, -1]
         self._root_joint_name = info_props["root_free_joint_xml_name"]
+        self._root_body_name = info_props["upper_body_xml_name"]
         self._root_qpos_ids = []
+        self._root_body_id = None
 
         # local safe range for foot placement computation
         self.local_angle_range_rad = [jnp.deg2rad(20.0), jnp.deg2rad(160.0)]
@@ -175,6 +179,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self._foot_site_id_right = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[1])
 
         self._root_qpos_ids = jnp.array(mj_jntname2qposid(self._root_joint_name, model))
+        self._root_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, self._root_body_name)
 
         self.min = [-np.inf] * self.dim
         self.max = [np.inf] * self.dim
@@ -214,6 +219,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self._foot_site_id_left = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[0])
         self._foot_site_id_right = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[1])
         self._root_qpos_ids = jnp.array(mj_jntname2qposid(self._root_joint_name, env.model))
+        self._root_body_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_BODY, self._root_body_name)
 
         pillar_d = float(getattr(getattr(env, "_terrain", None), "diameter", 0.0))
         pillar_r = 0.5 * pillar_d
@@ -1548,7 +1554,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # right
             if right_local_target_offset_orn[0] < 0:
                 right_local_target_offset_orn = -right_local_target_offset_orn
-        
+
         # get the stance foot positions and orientations
         stance_pos, stance_orn, swing_pos, _, swing_pos_target, swing_orn_target, stance_pos_target, stance_orn_target = jax.lax.cond(
             (swing_foot_idx == 0),
@@ -1556,21 +1562,71 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             lambda _: (left_pos_w, R.from_matrix(left_mat_w), right_pos_w, R.from_matrix(right_mat_w), state.right_foot_target_pos, state.right_foot_target_orn, state.left_foot_target_pos, state.left_foot_target_orn),
             operand=0
         )
-        # offset wrt the stance foot of the swing foot
-        pos_offset = stance_orn.apply(swing_pos_target - stance_pos, inverse=True)
-        orn_offset = (stance_orn.inv() * R.from_quat(quat_scalarfirst2scalarlast(swing_orn_target))).as_quat(scalar_first=True)
-        sign = jnp.where(orn_offset[0] < 0, -1.0, 1.0)
-        orn_offset = orn_offset * sign
-        # offset wrt the stance foot of the stance foot
-        hold_pos = stance_orn.apply(stance_pos_target - stance_pos, inverse=True) 
-        hold_orn = (stance_orn.inv() * R.from_quat(quat_scalarfirst2scalarlast(stance_orn_target))).as_quat(scalar_first=True) 
-        sign = jnp.where(hold_orn[0] < 0, -1.0, 1.0)
-        hold_orn = hold_orn * sign
-        left_pos_targ, left_orn_targ, right_pos_targ, right_orn_targ = jax.lax.cond(
-            (swing_foot_idx == 0),
-            lambda: (pos_offset, orn_offset, hold_pos, hold_orn),
-            lambda: (hold_pos, hold_orn, pos_offset, orn_offset)
-        )
+    
+        # Compute observations in root frame or stance frame based on configuration
+        if self.root_frame:
+            # Get root frame position and orientation
+            root_pos_w = data.xpos[self._root_body_id]
+            root_mat_w = data.xmat[self._root_body_id].reshape(3, 3)
+            root_orn = R.from_matrix(root_mat_w)
+            
+            # Compute positions and orientations relative to root frame
+            # left_pos_rel = root_orn.apply(left_pos_w - root_pos_w, inverse=True)
+            # right_pos_rel = root_orn.apply(right_pos_w - root_pos_w, inverse=True)
+            # left_quat_rel = (root_orn.inv() * left_foot_matrix).as_quat(scalar_first=True)
+            # right_quat_rel = (root_orn.inv() * right_foot_matrix).as_quat(scalar_first=True)
+            
+            # Hemisphere correction for foot orientations
+            # if backend == jnp:
+            #     sign_l = jnp.where(left_quat_rel[0] < 0, -1.0, 1.0)
+            #     left_quat_rel = left_quat_rel * sign_l
+            #     sign_r = jnp.where(right_quat_rel[0] < 0, -1.0, 1.0)
+            #     right_quat_rel = right_quat_rel * sign_r
+            # else:
+            #     if left_quat_rel[0] < 0:
+            #         left_quat_rel = -left_quat_rel
+            #     if right_quat_rel[0] < 0:
+            #         right_quat_rel = -right_quat_rel
+            
+            # Target positions and orientations relative to root frame
+            left_target_pos_rel = root_orn.apply(state.left_foot_target_pos - root_pos_w, inverse=True)
+            right_target_pos_rel = root_orn.apply(state.right_foot_target_pos - root_pos_w, inverse=True)
+            left_target_quat_rel = (root_orn.inv() * left_R_target_orn_world).as_quat(scalar_first=True)
+            right_target_quat_rel = (root_orn.inv() * right_R_target_orn_world).as_quat(scalar_first=True)
+            
+            # Hemisphere correction for target orientations
+            if backend == jnp:
+                sign_l = jnp.where(left_target_quat_rel[0] < 0, -1.0, 1.0)
+                left_target_quat_rel = left_target_quat_rel * sign_l
+                sign_r = jnp.where(right_target_quat_rel[0] < 0, -1.0, 1.0)
+                right_target_quat_rel = right_target_quat_rel * sign_r
+            else:
+                if left_target_quat_rel[0] < 0:
+                    left_target_quat_rel = -left_target_quat_rel
+                if right_target_quat_rel[0] < 0:
+                    right_target_quat_rel = -right_target_quat_rel
+            
+            # Compute target offsets in root frame
+            left_pos_targ = left_target_pos_rel
+            left_orn_targ = left_target_quat_rel
+            right_pos_targ = right_target_pos_rel
+            right_orn_targ = right_target_quat_rel
+        else:
+            # offset wrt the stance foot of the swing foot
+            pos_offset = stance_orn.apply(swing_pos_target - stance_pos, inverse=True)
+            orn_offset = (stance_orn.inv() * R.from_quat(quat_scalarfirst2scalarlast(swing_orn_target))).as_quat(scalar_first=True)
+            sign = jnp.where(orn_offset[0] < 0, -1.0, 1.0)
+            orn_offset = orn_offset * sign
+            # offset wrt the stance foot of the stance foot
+            hold_pos = stance_orn.apply(stance_pos_target - stance_pos, inverse=True) 
+            hold_orn = (stance_orn.inv() * R.from_quat(quat_scalarfirst2scalarlast(stance_orn_target))).as_quat(scalar_first=True) 
+            sign = jnp.where(hold_orn[0] < 0, -1.0, 1.0)
+            hold_orn = hold_orn * sign
+            left_pos_targ, left_orn_targ, right_pos_targ, right_orn_targ = jax.lax.cond(
+                (swing_foot_idx == 0),
+                lambda: (pos_offset, orn_offset, hold_pos, hold_orn),
+                lambda: (hold_pos, hold_orn, pos_offset, orn_offset)
+            )
         
         # craft GP array
         gp_info = backend.array([backend.cos(2 * backend.pi * gp), backend.sin(2 * backend.pi * gp)])

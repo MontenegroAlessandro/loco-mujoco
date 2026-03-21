@@ -17,7 +17,7 @@ update_z_every: &update_z_every 1.0
 
 # Experiment Vars
 experiment:
-  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/long_steps/nocv_d20_gh5_term.pkl 
+  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/long_steps/nocv_d20_gh5_term.pkl  
 
   task_factory:
     name: RLFactory
