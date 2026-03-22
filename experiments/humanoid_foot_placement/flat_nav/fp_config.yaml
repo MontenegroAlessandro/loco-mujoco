@@ -5,7 +5,8 @@
 
 # policy parameters
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/28.pkl 
-agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/knee-0.pkl 
+# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/knee-0.pkl 
+agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/knee-2.pkl 
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/nocv_d2_noterm_smalld_smallangles.pkl # <---
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/fwdbwd_20.pkl 
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/fwdbwd_24.pkl # <-----------------------------
@@ -190,7 +191,7 @@ command:
   gait_frequency: 1.0
   stop_steps: 2
   step_spacing: 0.35 # [0.2, 0.4]
-  step_height: 0.1 # max 0.12 (also 13!!)
+  step_height: 0.13 # max 0.12 (also 13!!)
   direction: 1 # 1 for forward, -1 for backward
   yaw_off: 0.0
   mode: fast
