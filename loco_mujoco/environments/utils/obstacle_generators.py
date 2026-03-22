@@ -344,10 +344,10 @@ def add_ramp_platform_ramp(
         world_body: Any, 
         name: str,
         coordinates: Union[jnp.array, np.array, List, Tuple] = [0,0,0], 
-        run: float = 1.0,           # Horizontal length of the slope part
-        rise: float = 0.5,          # Height of the slope
-        platform_length: float = 1.0, # Length of the flat top section
-        platform_width: float = 1.0, # Length of the flat top section
+        run: float = 1.0,
+        rise: float = 0.5,
+        platform_length: float = 1.0,
+        platform_width: float = 1.0,
         width: float = 1.0,
         thickness: float = 0.05,
         orientation_yaw_deg: float = 0.0,
@@ -358,6 +358,13 @@ def add_ramp_platform_ramp(
     """
     Creates a structure: Slope Up -> Flat Platform -> Slope Down.
     """
+    # The ramp is a tilted slab of finite thickness. Its walking surface at the
+    # top end sits at z = rise + thickness * run / (2 * hypotenuse), not at
+    # z = rise. This offset must be accounted for when placing the platform and
+    # the down-ramp so all three surfaces meet flush with no step.
+    hyp = backend.sqrt(run**2 + rise**2)
+    surface_z_correction = thickness * run / (2.0 * hyp)
+
     add_slope(
         world_body=world_body,
         name=f"{name}_up",
@@ -372,22 +379,24 @@ def add_ramp_platform_ramp(
         friction=friction,
         backend=backend
     )
+
     yaw_rad = backend.deg2rad(orientation_yaw_deg)
-    
+
     dx_slope = run * backend.cos(yaw_rad)
     dy_slope = run * backend.sin(yaw_rad)
-    
+
     plat_start_x = coordinates[0] + dx_slope
     plat_start_y = coordinates[1] + dy_slope
-    plat_start_z = coordinates[2] + rise
-    
+    # Actual walking-surface z at the top of the up-ramp
+    plat_surface_z = coordinates[2] + rise + surface_z_correction
+
     dx_plat_half = (platform_length / 2.0) * backend.cos(yaw_rad)
     dy_plat_half = (platform_length / 2.0) * backend.sin(yaw_rad)
-    
+
     plat_center_x = plat_start_x + dx_plat_half
     plat_center_y = plat_start_y + dy_plat_half
-    
-    plat_center_z = plat_start_z - (thickness / 2.0)
+    # Platform center z: top surface must be flush with ramp surface
+    plat_center_z = plat_surface_z - (thickness / 2.0)
 
     add_box(
         world_body=world_body,
@@ -395,19 +404,20 @@ def add_ramp_platform_ramp(
         coordinates=[plat_center_x, plat_center_y, plat_center_z],
         length=platform_length,
         width=platform_width,
-        height=thickness, # "Height" of a box is its Z-thickness here
+        height=thickness,
         orientation_yaw_deg=orientation_yaw_deg,
         color=color,
         friction=friction,
         backend=backend
     )
-    
+
     dx_plat_full = platform_length * backend.cos(yaw_rad)
     dy_plat_full = platform_length * backend.sin(yaw_rad)
-    
+
     down_start_x = plat_start_x + dx_plat_full
     down_start_y = plat_start_y + dy_plat_full
-    down_start_z = plat_start_z 
+    # Down-ramp starts from the same surface height as the platform top
+    down_start_z = plat_surface_z - surface_z_correction
 
     add_slope(
         world_body=world_body,
@@ -417,7 +427,7 @@ def add_ramp_platform_ramp(
         rise=rise,
         width=width,
         thickness=thickness,
-        down=True, 
+        down=True,
         orientation_yaw_deg=orientation_yaw_deg,
         color=color,
         friction=friction,
