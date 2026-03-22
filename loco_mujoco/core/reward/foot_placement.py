@@ -495,7 +495,11 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             swing_knee_z = data.site_xpos[swing_knee_site_id][2]
             knee_target_z = swing_target_z + self._knee_clearance_margin
             knee_z_error = backend.maximum(knee_target_z - swing_knee_z, 0.0) # just one sided
-            knee_lift_reward = self._knee_lift_coeff * backend.exp(-self._knee_lift_sharp * backend.square(knee_z_error))
+            # NOTE: if the error is < 0, then the knee is already above the target and we are already happy
+            adaptive_knee_sharpness = backend.where(scaled_gp <= 0.25, 1.0, -4.0 * scaled_gp + 2.0)
+            knee_sharp = self._knee_lift_sharp * adaptive_knee_sharpness
+            # NOTE: the sharpness is as desired if in the first half of the gait, thnme it linearly decreases to 0
+            knee_lift_reward = self._knee_lift_coeff * backend.exp(-knee_sharp * backend.square(knee_z_error))
             # TODO: adaptive gait?
             
             # update in the state the last reward

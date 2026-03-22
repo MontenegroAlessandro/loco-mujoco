@@ -425,3 +425,109 @@ def add_ramp_platform_ramp(
     )
 
     return world_body
+
+def add_spiral_staircase(
+        world_body: Any,
+        name: str,
+        first_step_coordinates: Union[jnp.array, np.array, List, Tuple] = [0, 0, 0],
+        num_steps: int = 8,
+        step_height: float = 0.15,
+        step_length: float = 0.35,
+        step_width: float = 0.6,
+        rotation_per_step_deg: float = 15.0,
+        initial_yaw_deg: float = 0.0,
+        platform_length: float = 1.0,
+        platform_width: float = None,
+        color: Union[jnp.array, np.array, List, Tuple] = [0.3, 0.3, 0.3, 1],
+        friction: Union[jnp.array, np.array, List, Tuple] = [1.0, 0.005, 0.0001],
+        priority: int = 0,
+        backend: Any = np
+        ):
+    """
+    A curved staircase where each step is chained to the previous one and
+    rotated by `rotation_per_step_deg`. The back edge of step i+1 coincides
+    with the front edge of step i, so there are no gaps or overlaps.
+
+    Args:
+        first_step_coordinates: (x, y, z) center of the FIRST step.
+        rotation_per_step_deg:  Yaw added per step. Positive = CCW (left-curving).
+                                Typical values: 10–20° for a gentle curve, 
+                                30–45° for a tight turn.
+    """
+    if platform_width is None:
+        platform_width = step_width
+
+    # --- Steps ---
+    # We track the CENTER of the current step and advance from there.
+    step_center = backend.array(first_step_coordinates, dtype=float)
+    current_yaw_deg = initial_yaw_deg
+
+    for i in range(num_steps):
+        add_box(
+            world_body=world_body,
+            name=f"{name}_step_{i}",
+            coordinates=[step_center[0], step_center[1], step_center[2]],
+            length=step_length,
+            width=step_width,
+            height=step_height,
+            color=color,
+            orientation_yaw_deg=current_yaw_deg,
+            friction=friction,
+            priority=priority,
+            backend=backend
+        )
+
+        # Compute the next step's yaw
+        next_yaw_deg = current_yaw_deg + rotation_per_step_deg
+        next_yaw_rad = backend.deg2rad(next_yaw_deg)
+        current_yaw_rad = backend.deg2rad(current_yaw_deg)
+
+        # Front edge of current step (in world frame)
+        front_edge = step_center + backend.array([
+            (step_length / 2.0) * backend.cos(current_yaw_rad),
+            (step_length / 2.0) * backend.sin(current_yaw_rad),
+            0.0
+        ])
+
+        # Back edge of next step = front edge of current step, risen by step_height
+        # Center of next step = back_edge + half step_length in the NEW direction
+        step_center = backend.array([
+            front_edge[0] + (step_length / 2.0) * backend.cos(next_yaw_rad),
+            front_edge[1] + (step_length / 2.0) * backend.sin(next_yaw_rad),
+            step_center[2] + step_height
+        ])
+        current_yaw_deg = next_yaw_deg
+
+    # --- Landing platform ---
+    # Recover the last step's actual yaw and front edge.
+    last_yaw_deg = current_yaw_deg - rotation_per_step_deg   # last step's own yaw
+    last_yaw_rad = backend.deg2rad(last_yaw_deg)
+    current_yaw_rad = backend.deg2rad(current_yaw_deg)
+
+    # Front edge of last step = step_center minus half step in the past-end direction
+    last_front_x = step_center[0] - (step_length / 2.0) * backend.cos(current_yaw_rad)
+    last_front_y = step_center[1] - (step_length / 2.0) * backend.sin(current_yaw_rad)
+    last_top_z   = step_center[2] - step_height  # top face z of the last step
+
+    # Platform center: half platform_length forward from the front edge, in last step's direction
+    platform_center = backend.array([
+        last_front_x + (platform_length / 2.0) * backend.cos(last_yaw_rad),
+        last_front_y + (platform_length / 2.0) * backend.sin(last_yaw_rad),
+        last_top_z
+    ])
+
+    add_box(
+        world_body=world_body,
+        name=f"{name}_platform",
+        coordinates=[platform_center[0], platform_center[1], platform_center[2]],
+        length=platform_length,
+        width=platform_width,
+        height=step_height,
+        color=[min(color[0] + 0.15, 1.0), color[1], color[2], color[3]],
+        orientation_yaw_deg=last_yaw_deg,   # <-- last step's yaw, not past-end yaw
+        friction=friction,
+        priority=priority,
+        backend=backend
+)
+
+    return world_body

@@ -85,7 +85,7 @@ experiment:
       tracking_fail_is_absorbing: false
       stance_absorbing_threshold: 0.25
       # root frame
-      root_frame: true
+      root_frame: false
       # observation group
       group: [prioritized, policy]
       ############################# FORWARD ############################
