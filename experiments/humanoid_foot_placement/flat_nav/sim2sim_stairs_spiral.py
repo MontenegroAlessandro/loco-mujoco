@@ -153,7 +153,8 @@ class CurvedStairPlanGenerator:
             approach_dir = np.array([np.cos(self.initial_yaw), np.sin(self.initial_yaw)])
 
         perp       = np.array([-approach_dir[1], approach_dir[0]])
-        n_approach = max(1, int(approach_d / self.step_length))
+        # n_approach = max(1, int(approach_d / self.step_length))
+        n_approach = self.n_approach 
 
         for i in range(1, n_approach + 1):
             xy         = approach_dir * (i * self.step_length)
@@ -302,7 +303,71 @@ class SpiralPlanFollowingGaitGenerator:
         self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, 0)
 
     # ------------------------------------------------------------------
+    def _check_foot_reached_target(self, foot_pos, target_pos, tolerance=0.2):  
+        """Check if foot is close enough to its target (XY distance)"""
+        dist = np.linalg.norm(foot_pos[:2] - target_pos[:2])
+        reached = dist <= tolerance
+        # Debug output
+        if reached:
+            print(f"  Target reached! Distance: {dist:.3f}m")
+        # input(f"\n\n[DEBUG] dist={dist:.3f}\npos={foot_pos[0]}\ntarget={target_pos[0]} \n\n")
+        # print(f"\n\n[DEBUG] dist={dist:.3f}\npos={foot_pos}\ntarget={target_pos} \n\n")
+        return reached
+
     def update(self, data):
+        self.prev_phase = self.gait_phase
+        self.gait_phase = (self.gait_phase + self.policy_dt * self.gait_freq) % 1.0
+        
+        # switching phase from right swing foot to left
+        if (self.prev_phase > 0.5 and self.gait_phase < 0.5):
+            # Right foot just finished swinging and becomes stance
+            right_foot_pos = data.site_xpos[self.right_foot_id]
+            right_target = self.right_plan[self.r_idx]
+            
+            # Advance both indices when target is reached
+            tar_z = self.right_plan[self.r_idx][2]
+            if self._check_foot_reached_target(right_foot_pos, right_target):
+                # Advance right (which just became stance)
+                self.r_idx = min(self.r_idx + 1, len(self.right_plan) - 1)
+                # Maintain swing = stance + 1
+                self.l_idx = min(self.r_idx, len(self.left_plan) - 1)
+            
+
+            self._update_target_quat(self.l_idx)
+
+            self.r_off_phase_cmd = np.zeros(3)
+            self.r_orn_phase_cmd = np.array([1, 0, 0, 0])
+            self.l_off_phase_cmd, self.l_orn_phase_cmd = self.get_observation_cmd(data)[:2]
+            self.l_off_phase_cmd[0] = np.clip(self.l_off_phase_cmd[0], -self.max_vert, self.max_vert)
+            self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1],  EPS,           self.feet_dist)
+            self.l_off_phase_cmd[2] = (self.left_plan[self.l_idx][2]- tar_z)
+        
+        # switching phase from left swing foot to right
+        if (self.prev_phase <= 0.5 and self.gait_phase > 0.5):
+            # Left foot just finished swinging and becomes stance
+            left_foot_pos = data.site_xpos[self.left_foot_id]
+            left_target = self.left_plan[self.l_idx]
+            
+            # Advance both indices when target is reached
+            tar_z = self.left_plan[self.l_idx][2]
+            if self._check_foot_reached_target(left_foot_pos, left_target):
+                # Advance left (which just became stance)
+                self.l_idx = min(self.l_idx + 1, len(self.left_plan) - 1)
+                # Maintain swing = stance + 1
+                self.r_idx = min(self.l_idx, len(self.right_plan) - 1)
+
+            self._update_target_quat(self.r_idx)
+
+            self.l_off_phase_cmd = np.zeros(3)
+            self.l_orn_phase_cmd = np.array([1, 0, 0, 0])
+            self.r_off_phase_cmd, self.r_orn_phase_cmd = self.get_observation_cmd(data)[2:4]
+            self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.max_vert, self.max_vert)
+            self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, -EPS)
+            self.r_off_phase_cmd[2] = (self.right_plan[self.r_idx][2] - tar_z)
+        
+        print(f"{self.l_idx}, {self.r_idx}")
+    
+    def update_old(self, data):
         self.prev_phase = self.gait_phase
         self.gait_phase = (self.gait_phase + self.policy_dt * self.gait_freq) % 1.0
 
@@ -449,11 +514,11 @@ def main(config: DictConfig):
     # ------------------------------------------------------------------ params
     STEP_LEN          = config["command"]["step_spacing"]
     STEP_HEIGHT       = config["command"]["step_height"]
-    STEP_WIDTH        = 0.6
+    STEP_WIDTH        = 1.0 # 0.6
     FEET_DIST         = float(config["command"]["feet_distance"])
     MAX_VERT          = 0.4
     N_STEPS           = 8
-    ROTATION_PER_STEP = 15.0        # degrees per step; raise for tighter curve
+    ROTATION_PER_STEP = -10.0        # degrees per step; raise for tighter curve
     INITIAL_YAW_DEG   = 0.0         # first step faces +X
     FIRST_STEP_X      = 6 * STEP_LEN
     FIRST_STEP_Y      = 0.0
@@ -476,6 +541,10 @@ def main(config: DictConfig):
 
     num_qj      = len(default_angles)
     num_actions = config["num_actions"]
+
+    # fixes
+    approach_distance = np.sqrt(FIRST_STEP_X**2 + FIRST_STEP_Y**2)
+    N_APPROACH_STEPS = max(1, int((approach_distance - 1e-6) / STEP_LEN))
 
     # ------------------------------------------------------------------ policy
     policy = LMJPolicy(policy_path=agent_path)

@@ -208,7 +208,80 @@ class PlanFollowingGaitGenerator:
 
         self.gp_off = self.policy_dt * self.gait_freq
 
+    def _check_foot_reached_target(self, foot_pos, target_pos, tolerance=0.2):  
+        """Check if foot is close enough to its target (X distance)"""
+        dist = np.linalg.norm(foot_pos[0] - target_pos[0])
+        reached = dist <= tolerance
+        # Debug output
+        if reached:
+            print(f"  Target reached! Distance: {dist:.3f}m")
+        # input(f"\n\n[DEBUG] dist={dist:.3f}\npos={foot_pos[0]}\ntarget={target_pos[0]} \n\n")
+        # print(f"\n\n[DEBUG] dist={dist:.3f}\npos={foot_pos}\ntarget={target_pos} \n\n")
+        return reached
+
     def update(self, data):
+        self.prev_phase = self.gait_phase
+        self.gait_phase = (self.gait_phase + self.policy_dt * self.gait_freq) % 1.0
+        
+        # switching phase from right swing foot to left
+        if (self.prev_phase > 0.5 and self.gait_phase < 0.5):
+            # Right foot just finished swinging and becomes stance
+            right_foot_pos = data.site_xpos[self.right_foot_id]
+            right_target = self.right_plan[self.r_idx]
+            
+            # Advance both indices when target is reached
+            tar_z = self.right_plan[self.r_idx][2]
+            if self._check_foot_reached_target(right_foot_pos, right_target):
+                # Advance right (which just became stance)
+                self.r_idx = min(self.r_idx + 1, len(self.right_plan) - 1)
+                # Maintain swing = stance + 1
+                self.l_idx = min(self.r_idx, len(self.left_plan) - 1)
+            # else: keep indices and try again next cycle
+
+            # right foot is stance
+            self.r_off_phase_cmd = np.zeros(3)
+            self.r_orn_phase_cmd = np.array([1,0,0,0])
+
+            # computing offsets for the left foot
+            self.l_off_phase_cmd, self.l_orn_phase_cmd = self.get_observation_cmd(data)[:2]
+
+            # clip values
+            self.l_off_phase_cmd[0] = np.clip(self.l_off_phase_cmd[0], -self.max_vert, self.max_vert) 
+            self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1], EPS, self.feet_dist)
+            # self.l_off_phase_cmd[2] = self.left_plan[self.l_idx][2] - self.right_plan[self.r_idx][2]
+            self.l_off_phase_cmd[2] = self.left_plan[self.l_idx][2] - tar_z
+        
+        # switching phase from left swing foot to right
+        if (self.prev_phase <= 0.5 and self.gait_phase > 0.5):
+            # Left foot just finished swinging and becomes stance
+            left_foot_pos = data.site_xpos[self.left_foot_id]
+            left_target = self.left_plan[self.l_idx]
+            
+            # Advance both indices when target is reached
+            tar_z = self.left_plan[self.l_idx][2]
+            if self._check_foot_reached_target(left_foot_pos, left_target):
+                # Advance left (which just became stance)
+                self.l_idx = min(self.l_idx + 1, len(self.left_plan) - 1)
+                # Maintain swing = stance + 1
+                self.r_idx = min(self.l_idx, len(self.right_plan) - 1)
+            # else: keep indices and try again next cycle
+
+            # left foot is stance
+            self.l_off_phase_cmd = np.zeros(3)
+            self.l_orn_phase_cmd = np.array([1,0,0,0])
+
+            # computing offsets for the right foot
+            self.r_off_phase_cmd, self.r_orn_phase_cmd = self.get_observation_cmd(data)[2:4]
+
+            # clip values
+            self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.max_vert, self.max_vert) 
+            self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, -EPS)
+            # self.r_off_phase_cmd[2] = self.right_plan[self.r_idx][2] - self.left_plan[self.l_idx][2]
+            self.r_off_phase_cmd[2] = self.right_plan[self.r_idx][2] - tar_z
+        
+        print(f"{self.l_idx}, {self.r_idx}")
+
+    def update_old(self, data):
         self.prev_phase = self.gait_phase
         self.gait_phase = (self.gait_phase + self.policy_dt * self.gait_freq) % 1.0
 
@@ -338,7 +411,7 @@ def main(config: DictConfig):
     STEP_LEN         = config["command"]["step_spacing"]
     sign             = config["command"]["direction"]
     RAMP_START_X     = sign * 6 * STEP_LEN      
-    RISE             = config["command"]["step_height"] * 3  
+    RISE             = config["command"]["step_height"] * 2  
     RUN              = STEP_LEN * 5             
     RAMP_WIDTH       = 2.0
     RAMP_THICKNESS   = 0.05        # must match add_ramp_platform_ramp default

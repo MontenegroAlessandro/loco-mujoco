@@ -1643,10 +1643,14 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             
             # Compute world positions using dual-foot convention
             # Left foot: relative to right foot, with right foot as "stance"
-            left_world = data.site_xpos[self._foot_site_id_right] + R.from_matrix(data.site_xmat[self._foot_site_id_right].reshape(3, 3)).apply(backend.array([0.0, self.still_feet_distance, 0.0]), inverse=False)
+            left_world = data.site_xpos[self._foot_site_id_right] + \
+                R.from_matrix(data.site_xmat[self._foot_site_id_right].reshape(3, 3)).apply(
+                    backend.array([0.0, self.still_feet_distance, 0.0]), inverse=False)
             # Right foot: relative to left foot, with left foot as "stance"
-            right_world = data.site_xpos[self._foot_site_id_left] + R.from_matrix(data.site_xmat[self._foot_site_id_left].reshape(3, 3)).apply(backend.array([0.0, -self.still_feet_distance, 0.0]), inverse=False)
-            
+            right_world = data.site_xpos[self._foot_site_id_left] + \
+                R.from_matrix(data.site_xmat[self._foot_site_id_left].reshape(3, 3)).apply(
+                    backend.array([0.0, -self.still_feet_distance, 0.0]), inverse=False)
+
             # Convert to root frame coordinates
             zero_pos_off_l = root_orn_hold.apply(left_world - root_pos_w_hold, inverse=True)
             zero_pos_off_r = root_orn_hold.apply(right_world - root_pos_w_hold, inverse=True)
