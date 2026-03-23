@@ -180,6 +180,10 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
 
         self._root_qpos_ids = jnp.array(mj_jntname2qposid(self._root_joint_name, model))
         self._root_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, self._root_body_name)
+        
+        # Try to get IMU site ID for root frame reference; fallback to root body if not present
+        imu_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "imu")
+        self._imu_site_id = imu_site_id if imu_site_id != -1 else None
 
         self.min = [-np.inf] * self.dim
         self.max = [np.inf] * self.dim
@@ -220,6 +224,10 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self._foot_site_id_right = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, self.foot_site_names[1])
         self._root_qpos_ids = jnp.array(mj_jntname2qposid(self._root_joint_name, env.model))
         self._root_body_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_BODY, self._root_body_name)
+        
+        # Try to get IMU site ID for root frame reference; fallback to root body if not present
+        imu_site_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, "imu")
+        self._imu_site_id = imu_site_id if imu_site_id != -1 else None
 
         pillar_d = float(getattr(getattr(env, "_terrain", None), "diameter", 0.0))
         pillar_r = 0.5 * pillar_d
@@ -1565,28 +1573,14 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
     
         # Compute observations in root frame or stance frame based on configuration
         if self.root_frame:
-            # Get root frame position and orientation
-            root_pos_w = data.xpos[self._root_body_id]
-            root_mat_w = data.xmat[self._root_body_id].reshape(3, 3)
+            # Get root frame position and orientation (use IMU site if available, else use root body)
+            if self._imu_site_id is not None:
+                root_pos_w = data.site_xpos[self._imu_site_id]
+                root_mat_w = data.site_xmat[self._imu_site_id].reshape(3, 3)
+            else:
+                root_pos_w = data.xpos[self._root_body_id]
+                root_mat_w = data.xmat[self._root_body_id].reshape(3, 3)
             root_orn = R.from_matrix(root_mat_w)
-            
-            # Compute positions and orientations relative to root frame
-            # left_pos_rel = root_orn.apply(left_pos_w - root_pos_w, inverse=True)
-            # right_pos_rel = root_orn.apply(right_pos_w - root_pos_w, inverse=True)
-            # left_quat_rel = (root_orn.inv() * left_foot_matrix).as_quat(scalar_first=True)
-            # right_quat_rel = (root_orn.inv() * right_foot_matrix).as_quat(scalar_first=True)
-            
-            # Hemisphere correction for foot orientations
-            # if backend == jnp:
-            #     sign_l = jnp.where(left_quat_rel[0] < 0, -1.0, 1.0)
-            #     left_quat_rel = left_quat_rel * sign_l
-            #     sign_r = jnp.where(right_quat_rel[0] < 0, -1.0, 1.0)
-            #     right_quat_rel = right_quat_rel * sign_r
-            # else:
-            #     if left_quat_rel[0] < 0:
-            #         left_quat_rel = -left_quat_rel
-            #     if right_quat_rel[0] < 0:
-            #         right_quat_rel = -right_quat_rel
             
             # Target positions and orientations relative to root frame
             left_target_pos_rel = root_orn.apply(state.left_foot_target_pos - root_pos_w, inverse=True)
@@ -1631,15 +1625,36 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # craft GP array
         gp_info = backend.array([backend.cos(2 * backend.pi * gp), backend.sin(2 * backend.pi * gp)])
         
-        # steady still condition 
-        # steady_still_flag = state.still_phase & \
-        #     (backend.abs(left_pos_w[0] - right_pos_w[0]) <= self.still_threshold) & \
-        #     (backend.abs(left_pos_w[1] - right_pos_w[1] - self.still_feet_distance) <= self.still_threshold)
+        # steady still condition
         steady_still_flag = state.still_phase & (state.num_gaits >= 2)
-        zero_pos_off_l = backend.array([0.0, self.still_feet_distance, 0.0]) # backend.zeros(3, dtype=backend.float32)
-        zero_pos_off_r = backend.array([0.0, - self.still_feet_distance, 0.0])
         zero_orn_off = backend.array([1, 0, 0, 0], dtype=backend.float32)
         gp_both_stance = backend.array([0, 0], dtype=backend.float32)
+        
+        # Compute hold still offsets based on frame type
+        if self.root_frame:
+            # Get root frame
+            if self._imu_site_id is not None:
+                root_pos_w_hold = data.site_xpos[self._imu_site_id]
+                root_mat_w_hold = data.site_xmat[self._imu_site_id].reshape(3, 3)
+            else:
+                root_pos_w_hold = data.xpos[self._root_body_id]
+                root_mat_w_hold = data.xmat[self._root_body_id].reshape(3, 3)
+            root_orn_hold = R.from_matrix(root_mat_w_hold)
+            
+            # Compute world positions using dual-foot convention
+            # Left foot: relative to right foot, with right foot as "stance"
+            left_world = data.site_xpos[self._foot_site_id_right] + R.from_matrix(data.site_xmat[self._foot_site_id_right].reshape(3, 3)).apply(backend.array([0.0, self.still_feet_distance, 0.0]), inverse=False)
+            # Right foot: relative to left foot, with left foot as "stance"
+            right_world = data.site_xpos[self._foot_site_id_left] + R.from_matrix(data.site_xmat[self._foot_site_id_left].reshape(3, 3)).apply(backend.array([0.0, -self.still_feet_distance, 0.0]), inverse=False)
+            
+            # Convert to root frame coordinates
+            zero_pos_off_l = root_orn_hold.apply(left_world - root_pos_w_hold, inverse=True)
+            zero_pos_off_r = root_orn_hold.apply(right_world - root_pos_w_hold, inverse=True)
+        else:
+            # Stance frame: direct offsets with dual-foot convention
+            zero_pos_off_l = backend.array([0.0, self.still_feet_distance, 0.0])
+            zero_pos_off_r = backend.array([0.0, -self.still_feet_distance, 0.0])
+        
         left_pos_targ, left_orn_targ, right_pos_targ, right_orn_targ, gp_info = jax.lax.cond(
             steady_still_flag,
             lambda: (zero_pos_off_l, zero_orn_off, zero_pos_off_r, zero_orn_off, gp_both_stance),
