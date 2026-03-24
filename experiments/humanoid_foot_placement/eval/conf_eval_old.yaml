@@ -50,7 +50,7 @@ experiment:
       # Range for omnidirectional step angle [-180, 180] for a full circle
       angle_range_deg: [-30, 30] # [-20, 20] # [20, 90] 
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-10, 10] # [-20, 20] # [-30, 30]
+      yaw_range_deg: [-30, 30] # [-20, 20] # [-30, 30]
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
@@ -70,7 +70,7 @@ experiment:
       max_num_gaits: 10
       # adaptive terrains 
       adaptive_terrain: true
-      z_distance_range: [0.15, 0.15]
+      z_distance_range: [-0.15, 0.15]
       max_z_distance_up: 0.0
       max_z_distance_low: 0.0
       # start still flag
@@ -85,7 +85,9 @@ experiment:
       tracking_fail_is_absorbing: false
       stance_absorbing_threshold: 0.25
       # root frame
-      root_frame: true
+      root_frame: false
+      # flat probability
+      flat_prob: 0.5
       # observation group
       group: [prioritized, policy]
       ############################# FORWARD ############################

@@ -85,6 +85,8 @@ experiment:
       is_gp_adaptive: false
       # root fram observations
       root_frame: false
+      # flat probaility
+      flat_prob: 0.0
       # observation group
       group: [prioritized, policy]
     

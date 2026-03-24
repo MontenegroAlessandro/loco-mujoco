@@ -57,6 +57,8 @@ class GoalDoubleFootPlacementState:
     is_gp_adaptive: bool
     # goal based absorbing management
     absorbing: bool
+    # flag to force the sampler to sample just flat goals
+    flat: bool = False
 
 class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
     """
@@ -113,6 +115,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             feet_swing_period: float = 0.2,
             # flag indicating whether to have the observation in the root frame
             root_frame: bool = False,
+            # the probability of having a certain number of gaits with zero z offset
+            flat_prob: float = 0.0,
             **kwargs
         ):
         # store parameters
@@ -144,6 +148,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self._feet_swing_period = feet_swing_period
         self.just_fwd_bwd = just_fwd_bwd
         self.root_frame = root_frame
+        self.flat_prob = flat_prob
         # curriculum parmeters
         self.curriculum = curriculum
         curriculum_ends_at = min(curriculum_ends_at, num_total_timesteps)
@@ -276,7 +281,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             free_pillar_id=free_pillar_id,
             pending_free_pillar_id=pending_free_pillar_id,
             absorbing=False,
-            is_gp_adaptive=self.is_gp_adaptive
+            is_gp_adaptive=self.is_gp_adaptive,
+            flat=False
         )
         
     def reset_state(self, env, model, data, carry, backend):
@@ -285,7 +291,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         key, sk1, sk2 = jax.random.split(key, 3)
         
         # sample initial gait parmeters
-        movement_dir, feet_dir, gp0, gait_frequency, distance_range, angle_range_rad = self._sample_gait_parameters(sk1)
+        movement_dir, feet_dir, gp0, gait_frequency, distance_range, angle_range_rad, flat = self._sample_gait_parameters(sk1)
         
         # Sample the initial goal
         goal_state, carry = self.sample_goal(
@@ -320,7 +326,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             pending_free_pillar_id=pending_free_pillar_id,
             absorbing=False,
             is_gp_adaptive=self.is_gp_adaptive,
-            gait_frequency=gait_frequency
+            gait_frequency=gait_frequency,
+            flat=flat
         )
 
         # update observation with the new goal state in the carry
@@ -415,15 +422,18 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         """
         Call to both functions _sample_movement_direction and _sample_gait_frequency
         """ 
-        sk1, sk2 = jax.random.split(key, 2)
+        sk1, sk2, sk3 = jax.random.split(key, 3)
         
         # sample: movement direction, feet direction, gait process
         movement_dir, feet_dir, gp0 = self._sample_movement_direction(sk1)
         
         # sample gait frequency and adjust the ranges
         gait_frequency, distance_range, angle_range_rad = self._sample_gait_frequency(sk2)
+
+        # sample flat flag
+        flat = jax.random.uniform(sk3) < self.flat_prob
         
-        return movement_dir, feet_dir, gp0, gait_frequency, distance_range, angle_range_rad
+        return movement_dir, feet_dir, gp0, gait_frequency, distance_range, angle_range_rad, flat
     
     def old_reset_state(self, env, model, data, carry, backend):
         """Reset the goal state by sampling a new random foot placement goal."""
@@ -625,6 +635,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
         # verify whether we are at reset time
         hold_still = state.still_phase 
+        flat = state.flat
 
         # ===========================================SWING / STANCE FOOT IDX===========================================
         gp = initial_gait
@@ -911,7 +922,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         target_z = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
         if self.adaptive_terrain:
             z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
-            z_sampled = backend.where(hold_still, 0.0, z_sampled) 
+            z_sampled = backend.where(hold_still | flat, 0.0, z_sampled) 
             target_z = backend.maximum(z_sampled + stance_foot_pos[2], 0.0)
 
         target_pos = target_pos_pre_z.at[2].set(target_z)
@@ -1491,7 +1502,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             resample_all = resample_goal & (state.num_gaits == 0)
             prev_gait_parameters = (
                 state.movement_direction, state.feet_direction, gp, state.gait_frequency, state.distance_range, 
-                state.angle_range_rad
+                state.angle_range_rad, state.flat
             )
             new_gait_parameters = jax.lax.cond(
                 resample_all,
@@ -1501,7 +1512,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # movement_dir, feet_dir, gp0, gait_frequency, distance_range, angle_range_rad = new_gait_parameters
             movement_dir = state.movement_direction
             gp0 = gp
-            _, feet_dir, _, gait_frequency, distance_range, angle_range_rad = new_gait_parameters
+            _, feet_dir, _, gait_frequency, distance_range, angle_range_rad, flat = new_gait_parameters
             
             # sample the probability of staying still
             hold_still = jax.lax.select(
@@ -1509,7 +1520,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 jax.random.uniform(sk2) < self.still_proportion,
                 state.still_phase
             )        
-            state = state.replace(still_phase=hold_still)
+            state = state.replace(still_phase=hold_still, flat=flat)
             observation_states = carry.observation_states.replace(**{self.name: state})
             carry = carry.replace(observation_states=observation_states)
             
