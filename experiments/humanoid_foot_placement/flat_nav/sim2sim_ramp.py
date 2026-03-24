@@ -176,25 +176,26 @@ class PlanFollowingGaitGenerator:
     def reset(self, data):
         self.l_idx = 0
         self.r_idx = 0
+        self.placement_events = []  # list of dicts: {side, step_idx, target, actual, error_2d, error_3d}
 
         robot_quat = data.qpos[3:7]
         robot_yaw  = np_R.from_quat([robot_quat[1], robot_quat[2], robot_quat[3], robot_quat[0]]).as_euler('xyz')[2]
         yaw_diff   = np.arctan2(np.sin(robot_yaw - self.target_yaw), np.cos(robot_yaw - self.target_yaw))
 
-        print(f"  Robot yaw: {np.rad2deg(robot_yaw):.2f}°, Target yaw: {np.rad2deg(self.target_yaw):.2f}°, Diff: {np.rad2deg(yaw_diff):.2f}°")
+        # print(f"  Robot yaw: {np.rad2deg(robot_yaw):.2f}°, Target yaw: {np.rad2deg(self.target_yaw):.2f}°, Diff: {np.rad2deg(yaw_diff):.2f}°")
 
         if yaw_diff < 0:
             self.gait_phase      = 0.0
             self.r_off_phase_cmd = np.zeros(3)
             self.r_orn_phase_cmd = np.array([1, 0, 0, 0])
             self.l_off_phase_cmd, self.l_orn_phase_cmd, _, _, _ = self.get_observation_cmd(data)
-            print("  Starting with LEFT foot swing (phase=0.0)")
+            # print("  Starting with LEFT foot swing (phase=0.0)")
         else:
             self.gait_phase      = 0.5
             self.l_off_phase_cmd = np.zeros(3)
             self.l_orn_phase_cmd = np.array([1, 0, 0, 0])
             _, _, self.r_off_phase_cmd, self.r_orn_phase_cmd, _ = self.get_observation_cmd(data)
-            print("  Starting with RIGHT foot swing (phase=0.5)")
+            # print("  Starting with RIGHT foot swing (phase=0.5)")
 
         self.prev_phase = self.gait_phase
 
@@ -203,8 +204,8 @@ class PlanFollowingGaitGenerator:
         self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.max_vert, self.max_vert)
         self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, 0)
 
-        print(f"  Controller reset: l_idx={self.l_idx}, r_idx={self.r_idx}, phase={self.gait_phase}")
-        print(f"  Initial commands: L={self.l_off_phase_cmd}, R={self.r_off_phase_cmd}")
+        # print(f"  Controller reset: l_idx={self.l_idx}, r_idx={self.r_idx}, phase={self.gait_phase}")
+        # print(f"  Initial commands: L={self.l_off_phase_cmd}, R={self.r_off_phase_cmd}")
 
         self.gp_off = self.policy_dt * self.gait_freq
 
@@ -213,8 +214,8 @@ class PlanFollowingGaitGenerator:
         dist = np.linalg.norm(foot_pos[0] - target_pos[0])
         reached = dist <= tolerance
         # Debug output
-        if reached:
-            print(f"  Target reached! Distance: {dist:.3f}m")
+        # if reached:
+        #     print(f"  Target reached! Distance: {dist:.3f}m")
         # input(f"\n\n[DEBUG] dist={dist:.3f}\npos={foot_pos[0]}\ntarget={target_pos[0]} \n\n")
         # print(f"\n\n[DEBUG] dist={dist:.3f}\npos={foot_pos}\ntarget={target_pos} \n\n")
         return reached
@@ -228,6 +229,15 @@ class PlanFollowingGaitGenerator:
             # Right foot just finished swinging and becomes stance
             right_foot_pos = data.site_xpos[self.right_foot_id]
             right_target = self.right_plan[self.r_idx]
+
+            # Record foot placement error
+            err_3d = float(np.linalg.norm(right_foot_pos - right_target))
+            err_2d = float(np.linalg.norm(right_foot_pos[:2] - right_target[:2]))
+            self.placement_events.append({
+                'side': 'right', 'step_idx': self.r_idx,
+                'target': right_target.copy(), 'actual': right_foot_pos.copy(),
+                'error_2d': err_2d, 'error_3d': err_3d,
+            })
             
             # Advance both indices when target is reached
             tar_z = self.right_plan[self.r_idx][2]
@@ -256,6 +266,15 @@ class PlanFollowingGaitGenerator:
             # Left foot just finished swinging and becomes stance
             left_foot_pos = data.site_xpos[self.left_foot_id]
             left_target = self.left_plan[self.l_idx]
+
+            # Record foot placement error
+            err_3d = float(np.linalg.norm(left_foot_pos - left_target))
+            err_2d = float(np.linalg.norm(left_foot_pos[:2] - left_target[:2]))
+            self.placement_events.append({
+                'side': 'left', 'step_idx': self.l_idx,
+                'target': left_target.copy(), 'actual': left_foot_pos.copy(),
+                'error_2d': err_2d, 'error_3d': err_3d,
+            })
             
             # Advance both indices when target is reached
             tar_z = self.left_plan[self.l_idx][2]
@@ -279,7 +298,7 @@ class PlanFollowingGaitGenerator:
             # self.r_off_phase_cmd[2] = self.right_plan[self.r_idx][2] - self.left_plan[self.l_idx][2]
             self.r_off_phase_cmd[2] = self.right_plan[self.r_idx][2] - tar_z
         
-        print(f"{self.l_idx}, {self.r_idx}")
+        # print(f"{self.l_idx}, {self.r_idx}")
 
     def update_old(self, data):
         self.prev_phase = self.gait_phase
@@ -411,7 +430,7 @@ def main(config: DictConfig):
     STEP_LEN         = config["command"]["step_spacing"]
     sign             = config["command"]["direction"]
     RAMP_START_X     = sign * 6 * STEP_LEN      
-    RISE             = config["command"]["step_height"] * 2  
+    RISE             = 0.35 # config["command"]["step_height"] * 2  
     RUN              = STEP_LEN * 5             
     RAMP_WIDTH       = 2.0
     RAMP_THICKNESS   = 0.05        # must match add_ramp_platform_ramp default

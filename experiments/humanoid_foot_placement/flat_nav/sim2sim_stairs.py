@@ -20,6 +20,14 @@ os.environ["XLA_FLAGS"] = "--xla_gpu_triton_gemm_any=True"
 
 EPS = 0.15
 
+# Collision geom names that can realistically contact a stair riser.
+# Taken from booster_t1_original.xml.
+FOOT_AND_CALF_GEOMS = frozenset([
+    "left_foot_1", "left_foot_2",
+    "right_foot_1", "right_foot_2",
+    "left_calf", "right_calf",
+])
+
 # Global keyboard state
 keyboard_state = {
     'paused': True,
@@ -146,6 +154,7 @@ class PlanFollowingGaitGenerator:
         """Reset the plan indices and gait phase."""
         self.l_idx = 0
         self.r_idx = 0
+        self.placement_events = []  # list of dicts: {side, step_idx, target, actual, error_2d, error_3d}
         
         # Get robot's current yaw from quaternion
         robot_quat = data.qpos[3:7]  # wxyz format
@@ -156,7 +165,7 @@ class PlanFollowingGaitGenerator:
         # Normalize to [-pi, pi]
         yaw_diff = np.arctan2(np.sin(yaw_diff), np.cos(yaw_diff))
         
-        print(f"  Robot yaw: {np.rad2deg(robot_yaw):.2f}°, Target yaw: {np.rad2deg(self.target_yaw):.2f}°, Diff: {np.rad2deg(yaw_diff):.2f}°")
+        # print(f"  Robot yaw: {np.rad2deg(robot_yaw):.2f}°, Target yaw: {np.rad2deg(self.target_yaw):.2f}°, Diff: {np.rad2deg(yaw_diff):.2f}°")
         
         # If robot is rotated left (positive yaw diff), move RIGHT foot first (phase 0.5)
         # If robot is rotated right (negative yaw diff), move LEFT foot first (phase 0.0)
@@ -166,14 +175,14 @@ class PlanFollowingGaitGenerator:
             self.r_off_phase_cmd = np.zeros(3)
             self.r_orn_phase_cmd = np.array([1, 0, 0, 0])
             self.l_off_phase_cmd, self.l_orn_phase_cmd, _, _, _ = self.get_observation_cmd(data)
-            print(f"  Starting with LEFT foot swing (phase=0.0)")
+            # print(f"  Starting with LEFT foot swing (phase=0.0)")
         else:
             # Robot leaning left -> move RIGHT foot first
             self.gait_phase = 0.5
             self.l_off_phase_cmd = np.zeros(3)
             self.l_orn_phase_cmd = np.array([1, 0, 0, 0])
             _, _, self.r_off_phase_cmd, self.r_orn_phase_cmd, _ = self.get_observation_cmd(data)
-            print(f"  Starting with RIGHT foot swing (phase=0.5)")
+            # print(f"  Starting with RIGHT foot swing (phase=0.5)")
         
         self.prev_phase = self.gait_phase
 
@@ -183,8 +192,8 @@ class PlanFollowingGaitGenerator:
         self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.max_vert, self.max_vert) 
         self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, 0)
         
-        print(f"  Controller reset: l_idx={self.l_idx}, r_idx={self.r_idx}, phase={self.gait_phase}")
-        print(f"  Initial commands: L={self.l_off_phase_cmd}, R={self.r_off_phase_cmd}")
+        # print(f"  Controller reset: l_idx={self.l_idx}, r_idx={self.r_idx}, phase={self.gait_phase}")
+        # print(f"  Initial commands: L={self.l_off_phase_cmd}, R={self.r_off_phase_cmd}")
 
         self.gp_off = self.policy_dt * self.gait_freq
 
@@ -222,8 +231,8 @@ class PlanFollowingGaitGenerator:
         self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.max_vert, self.max_vert) 
         self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, 0)
         
-        print(f"Controller reset: l_idx={self.l_idx}, r_idx={self.r_idx}, phase={self.gait_phase}")
-        print(f"  Initial commands: L={self.l_off_phase_cmd}, R={self.r_off_phase_cmd}")
+        # print(f"Controller reset: l_idx={self.l_idx}, r_idx={self.r_idx}, phase={self.gait_phase}")
+        # print(f"  Initial commands: L={self.l_off_phase_cmd}, R={self.r_off_phase_cmd}")
 
         self.gp_off = self.policy_dt * self.gait_freq
 
@@ -232,8 +241,8 @@ class PlanFollowingGaitGenerator:
         dist = np.linalg.norm(foot_pos[0] - target_pos[0])
         reached = dist <= tolerance
         # Debug output
-        if reached:
-            print(f"  Target reached! Distance: {dist:.3f}m")
+        # if reached:
+        #     print(f"  Target reached! Distance: {dist:.3f}m")
         # input(f"\n\n[DEBUG] dist={dist:.3f}\npos={foot_pos}\ntarget={target_pos} \n\n")
         # print(f"\n\n[DEBUG] dist={dist:.3f}\npos={foot_pos}\ntarget={target_pos} \n\n")
         return reached
@@ -247,7 +256,18 @@ class PlanFollowingGaitGenerator:
             # Right foot just finished swinging and becomes stance
             right_foot_pos = data.site_xpos[self.right_foot_id]
             right_target = self.right_plan[self.r_idx]
-            
+
+            # Record foot placement error
+            err_3d = float(np.linalg.norm(right_foot_pos - right_target))
+            err_2d = float(np.linalg.norm(right_foot_pos[:2] - right_target[:2]))
+            self.placement_events.append({
+                'side': 'right', 'step_idx': self.r_idx,
+                'target': right_target.copy(), 'actual': right_foot_pos.copy(),
+                'error_2d': err_2d, 'error_3d': err_3d,
+            })
+            accum = sum(e['error_3d'] for e in self.placement_events)
+            # print(f"  [RIGHT foot, plan step {self.r_idx}] err_2d={err_2d:.3f}m  err_3d={err_3d:.3f}m  accum={accum:.3f}m")
+
             # Advance both indices when target is reached
             tar_z = self.right_plan[self.r_idx][2]
             if self._check_foot_reached_target(right_foot_pos, right_target):
@@ -275,7 +295,18 @@ class PlanFollowingGaitGenerator:
             # Left foot just finished swinging and becomes stance
             left_foot_pos = data.site_xpos[self.left_foot_id]
             left_target = self.left_plan[self.l_idx]
-            
+
+            # Record foot placement error
+            err_3d = float(np.linalg.norm(left_foot_pos - left_target))
+            err_2d = float(np.linalg.norm(left_foot_pos[:2] - left_target[:2]))
+            self.placement_events.append({
+                'side': 'left', 'step_idx': self.l_idx,
+                'target': left_target.copy(), 'actual': left_foot_pos.copy(),
+                'error_2d': err_2d, 'error_3d': err_3d,
+            })
+            accum = sum(e['error_3d'] for e in self.placement_events)
+            # print(f"  [LEFT  foot, plan step {self.l_idx}] err_2d={err_2d:.3f}m  err_3d={err_3d:.3f}m  accum={accum:.3f}m")
+
             # Advance both indices when target is reached
             tar_z = self.left_plan[self.l_idx][2]
             if self._check_foot_reached_target(left_foot_pos, left_target):
@@ -298,7 +329,27 @@ class PlanFollowingGaitGenerator:
             # self.r_off_phase_cmd[2] = self.right_plan[self.r_idx][2] - self.left_plan[self.l_idx][2]
             self.r_off_phase_cmd[2] = self.right_plan[self.r_idx][2] - tar_z
         
-        print(f"{self.l_idx}, {self.r_idx}")
+        # print(f"{self.l_idx}, {self.r_idx}")
+
+    def placement_summary(self):
+        if not self.placement_events:
+            return "No foot placements recorded."
+        errs_3d = [e['error_3d'] for e in self.placement_events]
+        errs_2d = [e['error_2d'] for e in self.placement_events]
+        lines = [
+            f"Foot Placement Summary ({len(self.placement_events)} placements):",
+            f"  Mean 3D error : {np.mean(errs_3d):.3f} m",
+            f"  Mean 2D error : {np.mean(errs_2d):.3f} m",
+            f"  Max  3D error : {np.max(errs_3d):.3f} m",
+            f"  Accumulated 3D: {sum(errs_3d):.3f} m",
+        ]
+        for e in self.placement_events:
+            lines.append(
+                f"    {e['side']:5s} step {e['step_idx']:2d} | "
+                f"2D={e['error_2d']:.3f}m  3D={e['error_3d']:.3f}m | "
+                f"tgt={np.round(e['target'], 3)}  act={np.round(e['actual'], 3)}"
+            )
+        return "\n".join(lines)
 
     def update_old(self, data):
         self.prev_phase = self.gait_phase
@@ -472,6 +523,42 @@ def quat_rotate_inverse(q, v):
 def pd_control(target_q, q, kp, target_dq, dq, kd):
     return (target_q - q) * kp + (target_dq - dq) * kd
 
+
+def detect_failure_mode(model, data, stair_prefix="stair_1", fall_height=0.3,
+                        robot_geoms=FOOT_AND_CALF_GEOMS, current_world_height=0.0):
+    """Classify the current failure mode."""
+    if (data.qpos[2] - current_world_height) >= fall_height:
+        return None
+
+    for i in range(data.ncon):
+        c = data.contact[i]
+        g1 = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, c.geom1) or ""
+        g2 = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, c.geom2) or ""
+
+        # Identify which geom is the stair and which is the robot
+        g1_is_stair = stair_prefix in g1
+        g2_is_stair = stair_prefix in g2
+        if not (g1_is_stair ^ g2_is_stair):  # both stair or neither stair then skip
+            continue
+
+        robot_geom = g2 if g1_is_stair else g1
+        stair_geom = g1 if g1_is_stair else g2
+        if robot_geom not in robot_geoms:
+            continue  # only care about foot/calf contacts
+
+        # Print diagnostics to verify geom names and frame convention.
+        print(f"  [FAIL-MODE CONTACT] {robot_geom!r} <-> {stair_geom!r} "
+              f"| frame[:3]={c.frame[:3].round(3)}  frame[6]={c.frame[6]:.3f}")
+
+        # Check both possible frame conventions:
+        #   row-major first-row = normal → z-component is frame[2]
+        #   col-major first-col = normal → z-component is frame[6]
+        if abs(c.frame[2]) < 0.3 or abs(c.frame[6]) < 0.3:
+            return 'step_riser_contact'
+
+    return 'balance'
+
+
 # =====================================================================================================================
 @hydra.main(config_name="fp_config.yaml")
 def main(config: DictConfig):
@@ -487,6 +574,8 @@ def main(config: DictConfig):
     MAX_VERT = 0.4
     obs_dim = 16 
     success = False
+    fallen = False
+    riser_contact_times = []   # sim times (s) when a riser contact was detected
     mode = config["command"]["mode"]
 
     xml_path = config["xml_path"]
@@ -647,18 +736,65 @@ def main(config: DictConfig):
         while viewer.is_running():
             step_start = time.time()
 
-            if np.linalg.norm(d.qpos[:2] - planner_ctrl.left_plan[-1][:2]) < 0.5:
+            if not success and np.linalg.norm(d.qpos[:2] - planner_ctrl.left_plan[-1][:2]) < 0.5:
                 success = True
-                # print("SUCCESS")
-            
+                print("\n=== SUCCESS ===")
+                print(planner_ctrl.placement_summary())
+
+            # --- Failure detection ---
+            if not fallen and not success:
+                # Track riser contacts.
+                # Also print ALL robot–stair contacts so we can verify geom names
+                # and determine the correct contact-frame convention empirically.
+                for ci in range(d.ncon):
+                    c = d.contact[ci]
+                    g1 = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, c.geom1) or ""
+                    g2 = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, c.geom2) or ""
+                    g1_stair = "stair_1" in g1
+                    g2_stair = "stair_1" in g2
+                    if not (g1_stair ^ g2_stair):
+                        continue
+                    robot_geom = g2 if g1_stair else g1
+                    in_foot_set = robot_geom in FOOT_AND_CALF_GEOMS
+                    if in_foot_set and (abs(c.frame[2]) < 0.3 or abs(c.frame[6]) < 0.3):
+                        riser_contact_times.append(d.time)
+                        # print(f"  --> RISER CONTACT at t={d.time:.2f}s")
+                        break
+
+                # Detect fall
+                current_world_height = max(
+                    planner_ctrl.left_plan[planner_ctrl.l_idx][2],
+                    planner_ctrl.right_plan[planner_ctrl.r_idx][2]
+                )
+                failure_mode = detect_failure_mode(model=m, data=d, current_world_height=current_world_height)
+                if failure_mode is not None:
+                    # here we add some delay tolerance
+                    RISER_LOOKBACK = 1.5  
+                    if failure_mode == 'balance' and riser_contact_times:
+                        last_riser_t = riser_contact_times[-1]
+                        if (d.time - last_riser_t) <= RISER_LOOKBACK:
+                            failure_mode = 'step_riser_contact'
+
+                    fallen = True
+                    print(f"\n=== FAILURE DETECTED at t={d.time:.2f}s ===")
+                    print(f"  Failure mode : {failure_mode}")
+                    if riser_contact_times:
+                        recent = riser_contact_times[-5:]
+                        print(f"  Riser contact events (last 5): {[f'{t:.2f}s' for t in recent]}")
+                        print(f"  Total riser contact events   : {len(riser_contact_times)}")
+                    else:
+                        print("  No riser contacts recorded.")
+                    print(planner_ctrl.placement_summary())
+                    # input()
+
             # Handle reset request
             if keyboard_state['reset_requested']:
                 print("Resetting controller and robot state")
                 # Reset physics state
                 d.qpos[:] = initial_qpos
                 d.qvel[:] = initial_qvel
-                mujoco.mj_forward(m, d)  
-                
+                mujoco.mj_forward(m, d)
+
                 # Reset controller (now with updated foot positions)
                 planner_ctrl.reset(d)
                 action[:] = 0.0
@@ -667,6 +803,8 @@ def main(config: DictConfig):
                 keyboard_state['reset_requested'] = False
                 print("Reset complete - press 'P' to start")
                 success = False
+                fallen = False
+                riser_contact_times.clear()
             
             if keyboard_state['paused']:
                 viewer.sync()
@@ -683,7 +821,7 @@ def main(config: DictConfig):
             
             l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_cmd()
             # l_off, l_orn, r_off, r_orn, gait_info = planner_ctrl.get_observation_cmd()
-            print(f"[DEBUG] LEFT: {l_off} - {l_orn}\t RIGHT: {r_off} - {r_orn}")
+            # print(f"[DEBUG] LEFT: {l_off} - {l_orn}\t RIGHT: {r_off} - {r_orn}")
             
             # Basic state
             qj = d.qpos[7:]
