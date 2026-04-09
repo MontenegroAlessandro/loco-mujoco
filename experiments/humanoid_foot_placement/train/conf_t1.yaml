@@ -522,7 +522,7 @@ experiment:
   actor_obs_group: policy
   critic_obs_group: prioritized
   hidden_layers: [512, 256, 128]
-  lr: 1e-5
+  lr: 3e-4 # 1e-5
   adaptive_lr: true       # The main flag to enable/disable the feature
   lr_min: 1.0e-6          # Minimum learning rate
   lr_max: 0.01            # Maximum learning rate
@@ -533,8 +533,8 @@ experiment:
   num_envs: ${n_envs}
   num_steps: 50
   total_timesteps: ${num_total_timesteps}
-  update_epochs: 20
-  num_minibatches: 1
+  update_epochs: 4 # 20
+  num_minibatches: 32 # 1
   gamma: 0.995
   gae_lambda: 0.95
   clip_eps: 0.2

@@ -430,7 +430,7 @@ def main(config: DictConfig):
     STEP_LEN         = config["command"]["step_spacing"]
     sign             = config["command"]["direction"]
     RAMP_START_X     = sign * 6 * STEP_LEN      
-    RISE             = 0.35 # config["command"]["step_height"] * 2  
+    RISE             = 0.2 # config["command"]["step_height"] * 2  
     RUN              = STEP_LEN * 5             
     RAMP_WIDTH       = 2.0
     RAMP_THICKNESS   = 0.05        # must match add_ramp_platform_ramp default
