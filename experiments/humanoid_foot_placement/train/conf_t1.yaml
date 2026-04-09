@@ -126,14 +126,14 @@ experiment:
       tracking_nominal_joint_pos_names: 
         - AAHead_yaw
         - Head_pitch
-        - Left_Shoulder_Pitch
+        # - Left_Shoulder_Pitch
         - Left_Shoulder_Roll
         - Left_Elbow_Pitch
-        - Left_Elbow_Yaw
-        - Right_Shoulder_Pitch
+        # - Left_Elbow_Yaw
+        # - Right_Shoulder_Pitch
         - Right_Shoulder_Roll
         - Right_Elbow_Pitch
-        - Right_Elbow_Yaw
+        # - Right_Elbow_Yaw
         - Waist
         # - Right_Ankle_Roll
         # - Left_Ankle_Roll
