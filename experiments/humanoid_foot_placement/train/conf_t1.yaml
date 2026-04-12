@@ -533,7 +533,7 @@ experiment:
   num_envs: ${n_envs}
   num_steps: 50
   total_timesteps: ${num_total_timesteps}
-  update_epochs: 20 # 20
+  update_epochs: 10 # 20
   num_minibatches: 32 # 1
   gamma: 0.995
   gae_lambda: 0.95

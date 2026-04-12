@@ -537,7 +537,7 @@ def main(config: DictConfig):
     FEET_DIST         = float(config["command"]["feet_distance"])
     MAX_VERT          = 0.4
     N_STEPS           = 8
-    ROTATION_PER_STEP = -10.0        # degrees per step; raise for tighter curve
+    ROTATION_PER_STEP = 10.0        # degrees per step; raise for tighter curve
     INITIAL_YAW_DEG   = 0.0         # first step faces +X
     FIRST_STEP_X      = 6 * STEP_LEN
     FIRST_STEP_Y      = 0.0
