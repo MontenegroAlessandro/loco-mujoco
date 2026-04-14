@@ -117,6 +117,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             root_frame: bool = False,
             # the probability of having a certain number of gaits with zero z offset
             flat_prob: float = 0.0,
+            save_robot: bool = False,
             **kwargs
         ):
         # store parameters
@@ -149,6 +150,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.just_fwd_bwd = just_fwd_bwd
         self.root_frame = root_frame
         self.flat_prob = flat_prob
+        self.save_robot = save_robot
         # curriculum parmeters
         self.curriculum = curriculum
         curriculum_ends_at = min(curriculum_ends_at, num_total_timesteps)
@@ -1694,7 +1696,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # avoid early termination for the pillars
         is_left_about_to_stance = (swing_foot_idx == 0) & (gp > (0.25 + self._feet_swing_period * 0.5))
         is_right_about_to_stance = (swing_foot_idx == 1) & (gp > (0.75 + self._feet_swing_period * 0.5))
-        save_robot = (is_left_about_to_stance | is_right_about_to_stance) & (~resample_goal) & (self.adaptive_terrain)
+        save_robot = (is_left_about_to_stance | is_right_about_to_stance) & (~resample_goal) & (self.adaptive_terrain) & (self.save_robot)
 
         terrain_state = carry.terrain_state
         terrain_state = jax.lax.cond(

@@ -18,7 +18,8 @@ curriculum: &curriculum false
 experiment:
   # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/nocv_d2_noterm_smalld_smallangles.pkl 
   # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/knee-0.pkl
-  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/high_rew.pkl
+  # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/high_rew.pkl
+  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/arms-0.pkl
   # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/jnt_nocv_term_30.pkl
 
   task_factory:
@@ -88,7 +89,7 @@ experiment:
       # root frame
       root_frame: false
       # flat probability
-      flat_prob: 0.5
+      flat_prob: 0.1
       # observation group
       group: [prioritized, policy]
       ############################# FORWARD ############################

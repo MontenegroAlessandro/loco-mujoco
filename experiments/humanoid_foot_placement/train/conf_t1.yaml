@@ -87,6 +87,7 @@ experiment:
       root_frame: false
       # flat probaility
       flat_prob: 0.0
+      save_robot: false
       # observation group
       group: [prioritized, policy]
     
