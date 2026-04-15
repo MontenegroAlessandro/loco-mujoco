@@ -117,7 +117,10 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             root_frame: bool = False,
             # the probability of having a certain number of gaits with zero z offset
             flat_prob: float = 0.0,
+            # flag saying whether to adapt the terrain to the robot
             save_robot: bool = False,
+            # scale for the uniformly random sampled noise for the height command
+            height_cmd_noise_scale: float = 0.0,
             **kwargs
         ):
         # store parameters
@@ -151,6 +154,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.root_frame = root_frame
         self.flat_prob = flat_prob
         self.save_robot = save_robot
+        self.height_cmd_noise_scale = height_cmd_noise_scale
         # curriculum parmeters
         self.curriculum = curriculum
         curriculum_ends_at = min(curriculum_ends_at, num_total_timesteps)
@@ -1692,6 +1696,13 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 gp_info
             ]
         )
+
+        # perturb the height command
+        key, subkey = jax.random.split(carry.key)
+        carry.replace(key=key)
+        noise = jax.random.uniform(key=subkey, shape=2, minval=-1, maxval=1) * self.height_cmd_noise_scale
+        observation = observation.at[2].set(noise[0])
+        observation = observation.at[9].set(noise[1])
 
         # avoid early termination for the pillars
         is_left_about_to_stance = (swing_foot_idx == 0) & (gp > (0.25 + self._feet_swing_period * 0.5))

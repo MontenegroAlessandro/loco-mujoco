@@ -87,7 +87,10 @@ experiment:
       root_frame: false
       # flat probaility
       flat_prob: 0.0
+      # save robotr flag for automatically moving the pilallar
       save_robot: false
+      # height command perturbation
+      height_cmd_noise_scale: 0.0
       # observation group
       group: [prioritized, policy]
     
