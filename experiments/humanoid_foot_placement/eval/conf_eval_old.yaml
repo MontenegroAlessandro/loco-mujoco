@@ -19,7 +19,8 @@ experiment:
   # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/nocv_d2_noterm_smalld_smallangles.pkl 
   # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/knee-0.pkl
   # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/high_rew.pkl
-  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/arms-2.pkl
+  # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/arms-2.pkl
+  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/no-floor-1.pkl
   # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/jnt_nocv_term_30.pkl
 
   task_factory:
@@ -94,7 +95,7 @@ experiment:
       # save robot flag for automatically moving the pillar
       save_robot: false
       # height command perturbation
-      height_cmd_noise_scale: 0.001
+      height_cmd_noise_scale: 0.0
       # observation group
       group: [prioritized, policy]
       ############################# FORWARD ############################
@@ -535,6 +536,10 @@ experiment:
       kick_max_vel: 0.4 # m/s
       kick_prob: 0.004 # for a 100 Hz policy/step rate, 1e-2 is like 1 kick per second
       kick_at_reset: false
+
+      # Swing-assist spring (curriculum aid)
+      swing_assist_spring_k: 0.0
+      swing_assist_decay_steps: 8.0e8
 
   # PPO parameters
   actor_obs_group: policy

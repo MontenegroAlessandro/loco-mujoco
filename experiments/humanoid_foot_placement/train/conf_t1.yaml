@@ -516,6 +516,10 @@ experiment:
       apply_action_filtering: false
       filter_action_alpha: 0.0
 
+      # Swing-assist spring (curriculum aid)
+      swing_assist_spring_k: 0.0
+      swing_assist_decay_steps: 5.0e7
+
       # Kicking
       kick_robots: true # true
       kick_min_vel: 0.1

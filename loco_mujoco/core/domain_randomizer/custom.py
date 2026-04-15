@@ -13,6 +13,7 @@ from loco_mujoco.core.domain_randomizer import DomainRandomizer
 from loco_mujoco.core.control_functions import ControlFunction, PDControl
 from loco_mujoco.core.utils.backend import assert_backend_is_supported
 from loco_mujoco.core.terrain import AdaPillarsTerrain
+from loco_mujoco.core.observations.goals_foot_placement import GoalDoubleFootPlacement as _GoalDoubleFootPlacement
 
 
 @struct.dataclass
@@ -83,6 +84,14 @@ class CustomRandomizer(DomainRandomizer):
 
         # some observations are not allowed to be randomized, filter them out
         self._allowed_to_be_randomized = env.obs_container.get_randomizable_obs_indices()
+
+        # Swing-assist spring: a curriculum aid that applies an XY force on the root
+        # this can be used just when we have the double foot placement goal
+        spring_k = float(kwargs.get("swing_assist_spring_k", 0.0))
+        spring_decay = float(kwargs.get("swing_assist_decay_steps", 5e7))
+        self._swing_assist_spring_k = spring_k
+        self._swing_assist_decay_steps = spring_decay
+        self._swing_assist_enabled = (spring_k > 0.0) and isinstance(env._goal, _GoalDoubleFootPlacement) 
 
         super().__init__(env, **kwargs)
 
@@ -246,6 +255,10 @@ class CustomRandomizer(DomainRandomizer):
         """
 
         assert_backend_is_supported(backend)
+
+        # Zero the root body's external force each outer step
+        if self._swing_assist_enabled and backend == jnp:
+            data = data.replace(xfrc_applied=data.xfrc_applied.at[self._root_body_id].set(jnp.zeros(6)))
 
         domrand_state = carry.domain_randomizer_state
 
@@ -469,6 +482,25 @@ class CustomRandomizer(DomainRandomizer):
                 data.xfrc_applied[self._root_body_id, :3] = push_force
                 data.xfrc_applied[self._root_body_id, 3:] = push_torque
 
+
+        # Swing-assist spring: applies a horizontal force on the root body toward the swing foot's XY target
+        if self._swing_assist_enabled and backend == jnp:
+            # carry.total_timestep is per-environment; convert to global timesteps
+            # the same way _compute_curriculum_coeff does it.
+            t_global = carry.total_timestep * self.rand_conf["num_environments"]
+            k_eff = self._swing_assist_spring_k * jnp.maximum(
+                0.0, 1.0 - t_global / self._swing_assist_decay_steps
+            )
+            goal_state = carry.observation_states.GoalDoubleFootPlacement
+            swing_target_xy = jax.lax.cond(
+                goal_state.swing_foot_idx == 0,
+                lambda: goal_state.left_foot_target_pos[:2],
+                lambda: goal_state.right_foot_target_pos[:2],
+            )
+            torso_xy = data.xpos[self._root_body_id][:2]
+            error_xy = swing_target_xy - torso_xy
+            force6 = jnp.zeros(6).at[:2].set(k_eff * error_xy)
+            data = data.replace(xfrc_applied=data.xfrc_applied.at[self._root_body_id].add(force6))
 
         carry = carry.replace(domain_randomizer_state=domrand_state)
 
