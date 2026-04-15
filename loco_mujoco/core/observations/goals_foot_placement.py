@@ -293,15 +293,39 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         
     def reset_state(self, env, model, data, carry, backend):
         # get the key
-        key = carry.key 
+        key = carry.key
         key, sk1, sk2 = jax.random.split(key, 3)
-        
+
         # sample initial gait parmeters
         movement_dir, feet_dir, gp0, gait_frequency, distance_range, angle_range_rad, flat = self._sample_gait_parameters(sk1)
-        
-        # Sample the initial goal
+
+        # adaptive terrains: place support pillars under both feet at their current positions
+        # BEFORE sampling the goal so that sample_goal sees the correct terrain state.
+        # Pillar 0 = left foot, pillar 1 = right foot (matches foot_pillar_ids = [0, 1] from init_state).
+        # Pillar 2 (free) will be assigned to the first swing-foot target by sample_goal.
+        num_pillars = int(getattr(getattr(env, "_terrain", None), "num_pillars", 0))
+        if self.adaptive_terrain and num_pillars >= 3:
+            left_pos = data.site_xpos[self._foot_site_id_left]
+            right_pos = data.site_xpos[self._foot_site_id_right]
+            ts = carry.terrain_state
+            ts = env._terrain.set_height_at_xy(ts, left_pos[:2], left_pos[2], 0, backend)
+            ts = env._terrain.set_height_at_xy(ts, right_pos[:2], right_pos[2], 1, backend)
+            # Reset pillar tracking to the clean baseline before sample_goal.  Without this,
+            # stale values carried over from the previous episode (e.g. pending=0, free=-1)
+            # cause _retrieve_pillar_id_for_goal to release pillar 0 as the "free" pillar and
+            # immediately move it to the new swing target — destroying the support just placed.
+            current_goal = getattr(carry.observation_states, self.name)
+            clean_goal = current_goal.replace(
+                foot_pillar_ids=backend.array([0, 1], dtype=backend.int32),
+                free_pillar_id=backend.array(2, dtype=backend.int32),
+                pending_free_pillar_id=backend.array(-1, dtype=backend.int32),
+            )
+            obs_states = carry.observation_states.replace(**{self.name: clean_goal})
+            carry = carry.replace(terrain_state=ts, observation_states=obs_states)
+
+        # Sample the initial goal (places swing target on pillar 2 and updates foot_pillar_ids)
         goal_state, carry = self.sample_goal(
-            env=env, 
+            env=env,
             data=data,
             carry=carry.replace(key=sk2),
             backend=backend,
@@ -314,31 +338,31 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             reset=True,
             z_distance_range=backend.array(self.z_distance_range)
         )
-        
-        # adaptive terrains stuff
-        num_pillars = int(getattr(getattr(env, "_terrain", None), "num_pillars", 0))
+
         if num_pillars >= 3:
-            foot_pillar_ids = backend.array([0, 1], dtype=backend.int32)
-            free_pillar_id = backend.array(2, dtype=backend.int32)
+            # Keep the pillar state computed by sample_goal (foot_pillar_ids, free_pillar_id,
+            # pending_free_pillar_id). Overwriting them here would break the pillar rotation.
+            goal_state = goal_state.replace(
+                absorbing=False,
+                is_gp_adaptive=self.is_gp_adaptive,
+                gait_frequency=gait_frequency,
+                flat=flat
+            )
         else:
             # fallback (old behaviour): pillar_id == swing_foot_idx
-            foot_pillar_ids = backend.array([0, 1], dtype=backend.int32)
-            free_pillar_id = backend.array(-1, dtype=backend.int32)
-
-        pending_free_pillar_id = backend.array(-1, dtype=backend.int32)
-        goal_state = goal_state.replace(
-            foot_pillar_ids=foot_pillar_ids,
-            free_pillar_id=free_pillar_id,
-            pending_free_pillar_id=pending_free_pillar_id,
-            absorbing=False,
-            is_gp_adaptive=self.is_gp_adaptive,
-            gait_frequency=gait_frequency,
-            flat=flat
-        )
+            goal_state = goal_state.replace(
+                foot_pillar_ids=backend.array([0, 1], dtype=backend.int32),
+                free_pillar_id=backend.array(-1, dtype=backend.int32),
+                pending_free_pillar_id=backend.array(-1, dtype=backend.int32),
+                absorbing=False,
+                is_gp_adaptive=self.is_gp_adaptive,
+                gait_frequency=gait_frequency,
+                flat=flat
+            )
 
         # update observation with the new goal state in the carry
         observation_states = carry.observation_states.replace(**{self.name: goal_state})
-        
+
         return data, carry.replace(key=key, observation_states=observation_states)
     
     def _sample_movement_direction(self, key) -> Tuple[float, float, float]:
@@ -928,21 +952,34 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         target_z = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
         if self.adaptive_terrain:
             z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
-            z_sampled = backend.where(hold_still | flat, 0.0, z_sampled) 
-            target_z = backend.maximum(z_sampled + stance_foot_pos[2], 0.0)
+            z_sampled = backend.where(hold_still | flat, 0.0, z_sampled)
+            raw_target_z = z_sampled + stance_foot_pos[2]
+            # clamp to floor level only when a physical floor is present
+            floor_removed = getattr(env._terrain, 'remove_floor', False)
+            target_z = raw_target_z if floor_removed else backend.maximum(raw_target_z, 0.0)
 
         target_pos = target_pos_pre_z.at[2].set(target_z)
-        
-        # when the terrain is adaptive, we need to build a pillar below the foot
+
+        # when the terrain is adaptive, we need to build a pillar below the foot.
+        # At reset the goal target is overridden to swing_foot_pos (current foot position),
+        # so place the pillar there too — otherwise pillar_id_for_goal ends up at a random
+        # sampled location that is inconsistent with the actual reset goal, causing the
+        # stance foot to have no physical support when the first real resample fires.
         terrain_state = carry.terrain_state
         if self.adaptive_terrain:
-            terrain_state = env._terrain.set_height_at_xy(carry.terrain_state, target_pos[:2], target_z, pillar_id_for_goal, backend)
+            if backend == np:
+                pillar_xy = swing_foot_pos[:2] if reset else target_pos[:2]
+                pillar_z  = swing_foot_pos[2]  if reset else target_z
+            else:
+                pillar_xy = jax.lax.select(reset, swing_foot_pos[:2], target_pos[:2])
+                pillar_z  = jax.lax.select(reset, swing_foot_pos[2],  target_z)
+            terrain_state = env._terrain.set_height_at_xy(carry.terrain_state, pillar_xy, pillar_z, pillar_id_for_goal, backend)
         carry = carry.replace(terrain_state=terrain_state)
 
         # ===========================================FOOT ORIENTATION TARGET===========================================
         feet_dir_rot = R.from_euler('z', feet_direction)
         key, subkey4 = jax.random.split(key)
-        
+
         # sample the yaw relative to the current stance foot yaw
         # feet_direction=current_stance_yaw # FIXME
         rand_yaw = jax.random.uniform(subkey4, minval=self.yaw_range_rad[0], maxval=self.yaw_range_rad[1])
@@ -1309,11 +1346,14 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         target_z = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
         if self.adaptive_terrain:
             z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
-            z_sampled = backend.where(hold_still, 0.0, z_sampled) 
-            target_z = backend.maximum(z_sampled + stance_foot_pos[2], 0.0)
+            z_sampled = backend.where(hold_still, 0.0, z_sampled)
+            raw_target_z = z_sampled + stance_foot_pos[2]
+            # clamp to floor level only when a physical floor is present
+            floor_removed = getattr(env._terrain, 'remove_floor', False)
+            target_z = raw_target_z if floor_removed else backend.maximum(raw_target_z, 0.0)
 
         target_pos = target_pos_pre_z.at[2].set(target_z)
-        
+
         # when the terrain is adaptive, we need to build a pillar below the foot
         terrain_state = carry.terrain_state
         if self.adaptive_terrain:
@@ -1701,8 +1741,10 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         key, subkey = jax.random.split(carry.key)
         carry.replace(key=key)
         noise = jax.random.uniform(key=subkey, shape=2, minval=-1, maxval=1) * self.height_cmd_noise_scale
-        observation = observation.at[2].set(noise[0])
-        observation = observation.at[9].set(noise[1])
+        observation_offset = backend.zeros(len(observation))
+        observation_offset = observation_offset.at[2].set(noise[0])
+        observation_offset = observation_offset.at[9].set(noise[1])
+        observation = observation + observation_offset
 
         # avoid early termination for the pillars
         is_left_about_to_stance = (swing_foot_idx == 0) & (gp > (0.25 + self._feet_swing_period * 0.5))

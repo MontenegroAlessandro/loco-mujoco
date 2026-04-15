@@ -35,9 +35,10 @@ experiment:
       num_pillars: 2
       diameter: 0.3
       feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
+      remove_floor: true
 
-    terminal_state_type: HeightAndStanceBasedTerminalStateHandler
-    # terminal_state_type: HeightBasedTerminalStateHandler
+    # terminal_state_type: HeightAndStanceBasedTerminalStateHandler
+    terminal_state_type: HeightBasedTerminalStateHandler
 
     goal_type: GoalDoubleFootPlacement 
     goal_params:

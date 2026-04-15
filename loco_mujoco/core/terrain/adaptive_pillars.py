@@ -46,19 +46,25 @@ class AdaPillarsTerrain(DynamicTerrain):
         diameter: float = 0.3, # the foot should be able to properly stand on the pillar
         feet_collision: List[str] = [],
         foot_dimension: List[float] = [0.1, 0.04, 0.01],
+        remove_floor: bool = False,
+        pillar_height: float = 0.2,
         **kwargs: Any
     ):
         # super class initialization
         super().__init__(env, **kwargs)
-        
+
         # store parameters
         self.num_pillars = num_pillars + 1
         """NOTE: we need one more pillar in order not to leave any foot without floor."""
         self.diameter = diameter
         self.feet_collision = feet_collision
         self.foot_dimension = foot_dimension
+        self.remove_floor = remove_floor
+        self.pillar_height = pillar_height
 
-        # flat floor height 
+        # flat floor height used as the pillar hide-position in reset() and as the fallback
+        # in get_height_at_xy. For adaptive terrain the height terminal handler uses desired_z
+        # instead, so this value does not affect the termination condition.
         self._floor_height = 0.0
         
         # store the geoms for the obstacles
@@ -88,6 +94,17 @@ class AdaPillarsTerrain(DynamicTerrain):
     def modify_spec(self, spec: MjSpec) -> MjSpec:
         # retrieve the worldbody
         wb = spec.worldbody
+
+        # remove the floor if requested
+        if self.remove_floor:
+            for g in spec.geoms:
+                if g.name == 'floor':
+                    g.delete()
+                    break
+            # remove any collision pairs that referenced the floor geom
+            for pair in list(spec.pairs):
+                if pair.geomname1 == 'floor' or pair.geomname2 == 'floor':
+                    pair.delete()
         
         # ==================================================OBSTACLEs==================================================
         # this part is only needed for initialization, then the boxes will be added when doing the reset
@@ -220,22 +237,37 @@ class AdaPillarsTerrain(DynamicTerrain):
         sizes = terrain_state.sizes
         poss = terrain_state.positions
         
-        # adjust the z
         raw_des_z = desired_z
-        desired_z = backend.maximum((desired_z / 2.0), 0.0) - (self.foot_dimension[2] / 2.0)
-        
+
+        if self.remove_floor:
+            # Fixed-shape pillar: always pillar_height tall, top aligned with the foot
+            # contact point (= foot-site z minus foot half-thickness).  The pillar hangs
+            # downward from there, so it works for any target_z — including negative values.
+            half_height = self.pillar_height / 2.0
+            foot_contact_z = desired_z - self.foot_dimension[2]
+            pos_z = foot_contact_z - half_height
+        else:
+            # Floor-based: pillar grows from z=0 up to the target.
+            # pos_z == half_height encodes a cylinder whose bottom is at z=0 and
+            # top is at 2*pos_z ≈ target_z − foot_thickness.
+            pos_z = backend.maximum((desired_z / 2.0), 0.0) - (self.foot_dimension[2] / 2.0)
+            # MuJoCo requires non-negative half-height; clamp so degenerate pillars
+            # near z=0 stay valid.
+            pos_z = backend.maximum(pos_z, 0.0)
+            half_height = pos_z          # same value: bottom at 0, top at 2*pos_z
+
         # set at x and y coordinates the new cylinder height to be the desired_z for the desired foot
-        new_pos = backend.concatenate([xy_pos, backend.array([desired_z])], dtype=backend.float32)
+        new_pos = backend.concatenate([xy_pos, backend.array([pos_z])], dtype=backend.float32)
         if backend == jnp:
             # modify the size (diameter not touched)
-            sizes = sizes.at[pillar_id, 1].set(desired_z)
-            
+            sizes = sizes.at[pillar_id, 1].set(half_height)
+
             # modify the positions
             poss = poss.at[pillar_id].set(new_pos)
         else:
             # modify the size (diameter not touched)
-            sizes[pillar_id, 1] = desired_z
-            
+            sizes[pillar_id, 1] = half_height
+
             # modify the positions
             poss[pillar_id] = new_pos
         

@@ -30,6 +30,7 @@ experiment:
       num_pillars: null
       diameter: null
       feet_collision: null
+      remove_floor: null
 
     # terminal_state_type: HeightAndStanceBasedTerminalStateHandler # HeightBasedTerminalStateHandler
     terminal_state_type: HeightBasedTerminalStateHandler
