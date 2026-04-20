@@ -518,7 +518,7 @@ experiment:
 
       # Swing-assist spring (curriculum aid)
       swing_assist_spring_k: 0.0
-      swing_assist_decay_steps: 5.0e7
+      swing_assist_decay_steps: 8.0e8
 
       # Kicking
       kick_robots: true # true

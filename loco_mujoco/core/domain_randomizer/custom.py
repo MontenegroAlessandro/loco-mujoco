@@ -490,7 +490,7 @@ class CustomRandomizer(DomainRandomizer):
             t_global = carry.total_timestep * self.rand_conf["num_environments"]
             k_eff = self._swing_assist_spring_k * jnp.maximum(
                 0.0, 1.0 - t_global / self._swing_assist_decay_steps
-            )
+            )  
             goal_state = carry.observation_states.GoalDoubleFootPlacement
             swing_target_xy = jax.lax.cond(
                 goal_state.swing_foot_idx == 0,
