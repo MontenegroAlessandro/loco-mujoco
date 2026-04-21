@@ -483,23 +483,23 @@ class CustomRandomizer(DomainRandomizer):
                 data.xfrc_applied[self._root_body_id, 3:] = push_torque
 
 
-        # Swing-assist spring: applies a horizontal force on the root body toward the swing foot's XY target
+        # Swing-assist spring: applies a force on the root body toward the swing foot's XYZ target
         if self._swing_assist_enabled and backend == jnp:
             # carry.total_timestep is per-environment; convert to global timesteps
             # the same way _compute_curriculum_coeff does it.
             t_global = carry.total_timestep * self.rand_conf["num_environments"]
             k_eff = self._swing_assist_spring_k * jnp.maximum(
                 0.0, 1.0 - t_global / self._swing_assist_decay_steps
-            )  
-            goal_state = carry.observation_states.GoalDoubleFootPlacement
-            swing_target_xy = jax.lax.cond(
-                goal_state.swing_foot_idx == 0,
-                lambda: goal_state.left_foot_target_pos[:2],
-                lambda: goal_state.right_foot_target_pos[:2],
             )
-            torso_xy = data.xpos[self._root_body_id][:2]
-            error_xy = swing_target_xy - torso_xy
-            force6 = jnp.zeros(6).at[:2].set(k_eff * error_xy)
+            goal_state = carry.observation_states.GoalDoubleFootPlacement
+            swing_target_xyz = jax.lax.cond(
+                goal_state.swing_foot_idx == 0,
+                lambda: goal_state.left_foot_target_pos[:3],
+                lambda: goal_state.right_foot_target_pos[:3],
+            )
+            torso_xyz = data.xpos[self._root_body_id][:3]
+            error_xyz = swing_target_xyz - torso_xyz
+            force6 = jnp.zeros(6).at[:3].set(k_eff * error_xyz)
             data = data.replace(xfrc_applied=data.xfrc_applied.at[self._root_body_id].add(force6))
 
         carry = carry.replace(domain_randomizer_state=domrand_state)
