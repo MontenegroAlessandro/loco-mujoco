@@ -1511,7 +1511,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # compute steps elapsed in the curriculum phase
             steps_in_curriculum = state.steps - self.curriculum_start
             # compute the update condition
-            should_update = (steps_in_curriculum > 0) & (steps_in_curriculum % self.update_z_every == 0) & (steps_in_curriculum <= self.curriculum_end)
+            should_update = (steps_in_curriculum > 0) & (steps_in_curriculum % self.update_z_every == 0) & (state.steps <= self.curriculum_end)
             # prepare the update vector
             update_vector = backend.array([self.delta_pcurr_low, self.delta_pcurr_up])
             # prepare the (redundant but safe) clipping edges
@@ -1749,7 +1749,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # avoid early termination for the pillars
         is_left_about_to_stance = (swing_foot_idx == 0) & (gp > (0.25 + self._feet_swing_period * 0.5))
         is_right_about_to_stance = (swing_foot_idx == 1) & (gp > (0.75 + self._feet_swing_period * 0.5))
-        save_robot = (is_left_about_to_stance | is_right_about_to_stance) & (~resample_goal) & (self.adaptive_terrain) & (self.save_robot)
+        still_saving = (state.steps <= self.curriculum_end)
+        save_robot = (is_left_about_to_stance | is_right_about_to_stance) & (~resample_goal) & (self.adaptive_terrain) & (self.save_robot) & (still_saving)
 
         terrain_state = carry.terrain_state
         terrain_state = jax.lax.cond(

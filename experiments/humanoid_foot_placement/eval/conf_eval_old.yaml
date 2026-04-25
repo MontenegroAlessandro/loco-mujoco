@@ -20,7 +20,8 @@ experiment:
   # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/knee-0.pkl
   # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/high_rew.pkl
   # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/arms-2.pkl
-  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/no-floor-10.pkl
+  # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/no-floor-10.pkl
+  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/corl/wide-asycv.pkl
   # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/jnt_nocv_term_30.pkl
 
   task_factory:
@@ -62,7 +63,7 @@ experiment:
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
-      direction_range_deg: [-180,180] # [-180, 180]
+      direction_range_deg: [0,0] # [-180, 180]
       just_fwd_bwd: false
       change_direction_range_deg: [0, 0]
       # feet direction range in deg
