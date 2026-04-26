@@ -964,7 +964,6 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
                 n_steps = (high_int - low_int) // round(self.discrete_z_sampling_step * scale)
                 idx = jax.random.randint(zkey, shape=(), minval=0, maxval=n_steps + 1)
                 z_sampled = jnp.round((low_int + idx) / scale, decimals=2)
-                jax.debug.print("Sampled z height: {}", z_sampled)
             else:
                 z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
             z_sampled = backend.where(hold_still | flat, 0.0, z_sampled)
