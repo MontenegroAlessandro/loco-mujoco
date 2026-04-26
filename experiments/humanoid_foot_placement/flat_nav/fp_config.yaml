@@ -9,7 +9,7 @@
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/knee-0-flat.pkl 
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/arms-0.pkl # <-----------------------------
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/no-floor-10.pkl # <-----------------------------
-agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/corl/wide-save-stop-cv.pkl 
+agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/corl/wide-save-cv.pkl 
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/knee-3.pkl 
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/nocv_d2_noterm_smalld_smallangles.pkl # <---
 # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/fwdbwd_20.pkl 
@@ -195,7 +195,7 @@ command:
   gait_frequency: 1.0
   stop_steps: 2
   step_spacing: 0.33 # [0.2, 0.4]
-  step_height: 0.13 # max 0.12 (also 13!!)
+  step_height: 0.14 # max 0.12 (also 13!!)
   direction: 1 # 1 for forward, -1 for backward
   yaw_off: 0.0
   mode: fast

@@ -958,9 +958,13 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         target_z = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
         if self.adaptive_terrain:
             if self.discrete_z_sampling:
-                n_steps = int((z_distance_range[1] - z_distance_range[0]) / self.discrete_z_sampling_step)
-                idx = jax.random.randint(zkey, shape=(), minval=0, maxval=(n_steps + 1))
-                z_sampled = z_distance_range[0] + idx * self.discrete_z_sampling_step
+                scale = round(1.0 / self.discrete_z_sampling_step) # ... avoiding precision issues
+                low_int = round(z_distance_range[0] * scale)
+                high_int = round(z_distance_range[1] * scale)
+                n_steps = (high_int - low_int) // round(self.discrete_z_sampling_step * scale)
+                idx = jax.random.randint(zkey, shape=(), minval=0, maxval=n_steps + 1)
+                z_sampled = jnp.round((low_int + idx) / scale, decimals=2)
+                jax.debug.print("Sampled z height: {}", z_sampled)
             else:
                 z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
             z_sampled = backend.where(hold_still | flat, 0.0, z_sampled)
