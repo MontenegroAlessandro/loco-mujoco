@@ -21,7 +21,7 @@ experiment:
   # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/high_rew.pkl
   # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/arms-2.pkl
   # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/after_deadline/no-floor-10.pkl
-  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/corl/wide-asycv.pkl
+  agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/corl/wide-save-stop-cv.pkl
   # agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/pillars_easy/jnt_nocv_term_30.pkl
 
   task_factory:
@@ -76,6 +76,7 @@ experiment:
       # adaptive terrains 
       adaptive_terrain: true
       z_distance_range: [-0.15, 0.15]
+      discrete_z_sampling: true
       max_z_distance_up: 0.0
       max_z_distance_low: 0.0
       # start still flag
@@ -95,6 +96,7 @@ experiment:
       flat_prob: 0.1
       # save robot flag for automatically moving the pillar
       save_robot: false
+      stop_save_at_cv: false
       # height command perturbation
       height_cmd_noise_scale: 0.0
       # observation group

@@ -68,6 +68,7 @@ experiment:
       # adaptive terrains 
       adaptive_terrain: false
       z_distance_range: [0.0, 0.0]
+      discrete_z_sampling: true
       max_z_distance_up: 0.0
       max_z_distance_low: 0.0
       # start still flag
@@ -90,6 +91,7 @@ experiment:
       flat_prob: 0.0
       # save robotr flag for automatically moving the pilallar
       save_robot: false
+      stop_save_at_cv: false
       # height command perturbation
       height_cmd_noise_scale: 0.0
       # observation group

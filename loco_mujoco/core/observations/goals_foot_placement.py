@@ -95,6 +95,7 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             # define terrain type and height sampling parameters
             adaptive_terrain: bool = False,
             z_distance_range: List[float] = [0.0, 0.0],
+            discrete_z_sampling: bool = False,
             max_z_distance_up: float = 0.0,
             max_z_distance_low: float = 0.0,
             # curriculum parameters
@@ -121,6 +122,8 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
             save_robot: bool = False,
             # scale for the uniformly random sampled noise for the height command
             height_cmd_noise_scale: float = 0.0,
+            # stop saving
+            stop_save_at_cv: bool = False,
             **kwargs
         ):
         # store parameters
@@ -155,6 +158,9 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         self.flat_prob = flat_prob
         self.save_robot = save_robot
         self.height_cmd_noise_scale = height_cmd_noise_scale
+        self.stop_save_at_cv = stop_save_at_cv
+        self.discrete_z_sampling = discrete_z_sampling
+        self.discrete_z_sampling_step = 0.01
         # curriculum parmeters
         self.curriculum = curriculum
         curriculum_ends_at = min(curriculum_ends_at, num_total_timesteps)
@@ -951,7 +957,12 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         key, zkey = jax.random.split(key)
         target_z = env._terrain.get_height_at_xy(carry.terrain_state, target_pos_pre_z[:2], backend)
         if self.adaptive_terrain:
-            z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
+            if self.discrete_z_sampling:
+                n_steps = int((z_distance_range[1] - z_distance_range[0]) / self.discrete_z_sampling_step)
+                idx = jax.random.randint(zkey, shape=(), minval=0, maxval=(n_steps + 1))
+                z_sampled = z_distance_range[0] + idx * self.discrete_z_sampling_step
+            else:
+                z_sampled = jax.random.uniform(zkey, minval=z_distance_range[0], maxval=z_distance_range[1])
             z_sampled = backend.where(hold_still | flat, 0.0, z_sampled)
             raw_target_z = z_sampled + stance_foot_pos[2]
             # clamp to floor level only when a physical floor is present
@@ -1749,7 +1760,9 @@ class GoalDoubleFootPlacement(Goal, DoubleFootPlacementVisualizer):
         # avoid early termination for the pillars
         is_left_about_to_stance = (swing_foot_idx == 0) & (gp > (0.25 + self._feet_swing_period * 0.5))
         is_right_about_to_stance = (swing_foot_idx == 1) & (gp > (0.75 + self._feet_swing_period * 0.5))
-        still_saving = (state.steps <= self.curriculum_end)
+        still_saving = True
+        if self.stop_save_at_cv:
+            still_saving = (state.steps <= self.curriculum_end)
         save_robot = (is_left_about_to_stance | is_right_about_to_stance) & (~resample_goal) & (self.adaptive_terrain) & (self.save_robot) & (still_saving)
 
         terrain_state = carry.terrain_state
