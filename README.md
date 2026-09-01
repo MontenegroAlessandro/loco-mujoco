@@ -1,13 +1,58 @@
+# Mind Your Steps: A General Learning Framework for Accurate Humanoid Foothold Tracking
+
 <p align="center">
-  <img width="70%" src="https://github.com/robfiras/loco-mujoco/assets/69359729/bd2a219e-ddfd-4355-8024-d9af921fb92a">
+  <img width="90%" src="assets/new-overview.svg">
 </p>
 
-![continous integration](https://github.com/robfiras/loco-mujoco/actions/workflows/continuous_integration.yml/badge.svg?branch=dev)
-[![Documentation Status](https://readthedocs.org/projects/loco-mujoco/badge/?version=latest)](https://loco-mujoco.readthedocs.io/en/latest/?badge=latest)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Join our Discord](https://img.shields.io/badge/Discord-Join%20Us-7289DA?style=flat&logo=discord&logoColor=white)](https://discord.gg/gEqR3xCVdn)
+<p align="center"><b>Robotics: Science and Systems (RSS) 2026</b></p>
 
-[//]: # ([![PyPI]&#40;https://img.shields.io/pypi/v/loco-mujoco&#41;]&#40;https://pypi.org/project/loco-mujoco/&#41;)
+<p align="center">
+  Alessandro Montenegro<sup>1</sup>, Shihao Li<sup>2</sup>, Puze Liu<sup>2†</sup>, Alberto Maria Metelli<sup>1</sup>, Jan Peters<sup>3–6</sup>
+</p>
+
+<p align="center">
+  <sup>1</sup> Politecnico di Milano &nbsp;&nbsp;
+  <sup>2</sup> Tongji University &nbsp;&nbsp;
+  <sup>3</sup> Technische Universität Darmstadt &nbsp;&nbsp;
+  <sup>4</sup> German Research Center for Artificial Intelligence (DFKI) &nbsp;&nbsp;
+  <sup>5</sup> hessian.AI &nbsp;&nbsp;
+  <sup>6</sup> Robotics Institute Germany (RIG)
+  <br>
+  <sup>†</sup> Corresponding Author
+</p>
+
+<p align="center">
+  <a href="https://montenegroalessandro.github.io/mind-your-steps/">🌐 Website</a> &nbsp;|&nbsp;
+  <a href="https://arxiv.org/pdf/2606.08253">📄 Paper</a> &nbsp;|&nbsp;
+  <a href="https://youtu.be/mHInn_y-JXs">▶️ Video</a> &nbsp;|&nbsp;
+  <a href="experiments/humanoid_foot_placement">💻 Code</a>
+</p>
+
+<p align="center">
+  <a href="https://youtu.be/mHInn_y-JXs">
+    <img width="70%" src="https://img.youtube.com/vi/mHInn_y-JXs/maxresdefault.jpg" alt="Mind Your Steps video">
+  </a>
+</p>
+
+The training, evaluation, and deployment (sim2sim and sim2real) code for the foot-placement
+policies presented in the paper lives in
+[`experiments/humanoid_foot_placement`](experiments/humanoid_foot_placement), built on top of
+the LocoMuJoCo framework described below.
+
+### Citation
+
+If you find this work useful, please cite:
+
+```bibtex
+@inproceedings{montenegro2026mind,
+  title     = {Mind Your Steps: A General Learning Framework for Accurate Humanoid Foothold Tracking},
+  author    = {Montenegro, Alessandro and Li, Shihao and Liu, Puze and Metelli, Alberto Maria and Peters, Jan},
+  booktitle = {Robotics: Science and Systems},
+  year      = {2026}
+}
+```
+
+---
 
 > 🚀 **Latest News:**
 > A **major release (v1.0)** just dropped! 🎉  
