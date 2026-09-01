@@ -25,7 +25,6 @@
   <a href="https://montenegroalessandro.github.io/mind-your-steps/">🌐 Website</a> &nbsp;|&nbsp;
   <a href="https://arxiv.org/pdf/2606.08253">📄 Paper</a> &nbsp;|&nbsp;
   <a href="https://youtu.be/mHInn_y-JXs">▶️ Video</a> &nbsp;|&nbsp;
-  <a href="experiments/humanoid_foot_placement">💻 Code</a>
 </p>
 
 <p align="center">
@@ -38,6 +37,17 @@ The training, evaluation, and deployment (sim2sim and sim2real) code for the foo
 policies presented in the paper lives in
 [`experiments/humanoid_foot_placement`](experiments/humanoid_foot_placement), built on top of
 the LocoMuJoCo framework described below.
+
+### Core Implementation
+
+A fundamental part of the method is implemented directly in the core LocoMuJoCo framework
+rather than in the `experiments/` folder:
+- the goal definition — [`GoalDoubleFootPlacement`](loco_mujoco/core/observations/goals_foot_placement.py)
+- the reward definition — [`CrispBoosterLocomotionFootPlacementReward`](loco_mujoco/core/reward/foot_placement.py)
+- the terrain generator — [`AdaPillarsTerrain`](loco_mujoco/core/terrain/adaptive_pillars.py) (adaptive pillars terrain)
+
+The [`experiments/humanoid_foot_placement`](experiments/humanoid_foot_placement) folder only
+contains the code for training and evaluating policies on top of these components.
 
 ### Citation
 
