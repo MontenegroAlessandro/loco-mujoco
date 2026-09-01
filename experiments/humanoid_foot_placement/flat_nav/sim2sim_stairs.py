@@ -122,7 +122,7 @@ class StairPlanGenerator:
 class PlanFollowingGaitGenerator:
     def __init__(
             self, model, data, left_plan, right_plan, gait_freq, policy_dt, max_vert: float = 0.4, 
-            feet_dist: float = 0.2, target_yaw: float = 0.0, mode: str = "fast"):
+            feet_dist: float = 0.2, target_yaw: float = 0.0, mode: str = "fast", tolerance: float = 0.1, debug: bool = False):
         self.model = model
         self.data = data
         
@@ -141,7 +141,8 @@ class PlanFollowingGaitGenerator:
         self.target_quat = np.array([np.cos(half_yaw), 0, 0, np.sin(half_yaw)])  # foot orientation target
         assert mode in ["slow", "fast"]
         self.mode = mode
-        
+        self.tolerance = tolerance
+        self.debug = debug
         self.prev_phase = 0.0 # to detect switches
         
         self.left_foot_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "left_foot")
@@ -154,9 +155,9 @@ class PlanFollowingGaitGenerator:
         """Reset the plan indices and gait phase."""
         self.l_idx = 0
         self.r_idx = 0
-        self.placement_events = []  # list of dicts: {side, step_idx, target, actual, error_2d, error_3d}
+        self.placement_events = [] # for logging
         
-        # Get robot's current yaw from quaternion
+        # retrieve the robot yaw
         robot_quat = data.qpos[3:7]  # wxyz format
         robot_yaw = np_R.from_quat([robot_quat[1], robot_quat[2], robot_quat[3], robot_quat[0]]).as_euler('xyz')[2]
         
@@ -165,7 +166,8 @@ class PlanFollowingGaitGenerator:
         # Normalize to [-pi, pi]
         yaw_diff = np.arctan2(np.sin(yaw_diff), np.cos(yaw_diff))
         
-        # print(f"  Robot yaw: {np.rad2deg(robot_yaw):.2f}°, Target yaw: {np.rad2deg(self.target_yaw):.2f}°, Diff: {np.rad2deg(yaw_diff):.2f}°")
+        if self.debug:
+            print(f"  Robot yaw: {np.rad2deg(robot_yaw):.2f}°, Target yaw: {np.rad2deg(self.target_yaw):.2f}°, Diff: {np.rad2deg(yaw_diff):.2f}°")
         
         # If robot is rotated left (positive yaw diff), move RIGHT foot first (phase 0.5)
         # If robot is rotated right (negative yaw diff), move LEFT foot first (phase 0.0)
@@ -175,14 +177,16 @@ class PlanFollowingGaitGenerator:
             self.r_off_phase_cmd = np.zeros(3)
             self.r_orn_phase_cmd = np.array([1, 0, 0, 0])
             self.l_off_phase_cmd, self.l_orn_phase_cmd, _, _, _ = self.get_observation_cmd(data)
-            # print(f"  Starting with LEFT foot swing (phase=0.0)")
+            if self.debug:
+                print(f"  Starting with LEFT foot swing (phase=0.0)")
         else:
             # Robot leaning left -> move RIGHT foot first
             self.gait_phase = 0.5
             self.l_off_phase_cmd = np.zeros(3)
             self.l_orn_phase_cmd = np.array([1, 0, 0, 0])
             _, _, self.r_off_phase_cmd, self.r_orn_phase_cmd, _ = self.get_observation_cmd(data)
-            # print(f"  Starting with RIGHT foot swing (phase=0.5)")
+            if self.debug:
+                print(f"  Starting with RIGHT foot swing (phase=0.5)")
         
         self.prev_phase = self.gait_phase
 
@@ -192,59 +196,15 @@ class PlanFollowingGaitGenerator:
         self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.max_vert, self.max_vert) 
         self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, 0)
         
-        # print(f"  Controller reset: l_idx={self.l_idx}, r_idx={self.r_idx}, phase={self.gait_phase}")
-        # print(f"  Initial commands: L={self.l_off_phase_cmd}, R={self.r_off_phase_cmd}")
+        if self.debug:
+            print(f"  Initial commands: L={self.l_off_phase_cmd}, R={self.r_off_phase_cmd}")
 
         self.gp_off = self.policy_dt * self.gait_freq
 
-    def reset_old(self, data):
-        """Reset the plan indices and gait phase."""
-        self.l_idx = 0
-        self.r_idx = 0
-        if self.target_yaw >= 0.0 and self.target_yaw <= np.pi:
-            self.gait_phase = 0.5
-            self.l_off_phase_cmd = np.zeros(3)
-            self.l_orn_phase_cmd = np.array([1, 0, 0, 0])
-            _, _, self.r_off_phase_cmd, self.r_orn_phase_cmd, _ = self.get_observation_cmd(data)
-        else:
-            self.gait_phase = 0.0
-            self.r_off_phase_cmd = np.zeros(3)
-            self.r_orn_phase_cmd = np.array([1, 0, 0, 0])
-            self.l_off_phase_cmd, self.l_orn_phase_cmd, _, _, _ = self.get_observation_cmd(data)
-        # self.gait_phase = 0.0
-        # self.r_off_phase_cmd = np.zeros(3)
-        # self.r_orn_phase_cmd = np.array([1, 0, 0, 0])
-        # self.l_off_phase_cmd, self.l_orn_phase_cmd, _, _, _ = self.get_observation_cmd(data)
-        self.prev_phase = self.gait_phase
-
-        # self.r_off_phase_cmd = np.zeros(3)
-        # self.r_orn_phase_cmd = np.array([1, 0, 0, 0])
-        
-        # Get the left foot target (it's the swing foot at phase 0)
-        # l_off, l_orn, _, _, _ = self.get_observation_cmd(data)
-        # self.l_off_phase_cmd = l_off
-        # self.l_orn_phase_cmd = l_orn
-        
-        # Clip left foot offset
-        self.l_off_phase_cmd[0] = np.clip(self.l_off_phase_cmd[0], -self.max_vert, self.max_vert) 
-        self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1], 0, self.feet_dist)
-        self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.max_vert, self.max_vert) 
-        self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, 0)
-        
-        # print(f"Controller reset: l_idx={self.l_idx}, r_idx={self.r_idx}, phase={self.gait_phase}")
-        # print(f"  Initial commands: L={self.l_off_phase_cmd}, R={self.r_off_phase_cmd}")
-
-        self.gp_off = self.policy_dt * self.gait_freq
-
-    def _check_foot_reached_target(self, foot_pos, target_pos, tolerance=0.2):  
+    def _check_foot_reached_target(self, foot_pos, target_pos):  
         """Check if foot is close enough to its target (X distance)"""
         dist = np.linalg.norm(foot_pos[0] - target_pos[0])
-        reached = dist <= tolerance
-        # Debug output
-        # if reached:
-        #     print(f"  Target reached! Distance: {dist:.3f}m")
-        # input(f"\n\n[DEBUG] dist={dist:.3f}\npos={foot_pos}\ntarget={target_pos} \n\n")
-        # print(f"\n\n[DEBUG] dist={dist:.3f}\npos={foot_pos}\ntarget={target_pos} \n\n")
+        reached = dist <= self.tolerance
         return reached
 
     def update(self, data):
@@ -266,7 +226,6 @@ class PlanFollowingGaitGenerator:
                 'error_2d': err_2d, 'error_3d': err_3d,
             })
             accum = sum(e['error_3d'] for e in self.placement_events)
-            # print(f"  [RIGHT foot, plan step {self.r_idx}] err_2d={err_2d:.3f}m  err_3d={err_3d:.3f}m  accum={accum:.3f}m")
 
             # Advance both indices when target is reached
             tar_z = self.right_plan[self.r_idx][2]
@@ -287,7 +246,6 @@ class PlanFollowingGaitGenerator:
             # clip values
             self.l_off_phase_cmd[0] = np.clip(self.l_off_phase_cmd[0], -self.max_vert, self.max_vert) 
             self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1], EPS, self.feet_dist)
-            # self.l_off_phase_cmd[2] = self.left_plan[self.l_idx][2] - self.right_plan[self.r_idx][2]
             self.l_off_phase_cmd[2] = self.left_plan[self.l_idx][2] - tar_z
         
         # switching phase from left swing foot to right
@@ -305,7 +263,6 @@ class PlanFollowingGaitGenerator:
                 'error_2d': err_2d, 'error_3d': err_3d,
             })
             accum = sum(e['error_3d'] for e in self.placement_events)
-            # print(f"  [LEFT  foot, plan step {self.l_idx}] err_2d={err_2d:.3f}m  err_3d={err_3d:.3f}m  accum={accum:.3f}m")
 
             # Advance both indices when target is reached
             tar_z = self.left_plan[self.l_idx][2]
@@ -350,77 +307,6 @@ class PlanFollowingGaitGenerator:
                 f"tgt={np.round(e['target'], 3)}  act={np.round(e['actual'], 3)}"
             )
         return "\n".join(lines)
-
-    def update_old(self, data):
-        self.prev_phase = self.gait_phase
-        self.gait_phase = (self.gait_phase + self.policy_dt * self.gait_freq) % 1.0
-        
-        # switching phase from right swing foot to left
-        if (self.prev_phase > 0.5 and self.gait_phase < 0.5):
-            if self.mode == "fast":
-                self.l_idx = min(self.r_idx + 1, len(self.left_plan) - 1)
-            else:
-                self.l_idx = min(self.l_idx + 1, len(self.left_plan) - 1)
-
-            # right foot is stance
-            self.r_off_phase_cmd = np.zeros(3)
-            self.r_orn_phase_cmd = np.array([1,0,0,0])
-
-            # computing offsets for the left foot
-            self.l_off_phase_cmd, self.l_orn_phase_cmd = self.get_observation_cmd(data)[:2]
-
-            # clip values into the allotted range
-            self.l_off_phase_cmd[0] = np.clip(self.l_off_phase_cmd[0], -self.max_vert, self.max_vert) 
-            self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1], EPS, self.feet_dist)
-            self.l_off_phase_cmd[2] = self.left_plan[self.l_idx][2]  - self.right_plan[self.r_idx][2]
-        
-        # switching phase from right swing foot to left
-        if (self.prev_phase <= 0.5 and self.gait_phase > 0.5):
-            if self.mode == "fast":
-                self.r_idx = min(self.l_idx + 1, len(self.right_plan) - 1)
-            else:
-                self.r_idx = min(self.r_idx + 1, len(self.right_plan) - 1)
-
-            # left foot is stance
-            self.l_off_phase_cmd = np.zeros(3)
-            self.l_orn_phase_cmd = np.array([1,0,0,0])
-
-            # computing the offsets for the right foot
-            self.r_off_phase_cmd, self.r_orn_phase_cmd = self.get_observation_cmd(data)[2:4]
-
-            # clip values into the allotted range
-            self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.max_vert, self.max_vert) 
-            self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, -EPS)
-            self.r_off_phase_cmd[2] = self.right_plan[self.r_idx][2]  - self.left_plan[self.l_idx][2]
-
-    def get_observation_cmd_old(self, data):
-        # get who is the stance foot
-        is_left_swing = (self.gait_phase < 0.5)
-        if is_left_swing:
-            stance_id = self.right_foot_id
-        else:
-            stance_id = self.left_foot_id
-
-        # get stance data
-        stance_pos = data.site_xpos[stance_id]
-        stance_mat = data.site_xmat[stance_id].reshape(3, 3)
-        stance_quat = np_R.from_matrix(stance_mat).as_quat(scalar_first=True) # wxyz
-        
-        # get offsets
-        if is_left_swing:
-            r_rel_pos = np.zeros(3)
-            r_rel_quat = np.array([1, 0, 0, 0])
-            l_rel_pos, l_rel_quat = self._to_stance_frame(self.left_plan[self.l_idx], self.target_quat, stance_pos, stance_mat, stance_quat)
-        else:
-            l_rel_pos = np.zeros(3)
-            l_rel_quat = np.array([1, 0, 0, 0])
-            r_rel_pos, r_rel_quat = self._to_stance_frame(self.right_plan[self.r_idx], self.target_quat, stance_pos, stance_mat, stance_quat)
-        
-        gait_info = np.array([np.cos(2 * np.pi * self.gait_phase), np.sin(2 * np.pi * self.gait_phase)])
-
-        # print(f"[DEBUG] get_obs_cmd - L_rel_pos: {l_rel_pos}, R_rel_pos: {r_rel_pos}, phase: {self.gait_phase}")
-        
-        return l_rel_pos, l_rel_quat, r_rel_pos, r_rel_quat, gait_info
     
     def get_observation_cmd(self, data):
         is_left_swing = (self.gait_phase < 0.5)
@@ -542,18 +428,12 @@ def detect_failure_mode(model, data, stair_prefix="stair_1", fall_height=0.3,
             continue
 
         robot_geom = g2 if g1_is_stair else g1
-        stair_geom = g1 if g1_is_stair else g2
         if robot_geom not in robot_geoms:
             continue  # only care about foot/calf contacts
 
-        # Print diagnostics to verify geom names and frame convention.
-        print(f"  [FAIL-MODE CONTACT] {robot_geom!r} <-> {stair_geom!r} "
-              f"| frame[:3]={c.frame[:3].round(3)}  frame[6]={c.frame[6]:.3f}")
-
-        # Check both possible frame conventions:
-        #   row-major first-row = normal → z-component is frame[2]
-        #   col-major first-col = normal → z-component is frame[6]
-        if abs(c.frame[2]) < 0.3 or abs(c.frame[6]) < 0.3:
+        # MuJoCo stores the contact frame row-major; the normal is the first *column*
+        # geometrically, so nz = frame[6].  A riser has a horizontal normal (nz ≈ 0).
+        if abs(c.frame[6]) < 0.3:
             return 'step_riser_contact'
 
     return 'balance'
@@ -577,6 +457,8 @@ def main(config: DictConfig):
     fallen = False
     riser_contact_times = []   # sim times (s) when a riser contact was detected
     mode = config["command"]["mode"]
+    tolerance = config["command"].get("tolerance", 0.1)
+    debug = config["command"].get("debug", False)
 
     xml_path = config["xml_path"]
     simulation_dt = config["simulation_dt"]
@@ -708,7 +590,7 @@ def main(config: DictConfig):
     gait_freq = float(config["command"]["gait_frequency"])
     planner_ctrl = PlanFollowingGaitGenerator(
         m, d, l_plan, r_plan, gait_freq, simulation_dt * control_decimation, max_vert=MAX_VERT, 
-        feet_dist=FEET_DIST, target_yaw=np.deg2rad(orientation_yaw)
+        feet_dist=FEET_DIST, target_yaw=np.deg2rad(orientation_yaw), tolerance=tolerance, debug=debug,
     )
 
     # PD Gains

@@ -1,20 +1,14 @@
-    
-# Configuration for deploying the H1 policy in a MuJoCo simulation.
-# Name: deploy_mujoco_config_h1_dfki.yaml
-# Updated with parameters and correct joint limits for a 23 DoF robot model.
+hydra:
+  job:
+    chdir: false
+
+# Configuration for deploying the Booster T1 policy in a MuJoCo simulation.
+# All paths are relative to the repository root.
 
 # policy parameters
-# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/kick.pkl # mov_local_no_still_coeff 
-# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete_2/kick_jnt_54.pkl # mov_local_no_still_coeff 
-# agent_path: /home/puze/Projects/accu_loco/policies/kick.pkl # mov_local_no_still_coeff 
-agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/steps_after_fix_2/nocv_d40_gh0_term25_w55.pkl # <---
-# agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete_2/gpgen_puze2.pkl # mov_local_no_still_coeff 
-# agent_path: /home/puze/Projects/accu_loco/policies/gpgen_puze.pkl # mov_local_no_still_coeff 
-# train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
-# train_config_name: conf.yaml
+agent_path: experiments/humanoid_foot_placement/policies/T1/t1_flat.pkl
 # --- Simulation Parameters ---
-xml_path: /Users/ale/code/PyProjects/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
-# xml_path: /home/puze/Projects/accu_loco/loco_mujoco/models/booster_t1/booster_t1_original.xml
+xml_path: loco_mujoco/models/booster_t1/booster_t1_original.xml
 simulation_duration: 300.0 # seconds
 simulation_dt: 0.002 # seconds, physics timestep
 control_decimation: 10 # policy will run every N physics steps (policy freq = 1 / (dt * decimation))

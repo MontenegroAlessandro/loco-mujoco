@@ -14,23 +14,9 @@ experiment:
     env_name: MjxBoosterT1
     horizon: 1000
 
-    # terrain_type: ParkourTerrain
-    # terrain_params: {
-    #   num_boxes: 15,
-    #   box_length_range: [0.2, 0.8],
-    #   box_width_range: [0.2, 0.8],
-    #   box_height_range: [0.05, 0.1],
-    #   box_x_range: [-2.5, 2.5],
-    #   box_y_range: [-2.5, 2.5],
-    #   box_yaw_range: [-180, 180],
-    #   inner_platform_size: 0.5,
-    #   feet_collision: ["left_foot_1_col", "left_foot_2_col", "right_foot_1_col", "right_foot_2_col"]
-    # }
-
-
     terminal_state_type: HeightBasedTerminalStateHandler
 
-    goal_type: GoalDoubleFootPlacement # GoalRandomChangingFootPlacement # GoalRandomFootPlacement
+    goal_type: GoalDoubleFootPlacement 
     goal_params:
       visualize_goal: true
       # Names of the foot sites from the booster_t1_dfki.xml file
@@ -38,11 +24,11 @@ experiment:
       right_foot_site_name: right_foot
       feet_distance: 0.15
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
+      xy_distance_range: [0.2, 0.5] 
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [-20, 20] # [-20, 20] # [20, 90] 
+      angle_range_deg: [-20, 20] 
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-10, 30] # [-20, 20] # [-30, 30]
+      yaw_range_deg: [-10, 30] 
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
@@ -50,11 +36,11 @@ experiment:
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
-      direction_range_deg: [-180, 180] # [-180, 180]
+      direction_range_deg: [-180, 180] 
       change_direction_range_deg: [0, 0]
       # feet direction range in deg
       track_movement_only: false
-      feet_direction_range_deg: [0,0] # [-180, 180]
+      feet_direction_range_deg: [0,0] 
       # still proportion
       still_proportion: 1.0
       still_feet_distance: 0.25
@@ -69,17 +55,17 @@ experiment:
 
     reward_type: CrispBoosterLocomotionFootPlacementReward
     reward_params:
-      goal_name: GoalDoubleFootPlacement # GoalRandomChangingFootPlacement 
+      goal_name: GoalDoubleFootPlacement 
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       survival: 0.25
       # feet tracking rewards
-      swing_pos_w: 4.0 # 4.0 # 1.0
-      swing_orn_w: 4.0 # 2.0 # 3.0 # 1.0
-      stance_pos_w: 4.0 # 1.0
-      stance_orn_w: 4.0 # 1.0
-      sharp_pos: 100.0 # 50 # 10
-      sharp_orn: 100.0 # 10
+      swing_pos_w: 4.0 
+      swing_orn_w: 4.0 
+      stance_pos_w: 4.0 
+      stance_orn_w: 4.0 
+      sharp_pos: 100.0 
+      sharp_orn: 100.0 
       stance_sharp_pos: 100.0
       stance_sharp_orn: 100.0 
       # gait
@@ -87,7 +73,7 @@ experiment:
       gait_height_coeff: 1.0
       # other tracking rewards
       tracking_nominal_joint_pos_exp: 4.0
-      tracking_nominal_joint_pos_coeff: 4 # 0.0
+      tracking_nominal_joint_pos_coeff: 4 
       tracking_nominal_joint_pos_names: 
         - AAHead_yaw
         - Head_pitch
@@ -473,7 +459,6 @@ experiment:
     num_envs: 100
     num: 10 # set to 0 to disable validation
   # parameter initialization
-  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/T1/cluster_ll.pkl
   resume_just_params: false
 
 robot_joints_to_consider:

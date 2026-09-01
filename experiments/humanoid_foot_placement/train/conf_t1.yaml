@@ -2,6 +2,10 @@ defaults:
   - override hydra/job_logging: default
   - _self_
 
+hydra:
+  job:
+    chdir: false
+
 wandb:
   project: "FP"
   # project: "FP - steps"
@@ -32,7 +36,6 @@ experiment:
       feet_collision: null
       remove_floor: null
 
-    # terminal_state_type: HeightAndStanceBasedTerminalStateHandler # HeightBasedTerminalStateHandler
     terminal_state_type: HeightBasedTerminalStateHandler
 
     goal_type: GoalDoubleFootPlacement
@@ -175,37 +178,6 @@ experiment:
       no_fly_coeff: 0
       impact_threshold: 150
       impact_coeff: 0
-      # NO PENALTIES
-      # joint_deviation_l1_coeff: 0.0
-      # base_height_target: 0.68
-      # base_height_coeff: 0.0
-      # orientation_coeff: 0.0
-      # joint_torque_coeff: 0.0
-      # torque_tiredness_coeff: 0.0
-      # energy_coeff: 0.0
-      # z_vel_coeff: 0.0
-      # roll_pitch_vel_coeff: 0.0
-      # joint_vel_coeff: 0.0
-      # joint_acc_coeff: 0.0
-      # root_acc_coeff: 0.0
-      # action_rate_coeff: 0.0
-      # joint_position_limit_scale: 0.98
-      # joint_position_limit_coeff: 0.0
-      # feet_slip_coeff: 0.0
-      # feet_yaw_diff_coeff: 0.0
-      # feet_yaw_mean_coeff: 0.0
-      # feet_roll_coeff: 0.0
-      # feet_distance_target: 0.0
-      # feet_swing_coeff: 6 # 3.
-      # feet_swing_period: 0.2
-      # feet_distance_coeff: 0.0
-      # # extra regularization / penalties
-      # low_gains_coeff: 0.0
-      # air_time_max: 0.0
-      # air_time_coeff: 0
-      # no_fly_coeff: 0
-      # impact_threshold: 150
-      # impact_coeff: 0
 
     actuation_spec:
       - AAHead_yaw

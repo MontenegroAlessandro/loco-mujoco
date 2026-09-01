@@ -2,6 +2,10 @@ defaults:
   - override hydra/job_logging: default
   - _self_
 
+hydra:
+  job:
+    chdir: false
+
 wandb:
   project: "Foot Placement"
   note: ""
@@ -14,15 +18,9 @@ experiment:
     env_name: MjxUnitreeG1
     horizon: 1000
 
-    # terrain_type: StonesHolesTerrain
-    # terrain_params: 
-    #   patch_size: 0.5
-    #   height_range: [-0.05, 0.05]
-    #   inner_platform_size_in_meters: 0.5
-
     terminal_state_type: HeightBasedTerminalStateHandler
 
-    goal_type: GoalDoubleFootPlacement # GoalRandomChangingFootPlacement # GoalRandomFootPlacement
+    goal_type: GoalDoubleFootPlacement 
     goal_params:
       visualize_goal: true
       # Names of the foot sites from the booster_t1_dfki.xml file
@@ -30,11 +28,11 @@ experiment:
       right_foot_site_name: right_foot
       feet_distance: 0.5
       # Range for the random step length [min, max] in meters
-      xy_distance_range: [0.2, 0.5] # [0.2, 0.5]
+      xy_distance_range: [0.2, 0.5] 
       # Range for omnidirectional step angle [-180, 180] for a full circle
-      angle_range_deg: [-90, 90] # [-20, 20] # [20, 90] 
+      angle_range_deg: [-90, 90]
       # Range for randomizing the target foot yaw relative to the body
-      yaw_range_deg: [-30, 30] # [-20, 20] # [-30, 30]
+      yaw_range_deg: [-30, 30] 
       # gait frequency target
       gait_frequency_range: [1.0, 1.0] 
       # gait height
@@ -42,11 +40,11 @@ experiment:
       # desired height to maintain
       goal_height: 0.68
       # direction range in deg
-      direction_range_deg: [-180, 180] # [-180, 180]
+      direction_range_deg: [-180, 180] 
       change_direction_range_deg: [0, 0]
       # feet direction range in deg
       track_movement_only: false
-      feet_direction_range_deg: [0,0] # [-180, 180]
+      feet_direction_range_deg: [0,0] 
       # still proportion
       still_proportion: 0.05
       # observation group
@@ -56,16 +54,16 @@ experiment:
 
     reward_type: CrispBoosterLocomotionFootPlacementReward
     reward_params:
-      goal_name: GoalDoubleFootPlacement # GoalRandomChangingFootPlacement 
+      goal_name: GoalDoubleFootPlacement  
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       # feet tracking rewards
-      swing_pos_w: 4.0 # 4.0 # 1.0
-      swing_orn_w: 4.0 # 2.0 # 3.0 # 1.0
-      stance_pos_w: 4.0 # 1.0
-      stance_orn_w: 4.0 # 1.0
-      sharp_pos: 100.0 # 50 # 10
-      sharp_orn: 100.0 # 10
+      swing_pos_w: 4.0 
+      swing_orn_w: 4.0 
+      stance_pos_w: 4.0 
+      stance_orn_w: 4.0 
+      sharp_pos: 100.0 
+      sharp_orn: 100.0 
       stance_sharp_pos: 100.0
       stance_sharp_orn: 100.0 
       # gait
@@ -495,9 +493,6 @@ experiment:
     num_steps: 100
     num_envs: 100
     num: 10 # set to 0 to disable validation
-  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/2025-11-04/18-05-53/PPOJax_saved.pkl
-  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/outputs/2025-11-06/17-18-40/PPOJax_saved.pkl
-  # resume_from_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/outputs/2025-11-19/10-59-31/PPOJax_saved.pkl
 
 robot_joints_to_consider:
   - left_hip_pitch_joint

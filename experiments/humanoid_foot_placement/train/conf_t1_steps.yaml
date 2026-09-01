@@ -2,6 +2,10 @@ defaults:
   - override hydra/job_logging: default
   - _self_
 
+hydra:
+  job:
+    chdir: false
+
 wandb:
   project: "Steps"
   note: ""
@@ -30,7 +34,7 @@ experiment:
 
     terminal_state_type: HeightBasedTerminalStateHandler
 
-    goal_type: GoalDoubleFootPlacement # GoalRandomChangingFootPlacement # GoalRandomFootPlacement
+    goal_type: GoalDoubleFootPlacement 
     goal_params:
       visualize_goal: true
       # Names of the foot sites from the booster_t1_dfki.xml file
@@ -66,17 +70,17 @@ experiment:
 
     reward_type: CrispBoosterLocomotionFootPlacementReward
     reward_params:
-      goal_name: GoalDoubleFootPlacement # GoalRandomChangingFootPlacement 
+      goal_name: GoalDoubleFootPlacement 
       left_foot_site_name: left_foot
       right_foot_site_name: right_foot
       survival: 0.25
       # feet tracking rewards
-      swing_pos_w: 4.0 # 4.0 # 1.0
-      swing_orn_w: 4.0 # 2.0 # 3.0 # 1.0
-      stance_pos_w: 4.0 # 1.0
-      stance_orn_w: 4.0 # 1.0
-      sharp_pos: 100.0 # 50 # 10
-      sharp_orn: 100.0 # 10
+      swing_pos_w: 4.0 
+      swing_orn_w: 4.0 
+      stance_pos_w: 4.0 
+      stance_orn_w: 4.0 
+      sharp_pos: 100.0 
+      sharp_orn: 100.0 
       stance_sharp_pos: 100.0
       stance_sharp_orn: 100.0 
       # gait
@@ -469,8 +473,7 @@ experiment:
     num_steps: 100
     num_envs: 100
     num: 10 # set to 0 to disable validation
-  # parameter initialization
-  resume_from_path: /home/alessandro/code/scripts/policies/T1/complete/still_fp_6.pkl 
+  resume_from_path: experiments/humanoid_foot_placement/policies/T1/t1_steps.pkl
   resume_just_params: true
 
 robot_joints_to_consider:

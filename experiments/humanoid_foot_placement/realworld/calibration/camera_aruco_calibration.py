@@ -671,7 +671,7 @@ if __name__ == "__main__":
         num_corner_threshold=8,
     )
 
-    # img = cv2.imread("/home/puze/Desktop/image.png")
+    # img = cv2.imread("path/to/image.png")
     if image is not None:
         detector.augment_image("test_cam", image, visualize=True, visual_type=["markers", "charuco", "axes"])
         cv2.waitKey(0)

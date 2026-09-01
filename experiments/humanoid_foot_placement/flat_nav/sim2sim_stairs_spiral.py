@@ -223,7 +223,7 @@ class SpiralPlanFollowingGaitGenerator:
     def __init__(
             self, model, data, left_plan, right_plan, target_yaws,
             gait_freq, policy_dt, max_vert: float = 0.4,
-            feet_dist: float = 0.2, mode: str = "fast"):
+            feet_dist: float = 0.2, mode: str = "fast", tolerance: float = 0.2,):
         self.model       = model
         self.data        = data
         self.left_plan   = left_plan
@@ -237,6 +237,7 @@ class SpiralPlanFollowingGaitGenerator:
         self.feet_dist  = feet_dist
         self.l_idx      = 0
         self.r_idx      = 0
+        self.tolerance    = tolerance
 
         assert mode in ["slow", "fast"]
         self.mode = mode
@@ -269,10 +270,6 @@ class SpiralPlanFollowingGaitGenerator:
         target_yaw = float(self.target_yaws[0])
         yaw_diff   = np.arctan2(np.sin(robot_yaw - target_yaw), np.cos(robot_yaw - target_yaw))
 
-        # print(f"  Robot yaw: {np.rad2deg(robot_yaw):.2f}°, "
-        #       f"Target yaw: {np.rad2deg(target_yaw):.2f}°, "
-        #       f"Diff: {np.rad2deg(yaw_diff):.2f}°")
-
         self._update_target_quat(0)
 
         if yaw_diff < 0:
@@ -286,15 +283,11 @@ class SpiralPlanFollowingGaitGenerator:
             self.l_off_phase_cmd = np.zeros(3)
             self.l_orn_phase_cmd = np.array([1, 0, 0, 0])
             _, _, self.r_off_phase_cmd, self.r_orn_phase_cmd, _ = self.get_observation_cmd(data)
-            # print("  Starting with RIGHT foot swing (phase=0.5)")
 
         self.prev_phase = self.gait_phase
         self._clip_cmds()
         self.gp_off = self.policy_dt * self.gait_freq
 
-        # print(f"  Controller reset: l_idx={self.l_idx}, r_idx={self.r_idx}, "
-        #       f"phase={self.gait_phase}")
-        # print(f"  Initial commands: L={self.l_off_phase_cmd}, R={self.r_off_phase_cmd}")
 
     # ------------------------------------------------------------------
     def _clip_cmds(self):
@@ -304,15 +297,11 @@ class SpiralPlanFollowingGaitGenerator:
         self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, 0)
 
     # ------------------------------------------------------------------
-    def _check_foot_reached_target(self, foot_pos, target_pos, tolerance=0.2):  
+    def _check_foot_reached_target(self, foot_pos, target_pos,):  
         """Check if foot is close enough to its target (XY distance)"""
         dist = np.linalg.norm(foot_pos[:2] - target_pos[:2])
-        reached = dist <= tolerance
-        # Debug output
-        # if reached:
-            # print(f"  Target reached! Distance: {dist:.3f}m")
-        # input(f"\n\n[DEBUG] dist={dist:.3f}\npos={foot_pos[0]}\ntarget={target_pos[0]} \n\n")
-        # print(f"\n\n[DEBUG] dist={dist:.3f}\npos={foot_pos}\ntarget={target_pos} \n\n")
+        reached = dist <= self.tolerance
+
         return reached
 
     def update(self, data):
@@ -384,45 +373,6 @@ class SpiralPlanFollowingGaitGenerator:
             self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, -EPS)
             self.r_off_phase_cmd[2] = (self.right_plan[self.r_idx][2] - tar_z)
         
-        # print(f"{self.l_idx}, {self.r_idx}")
-    
-    def update_old(self, data):
-        self.prev_phase = self.gait_phase
-        self.gait_phase = (self.gait_phase + self.policy_dt * self.gait_freq) % 1.0
-
-        # Right was swinging → left becomes swing
-        if self.prev_phase > 0.5 and self.gait_phase < 0.5:
-            if self.mode == "fast":
-                self.l_idx = min(self.r_idx + 1, len(self.left_plan) - 1)
-            else:
-                self.l_idx = min(self.l_idx + 1, len(self.left_plan) - 1)
-
-            self._update_target_quat(self.l_idx)
-
-            self.r_off_phase_cmd = np.zeros(3)
-            self.r_orn_phase_cmd = np.array([1, 0, 0, 0])
-            self.l_off_phase_cmd, self.l_orn_phase_cmd = self.get_observation_cmd(data)[:2]
-            self.l_off_phase_cmd[0] = np.clip(self.l_off_phase_cmd[0], -self.max_vert, self.max_vert)
-            self.l_off_phase_cmd[1] = np.clip(self.l_off_phase_cmd[1],  EPS,           self.feet_dist)
-            self.l_off_phase_cmd[2] = (self.left_plan[self.l_idx][2]
-                                       - self.right_plan[self.r_idx][2])
-
-        # Left was swinging → right becomes swing
-        if self.prev_phase <= 0.5 and self.gait_phase > 0.5:
-            if self.mode == "fast":
-                self.r_idx = min(self.l_idx + 1, len(self.right_plan) - 1)
-            else:
-                self.r_idx = min(self.r_idx + 1, len(self.right_plan) - 1)
-
-            self._update_target_quat(self.r_idx)
-
-            self.l_off_phase_cmd = np.zeros(3)
-            self.l_orn_phase_cmd = np.array([1, 0, 0, 0])
-            self.r_off_phase_cmd, self.r_orn_phase_cmd = self.get_observation_cmd(data)[2:4]
-            self.r_off_phase_cmd[0] = np.clip(self.r_off_phase_cmd[0], -self.max_vert, self.max_vert)
-            self.r_off_phase_cmd[1] = np.clip(self.r_off_phase_cmd[1], -self.feet_dist, -EPS)
-            self.r_off_phase_cmd[2] = (self.right_plan[self.r_idx][2]
-                                       - self.left_plan[self.l_idx][2])
 
     # ------------------------------------------------------------------
     def get_observation_cmd(self, data):
@@ -537,7 +487,7 @@ def main(config: DictConfig):
     FEET_DIST         = float(config["command"]["feet_distance"])
     MAX_VERT          = 0.4
     N_STEPS           = 8
-    ROTATION_PER_STEP = 10.0        # degrees per step; raise for tighter curve
+    ROTATION_PER_STEP = -10.0        # degrees per step; raise for tighter curve
     INITIAL_YAW_DEG   = 0.0         # first step faces +X
     FIRST_STEP_X      = 6 * STEP_LEN
     FIRST_STEP_Y      = 0.0
@@ -546,6 +496,7 @@ def main(config: DictConfig):
     N_PLATFORM_STEPS  = 3
     obs_dim           = 16
     mode              = config["command"].get("mode", "fast")
+    tolerance         = config["command"].get("tolerance", 0.1)
 
     xml_path           = config["xml_path"]
     simulation_dt      = config["simulation_dt"]
@@ -660,6 +611,7 @@ def main(config: DictConfig):
         max_vert=MAX_VERT,
         feet_dist=FEET_DIST,
         mode=mode,
+        tolerance=tolerance,
     )
 
     # ------------------------------------------------------------------ sim state

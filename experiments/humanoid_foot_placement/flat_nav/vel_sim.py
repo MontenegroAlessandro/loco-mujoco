@@ -122,9 +122,6 @@ if __name__ == "__main__":
 
     # Determine actual num_actions and observation size based on policy's environment config
     num_actions = base_num_actions
-    # if policy.agent_conf.config.experiment.env_params.control_params.varstiff:
-    #     num_actions *= 2
-    #     print(f"Variable stiffness detected. Action space size extended to {num_actions}.")
     
     # Calculate the total observation size for policy warmup and runtime
     # obs = [projected_gravity (3), qj (num_qj), base_ang_vel (3), dqj (num_qj), action (num_actions), cmd (6)]

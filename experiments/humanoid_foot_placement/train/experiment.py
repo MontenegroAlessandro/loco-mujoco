@@ -24,11 +24,8 @@ def experiment(config: DictConfig):
 
         os.environ['XLA_FLAGS'] = (
             '--xla_gpu_triton_gemm_any=True '
-            # '--xla_gpu_enable_cub_radix_sort=false '
-            # '--xla_gpu_deterministic_ops=true '
             '--xla_gpu_autotune_level=1 '
             '--xla_gpu_force_compilation_parallelism=1 '
-            # '--xla_gpu_disable_gpuasm_optimizations=true'
 
             )
         # Reduce JAX logging verbosity
@@ -52,11 +49,8 @@ def experiment(config: DictConfig):
                 key = override.split("=")[0].split(".")[-1]
                 str_overrides.append(f"{key}={value}")
         
-        # setup wandb
-        api_key = os.getenv("WANDB_KEY_ALE")
-        if api_key is None:
-            raise RuntimeError("WANDB_KEY_ALE is not set!")
-        wandb.login(key=api_key)
+        # setup wandb (uses the WANDB_API_KEY env var, or a cached `wandb login`)
+        wandb.login()
         config_dict = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
 
         # name the run as time stamp + overrides
@@ -104,49 +98,6 @@ def experiment(config: DictConfig):
         save_path = PPOJax.save_agent(result_dir, agent_conf, agent_state)
         run.config.update({"agent_save_path": save_path})
 
-        # import time
-        # t_start = time.time()
-        # # get the metrics and log them
-        # if not config.experiment.debug:
-        #     training_metrics = out["training_metrics"]
-        #     validation_metrics = out["validation_metrics"]
-
-        #     # calculate mean across seeds
-        #     training_metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), training_metrics)
-        #     validation_metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), validation_metrics)
-
-        #     for i in range(len(training_metrics.mean_episode_return)):
-        #         run.log({"Mean Episode Return": training_metrics.mean_episode_return[i],
-        #                  "Mean Episode Length": training_metrics.mean_episode_length[i]},
-        #                 step=int(training_metrics.max_timestep[i]))
-
-        #         if (i+1) % config.experiment.validation_interval == 0 and config.experiment.validation.active:
-        #             run.log({"Validation Info/Mean Episode Return": validation_metrics.mean_episode_return[i],
-        #                      "Validation Info/Mean Episode Length": validation_metrics.mean_episode_length[i]},
-        #                     step=int(training_metrics.max_timestep[i]))
-
-        #             # log all measures
-        #             metrics_to_log = {}
-        #             for field in fields(validation_metrics):
-        #                 attr = getattr(validation_metrics, field.name)
-        #                 if isinstance(attr, QuantityContainer):
-        #                     measure_name = field.name
-        #                     for field_attr in fields(attr):
-        #                         attr_name = field_attr.name
-        #                         attr_value = getattr(attr, attr_name)
-        #                         if attr_value.size > 0:
-        #                             metrics_to_log[f"Validation Measures/{measure_name}/{attr_name}"] = attr_value[i]
-
-        #             run.log(metrics_to_log, step=int(training_metrics.max_timestep[i]))
-
-        #             # metric for used for wandb sweep (optional)
-        #             site_rpos = validation_metrics.euclidean_distance.site_rpos[i]
-        #             site_rrotvec = validation_metrics.euclidean_distance.site_rpos[i]
-        #             site_rvel = validation_metrics.euclidean_distance.site_rpos[i]
-        #             run.log({"Metric for Sweep": site_rpos + site_rrotvec + site_rvel},
-        #                     step=int(training_metrics.max_timestep[i]))
-
-        # print(f"Time taken to log metrics: {time.time() - t_start}s")
 
         # run the environment with the trained agent to record video
         rec = os.getenv("RECORD_POLICY")

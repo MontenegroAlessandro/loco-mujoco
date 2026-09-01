@@ -31,9 +31,6 @@ def enable_auto_remove(GG, mov_dir):
     GG.teleop["mov_dir"] = mov_dir
 
 
-
-
-
 # -------------------------
 # Utils
 # -------------------------
@@ -189,26 +186,6 @@ def run_trial(config: DictConfig, policy: LMJPolicy, seed: int, trial_idx: int, 
         rgba=(1.0, 0.2, 0.2, 0.35),
     )
 
-    # # debug feet sites
-    # wb.add_site(
-    #     name="foot_0",
-    #     type=mujoco.mjtGeom.mjGEOM_BOX,
-    #     size=(0.1, 0.04, 0.001),
-    #     pos=(0.1, 0.0, 0.0),
-    #     quat=(0, 0, 0, 1),
-    #     group=1,
-    #     rgba=(1.0, 0.5, 0.0, 0.5),
-    # )
-    # wb.add_site(
-    #     name="foot_1",
-    #     type=mujoco.mjtGeom.mjGEOM_BOX,
-    #     size=(0.1, 0.04, 0.001),
-    #     pos=(0.1, 0.0, 0.0),
-    #     quat=(0, 0, 0, 1),
-    #     group=1,
-    #     rgba=(1.0, 1.0, 0.0, 0.5),
-    # )
-
     # delete all *_col
     for geom in spec.geoms:
         if geom.name.endswith("_col"):
@@ -359,9 +336,6 @@ def run_trial(config: DictConfig, policy: LMJPolicy, seed: int, trial_idx: int, 
                 rot_cmd = np_R.from_quat(cmd_quat)
                 target_rot = rot_stance_flat * rot_cmd
 
-                # m.site("foot_1").pos = d.site_xpos[right_foot_id] + rot_stance_flat.apply(l_offset)
-                # m.site("foot_1").pos[2] = 0.0
-                # m.site("foot_1").quat = target_rot.as_quat(scalar_first=True)
             else:
                 rot_stance = np_R.from_matrix(d.site("left_foot").xmat.reshape(3, 3))
                 stance_yaw = rot_stance.as_euler("xyz")[2]
@@ -371,9 +345,6 @@ def run_trial(config: DictConfig, policy: LMJPolicy, seed: int, trial_idx: int, 
                 rot_cmd = np_R.from_quat(cmd_quat)
                 target_rot = rot_stance_flat * rot_cmd
 
-                # m.site("foot_0").pos = d.site_xpos[left_foot_id] + rot_stance_flat.apply(r_offset)
-                # m.site("foot_0").pos[2] = 0.0
-                # m.site("foot_0").quat = target_rot.as_quat(scalar_first=True)
 
             mujoco.mj_fwdPosition(m, d)
 

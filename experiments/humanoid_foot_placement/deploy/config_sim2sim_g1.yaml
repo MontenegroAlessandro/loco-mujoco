@@ -1,14 +1,16 @@
-    
-# Configuration for deploying the H1 policy in a MuJoCo simulation.
-# Name: deploy_mujoco_config_h1_dfki.yaml
-# Updated with parameters and correct joint limits for a 23 DoF robot model.
+hydra:
+  job:
+    chdir: false
+
+# Configuration for deploying the Unitree G1 policy in a MuJoCo simulation.
+# All paths are relative to the repository root.
 
 # policy parameters
-agent_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/policies/G1/puze.pkl 
-train_config_path: /home/alessandro/code/loco-mujoco/experiments/humanoid_foot_placement/train/
+agent_path: experiments/humanoid_foot_placement/policies/G1/g1_flat.pkl
+train_config_path: experiments/humanoid_foot_placement/train/
 train_config_name: conf_g1.yaml
 # --- Simulation Parameters ---
-xml_path: /home/alessandro/code/loco-mujoco/loco_mujoco/models/unitree_g1/g1_29dof_original.xml
+xml_path: loco_mujoco/models/unitree_g1/g1_29dof_original.xml
 simulation_duration: 300.0 # seconds
 simulation_dt: 0.002 # seconds, physics timestep
 control_decimation: 10 # policy will run every N physics steps (policy freq = 1 / (dt * decimation))

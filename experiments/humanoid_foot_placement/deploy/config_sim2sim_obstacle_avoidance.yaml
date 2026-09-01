@@ -1,16 +1,17 @@
+hydra:
+  job:
+    chdir: false
+
 # config_sim2sim_cones_arena.yaml
-# Based on deploy_mujoco_config_h1_dfki.yaml + fixed arena with cones
+# Fixed arena with cones for obstacle-avoidance sim2sim rollouts.
 
 seed: 0
 
 # policy parameters
-#agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/complete/kick.pkl
-agent_path: /home/shihaoli/loco-mujoco/experiments/humanoid_foot_placement/policies/kick2.pkl
-#agent_path: /home/shihaoli/loco-mujoco/experiments/humanoid_foot_placement/policies/gpgen_puze2.pkl
+agent_path: experiments/humanoid_foot_placement/policies/T1/t1_flat.pkl
 
 # --- Simulation Parameters ---
-#xml_path: /Users/ale/code/PyProjects/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
-xml_path: /home/shihaoli/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
+xml_path: loco_mujoco/models/booster_t1/booster_t1_original.xml
 
 simulation_duration: 50.0 # seconds
 simulation_dt: 0.002

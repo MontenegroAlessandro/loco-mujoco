@@ -1,10 +1,13 @@
-# Configuration for deploying the H1 policy in a MuJoCo simulation.
-# Name: deploy_mujoco_config_h1_dfki.yaml
-# Updated with parameters and correct joint limits for a 23 DoF robot model.
+hydra:
+  job:
+    chdir: false
+
+# Configuration for deploying the Booster T1 velocity-tracking policy in a
+# MuJoCo simulation. All paths are relative to the repository root.
 
 # --- Simulation Parameters ---
-xml_path: /Users/ale/code/PyProjects/loco-mujoco/loco_mujoco/models/booster_t1/booster_t1_original.xml
-agent_path: /Users/ale/code/PyProjects/scripts/policies/T1/velocity/booster_2309.pkl # <---
+xml_path: loco_mujoco/models/booster_t1/booster_t1_original.xml
+agent_path: experiments/humanoid_foot_placement/policies/T1/t1_flat_velocity.pkl
 simulation_duration: 300.0 # seconds
 simulation_dt: 0.002 # seconds, physics timestep
 control_decimation: 10 # policy will run every N physics steps (policy freq = 1 / (dt * decimation))
@@ -151,14 +154,6 @@ init_state_params:
               0,
               -0.2, 0, 0, 0.4, -0.25, 0,
               -0.2, 0, 0, 0.4, -0.25, 0]
-  # qpos_init: [0, 0, 0.663, 
-  #           1, 0, 0, 0, 
-  #           0, 0,
-  #           0.2,-1.2, 0, -0.5,
-  #           0.2, 1.2, 0, 0.5,
-  #           0,
-  #           -0.2, 0, 0, 0.5, -0.25, 0,
-  #           -0.2, 0, 0, 0.5, -0.25, 0]
   qvel_init: [0, 0, 0, 
               0, 0, 0, 
               0, 0, 

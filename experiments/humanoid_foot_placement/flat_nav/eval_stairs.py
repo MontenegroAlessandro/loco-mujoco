@@ -60,9 +60,16 @@ class StairEvaluator:
         distance = np.linalg.norm(robot_pos[:2] - goal_pos[:2])  # XY distance only
         return distance < threshold
     
-    def check_fallen(self, d, current_height=0, min_rel_height=0.3):
+    def check_fallen(self, d, current_height=0, min_rel_height=0.1, max_tilt_cos=0.5):
         base_pos = d.qpos[:3].copy()
-        return (base_pos[2] - current_height) < min_rel_height
+        height_fallen = (base_pos[2] - current_height) < min_rel_height
+        # Orientation check: gravity projected into body frame has z ≈ -1 when upright.
+        # If z > -max_tilt_cos the robot is tilted more than arccos(max_tilt_cos) ≈ 60°.
+        # quat = d.qpos[3:7]
+        # proj_gravity = quat_rotate_inverse(quat, np.array([0.0, 0.0, -1.0]))
+        # orientation_fallen = proj_gravity[2] > -max_tilt_cos
+        # return height_fallen or orientation_fallen
+        return height_fallen
     
     def calculate_completion(self, robot_pos, start_pos, goal_pos):
         """Calculate what percentage of the path was completed"""
@@ -87,6 +94,7 @@ class StairEvaluator:
         PLATFORM_LENGTH = STEP_LEN * 4
         FEET_DIST = float(self.config["command"]["feet_distance"])
         MAX_VERT = 0.4
+        tolerance = self.config["command"].get("tolerance", 0.15)
         
         xml_path = self.config["xml_path"]
         simulation_dt = self.config["simulation_dt"]
@@ -209,8 +217,10 @@ class StairEvaluator:
         
         # Controller setup
         gait_freq = float(self.config["command"]["gait_frequency"])
-        planner_ctrl = PlanFollowingGaitGenerator(m, d, l_plan, r_plan, gait_freq, 
-                                                  simulation_dt * control_decimation, max_vert=MAX_VERT, feet_dist=FEET_DIST, target_yaw=orientation_yaw)
+        planner_ctrl = PlanFollowingGaitGenerator(
+            m, d, l_plan, r_plan, gait_freq, 
+            simulation_dt * control_decimation, max_vert=MAX_VERT, feet_dist=FEET_DIST, 
+            target_yaw=np.deg2rad(orientation_yaw), tolerance=tolerance)
         
         target_dof_pos = default_angles.copy()
         action = np.zeros(num_actions, dtype=np.float32)
@@ -240,13 +250,14 @@ class StairEvaluator:
                     break
                 
                 # Check if fallen
-                current_world_height = max(
-                    planner_ctrl.left_plan[planner_ctrl.l_idx, 2],
-                    planner_ctrl.right_plan[planner_ctrl.r_idx, 2]
-                )
-                if self.check_fallen(d=d, current_height=current_world_height):
+                if planner_ctrl.gait_phase >= 0.5: # left swings, right is stance
+                    current_world_height = planner_ctrl.left_plan[planner_ctrl.l_idx, 2]
+                else:
+                    current_world_height = planner_ctrl.right_plan[planner_ctrl.r_idx, 2]
+                if self.check_fallen(d=d, current_height=current_world_height, min_rel_height=0.15):
                     fell = True
-                    failure_mode = detect_failure_mode(m, d, fall_height=float('inf'))
+                    failure_mode = detect_failure_mode(m, d, fall_height=float('inf'),
+                                                      current_world_height=current_world_height)
                     # time lookback
                     RISER_LOOKBACK = 1.5  
                     if failure_mode == 'balance' and riser_contact_times:
@@ -285,7 +296,7 @@ class StairEvaluator:
                         continue
                     robot_geom = g2 if g1_stair else g1
                     in_foot_set = robot_geom in FOOT_AND_CALF_GEOMS
-                    if in_foot_set and (abs(c.frame[2]) < 0.3 or abs(c.frame[6]) < 0.3):
+                    if in_foot_set and abs(c.frame[6]) < 0.3:
                         riser_contact_times.append(d.time)
                         # print(f"  --> RISER CONTACT at t={d.time:.2f}s")
                         break
@@ -542,11 +553,11 @@ def main(config: DictConfig):
         0.125,
         0.13,
     ]  
-    NUM_TRIALS = 100  
+    NUM_TRIALS = [100][0]
     MAX_TIME = 30.0  
     HEADLESS = True  
     OUTPUT_FILE = "fwd_stair_evaluation_results_z.json"
-    RECORD_VIDEO = False
+    RECORD_VIDEO = [True, False][1]
     
     # Orientation randomization settings
     RANDOMIZE_ORIENTATION = True  # Set to True to enable randomization
