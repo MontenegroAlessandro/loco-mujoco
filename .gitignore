@@ -26,3 +26,4 @@ loco_mujoco/LOCOMUJOCO_VARIABLES.yaml
 **/video2images.sh
 **/expert_traj.npz
 **.pkl
+!experiments/humanoid_foot_placement/policies/**/*.pkl
