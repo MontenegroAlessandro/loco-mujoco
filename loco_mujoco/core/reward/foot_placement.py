@@ -463,30 +463,13 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
                 return (angle + backend.pi) % (2 * backend.pi) - backend.pi
             swing_orn_error = backend.square(_wrap_to_pi(swing_target_orn - swing_curr_orn))
             stance_orn_error = backend.square(_wrap_to_pi(stance_target_orn - stance_curr_orn))
-            
-            # if we are in the right phase (gait_process >= 0.5) we remove 0.5
-            # the quantity we consider is always in 2 * [0, 0.5]
-            # gait_sharpness = 2 * (gait_process - backend.where(gait_process > 0.5, 0.5, 0))
-            # still_coeff = jax.lax.select(hold_still, 0.0, 1.0)
-            """NOTE: if hold still condition is met, then we say the agent not to move"""
 
-            # NOTE: adaptive sharpness is just for the swing targets
-            # swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq * gait_sharpness) * still_coeff
-            # stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq) * still_coeff 
-            # swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq * gait_sharpness * still_coeff)
-            # stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq * still_coeff)
             swing_pos_reward = self._tracking_swing_pos_w * backend.exp(-self._tracking_swing_pos_sharp * swing_pos_error_sq)
-            # stance_pos_reward = self._tracking_stance_pos_w * backend.exp(-self._tracking_stance_pos_sharp * stance_pos_error_sq)
             stance_pos_reward = reward_state.stance_pos_reward
 
-            # swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * swing_orn_error * gait_sharpness) * still_coeff 
-            # stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error) * still_coeff 
             swing_orn_reward = self._tracking_swing_orn_w * backend.exp(-self._tracking_swing_orn_sharp * swing_orn_error)
-            # stance_orn_reward = self._tracking_stance_orn_w * backend.exp(-self._tracking_stance_orn_sharp * stance_orn_error)
             stance_orn_reward = reward_state.stance_orn_reward
             
-            # swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq * gait_sharpness) * still_coeff
-            # swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq * gait_sharpness * still_coeff)
             swing_z_reward = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq)
             swing_z_reward_plain = self._tracking_swing_z_coeff * backend.exp(-self._tracking_swing_z_sharp * swing_z_error_sq_plain)
             stance_z_reward = reward_state.stance_z_reward
@@ -500,7 +483,6 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             knee_sharp = self._knee_lift_sharp # * adaptive_knee_sharpness
             # NOTE: the sharpness is as desired if in the first half of the gait, thnme it linearly decreases to 0
             knee_lift_reward = self._knee_lift_coeff * backend.exp(-knee_sharp * backend.square(knee_z_error))
-            # TODO: adaptive gait?
             
             # update in the state the last reward
             reward_state = reward_state.replace(
@@ -710,8 +692,6 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         feet_slip_reward = (
             backend.square(left_foot_vel[:3] * feet_on_ground[0]) + 
             backend.square(right_foot_vel[:3] * feet_on_ground[1]) 
-            # backend.square(left_foot_vel_ang[:3] * feet_on_ground[0]) + 
-            # backend.square(right_foot_vel_ang[:3] * feet_on_ground[1])
         ).sum()
 
         # Feet yaw difference reward
@@ -751,9 +731,6 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         feet_roll_reward = backend.square(left_foot_roll) + backend.square(right_foot_roll)
 
         # Feet distance reward
-        # left_foot_pos = data.site_xpos[self._left_foot_site_id]
-        # right_foot_pos = data.site_xpos[self._right_foot_site_id]
-        
         feet_distance = (
             backend.cos(base_yaw) * (left_foot_pos[1] - right_foot_pos[1]) -
             backend.sin(base_yaw) * (left_foot_pos[0] - right_foot_pos[0])
@@ -802,7 +779,6 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
                 backend.astype(hold_still & (feet_on_ground[0] & feet_on_ground[1]), backend.float32)
             )
             
-            # desired_gait_height = env._terrain.get_height_at_xy(carry.terrain_state, stance_foot_pos[:2], backend) + goal_state.gait_height
             clipped_gp = gait_process - backend.where(gait_process >= 0.5, 0.5, 0.0) # gp in [0, 0.5]
             desired_gait_height_ada_sharp = jax.lax.select(clipped_gp < 0.25, 4 * clipped_gp, - 4 * clipped_gp + 2)
             desired_gait_height = swing_target_pos[2] + goal_state.gait_height
@@ -824,15 +800,6 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
         # =================================================ADAPTIVE GP=================================================
         if self._goal_name in ["GoalDoubleFootPlacement"]:
             # the gait process is already updated by the goal state
-            is_left_swing = (swing_foot_idx == 0)
-            is_left_about_to_stance = (gait_process < 0.5) & (gait_process > (0.25 + self._feet_swing_period * 0.5))
-            is_right_about_to_stance = (gait_process >= 0.5) & (gait_process > (0.75 + self._feet_swing_period * 0.5))
-            # gen_gp_reward = (is_left_swing & is_left_about_to_stance & feet_on_ground[0] & (next_gait_process >= 0.5)).astype(backend.float32) + \
-            #                 (~is_left_swing & is_right_about_to_stance & feet_on_ground[1] & (next_gait_process < 0.5)).astype(backend.float32) + \
-            #                 (is_left_swing & ~is_left_about_to_stance & (next_gait_process < 0.5)).astype(backend.float32) + \
-            #                 (~is_left_swing & ~is_right_about_to_stance & (next_gait_process >= 0.5)).astype(backend.float32)
-            # gen_gp_reward = (is_left_swing & feet_on_ground[0] & (next_gait_process >= 0.5)).astype(backend.float32) + \
-            #                 (~is_left_swing & feet_on_ground[1] & (next_gait_process < 0.5)).astype(backend.float32)
             gp_off = getattr(carry.control_func_state, "gait_phase_offset", 0.0)
             gp_error = jax.lax.cond(
                 is_gp_adaptive,
@@ -844,7 +811,6 @@ class CrispBoosterLocomotionFootPlacementReward(Reward):
             gen_gp_reward = 0.0
 
         # Nominal joint position rewards
-        # joint_qpos_coeff = jax.lax.cond(hold_still, lambda: 2 * self._nominal_joint_pos_coeff, lambda: self._nominal_joint_pos_coeff)
         joint_qpos_coeff = self._nominal_joint_pos_coeff
         if backend == jnp:
             # Compute both rewards (all joints and nominal joints)
